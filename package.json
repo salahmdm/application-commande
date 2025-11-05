@@ -1,0 +1,40 @@
+{
+  "name": "blossom-cafe-frontend",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "backend": "node database/admin-api.js",
+    "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\""
+  },
+  "dependencies": {
+    "lucide-react": "^0.294.0",
+    "pdfmake": "^0.2.20",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-grid-layout": "^1.5.2",
+    "react-resizable": "^3.0.5",
+    "recharts": "^3.2.1",
+    "socket.io-client": "^4.8.1",
+    "sortablejs": "^1.15.6",
+    "zustand": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.53.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.4",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "vite": "^5.0.0"
+  }
+}

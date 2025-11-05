@@ -1,0 +1,15 @@
+Produit,Catégorie,Prix
+"Cappuccino","Boissons Chaudes",3.50
+"Espresso","Boissons Chaudes",2.50
+"Latte","Boissons Chaudes",4.00
+"Thé Vert","Boissons Chaudes",3.00
+"Jus d'Orange","Boissons Froides",4.50
+"Coca-Cola","Boissons Froides",3.00
+"Eau Minérale","Boissons Froides",2.00
+"Sandwich Jambon","Délices Salés",8.50
+"Salade César","Délices Salés",9.00
+"Quiche Lorraine","Délices Salés",7.50
+"Tarte aux Fraises","Délices Sucrés",5.50
+"Éclair au Chocolat","Délices Sucrés",4.00
+"Macaron Vanille","Délices Sucrés",2.50
+"Pain au Chocolat","Délices Sucrés",1.80

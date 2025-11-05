@@ -1,0 +1,75 @@
+# Fichiers sensibles - SÉCURITÉ
+.env
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Logs de sécurité
+logs/
+*.log
+security.log
+access.log
+error.log
+
+# Base de données
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads utilisateurs
+public/uploads/
+uploads/
+
+# Dossiers temporaires
+tmp/
+temp/
+.tmp/
+
+# Fichiers de sauvegarde
+*.bak
+*.backup
+*.old
+
+# Fichiers de configuration sensibles
+config/production.js
+config/secrets.js
+
+# Certificats SSL
+ssl/
+certs/
+*.crt
+*.csr
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/

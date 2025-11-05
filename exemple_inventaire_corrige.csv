@@ -1,0 +1,22 @@
+Nom,Catégorie,Quantité,Prix,Qté Min
+"Cappuccino","Boissons Chaudes",50,4.50,10
+"Espresso","Boissons Chaudes",75,3.00,15
+"Latte","Boissons Chaudes",40,4.80,10
+"Thé Vert","Boissons Chaudes",60,3.50,12
+"Chocolat Chaud","Boissons Chaudes",35,4.20,8
+"Coca-Cola","Boissons Froides",100,2.50,20
+"Orangina","Boissons Froides",80,2.80,15
+"Jus d'Orange","Boissons Froides",45,3.20,10
+"Eau Minérale","Boissons Froides",120,1.50,25
+"Limonade","Boissons Froides",55,2.90,12
+"Croissant","Délices Salés",40,1.80,10
+"Pain au Chocolat","Délices Salés",35,2.00,10
+"Sandwich Jambon-Beurre","Délices Salés",25,4.50,5
+"Quiche Lorraine","Délices Salés",15,5.20,3
+"Croque-Monsieur","Délices Salés",20,5.50,5
+"Éclair au Chocolat","Délices Sucrés",30,3.50,8
+"Tarte aux Fraises","Délices Sucrés",12,4.80,3
+"Macaron Assortiment","Délices Sucrés",50,2.50,10
+"Mille-Feuille","Délices Sucrés",18,4.20,5
+"Tiramisu","Délices Sucrés",15,5.00,4
+

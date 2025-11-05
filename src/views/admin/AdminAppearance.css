@@ -1,0 +1,407 @@
+/* Animations pour le drag-and-drop des catégories */
+
+/* Animation de l'élément pendant le drag */
+.category-item {
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.category-item:hover {
+  transform: translateX(2px);
+}
+
+/* Élément en cours de drag - très visible */
+.category-dragging {
+  opacity: 0.4 !important;
+  transform: scale(0.95) rotate(3deg);
+  box-shadow: 0 0 0 3px #3b82f6, 0 10px 40px rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6 !important;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%) !important;
+  cursor: grabbing !important;
+  z-index: 1000;
+  position: relative;
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: scale(0.95) rotate(3deg); }
+  25% { transform: scale(0.95) rotate(-2deg); }
+  75% { transform: scale(0.95) rotate(4deg); }
+}
+
+/* Zone de drop - indicateur visuel clair */
+.category-drag-over {
+  border-color: #10b981 !important;
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%) !important;
+  transform: scale(1.03) translateX(5px);
+  box-shadow: 0 0 0 3px #10b981, 0 8px 30px rgba(16, 185, 129, 0.3), inset 0 0 30px rgba(16, 185, 129, 0.2);
+  z-index: 10;
+  position: relative;
+  animation: glow-drop 1s ease-in-out infinite;
+}
+
+@keyframes glow-drop {
+  0%, 100% {
+    box-shadow: 0 0 0 3px #10b981, 0 8px 30px rgba(16, 185, 129, 0.3), inset 0 0 30px rgba(16, 185, 129, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 5px #10b981, 0 12px 40px rgba(16, 185, 129, 0.5), inset 0 0 40px rgba(16, 185, 129, 0.3);
+  }
+}
+
+/* Indicateur de position de drop - ligne verte pulsante */
+.category-drag-over::before {
+  content: '⬇️ DÉPOSER ICI';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, #10b981, #059669);
+  color: white;
+  padding: 2px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: bold;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.5);
+  animation: bounce-indicator 0.6s ease-in-out infinite;
+  z-index: 20;
+}
+
+@keyframes bounce-indicator {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+}
+
+/* Ligne indicatrice en haut */
+.category-drag-over::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, transparent, #10b981 20%, #10b981 80%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 15px #10b981;
+  animation: pulse-line 1s infinite;
+}
+
+@keyframes pulse-line {
+  0%, 100% {
+    opacity: 1;
+    height: 6px;
+  }
+  50% {
+    opacity: 0.7;
+    height: 8px;
+  }
+}
+
+/* Animation du handle de grip */
+.drag-handle {
+  transition: all 0.2s ease;
+}
+
+.drag-handle:hover {
+  transform: scale(1.1);
+}
+
+.drag-handle:active {
+  transform: scale(0.95);
+}
+
+/* Animation des boutons flèches - Plus visibles */
+.arrow-button {
+  transition: all 0.2s ease;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.arrow-button:hover:not(:disabled) {
+  transform: scale(1.1) translateY(-2px);
+  box-shadow: 0 6px 12px rgba(59, 130, 246, 0.3);
+}
+
+.arrow-button:active:not(:disabled) {
+  transform: scale(0.95);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+/* Effet de pulsation pour attirer l'attention */
+.arrow-button:not(:disabled) {
+  animation: pulse-arrow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-arrow {
+  0%, 100% {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.2);
+  }
+}
+
+/* Badge de classement avec effet */
+.ranking-panel {
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  border: 2px solid #d1d5db;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.ranking-panel:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateX(-2px);
+}
+
+/* Indicateur visuel pour le panneau de classement */
+.ranking-panel::before {
+  content: '📊';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #1e40af, #3b82f6);
+  color: white;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.ranking-panel:hover::before {
+  opacity: 1;
+}
+
+/* Barre de séparation avec effet */
+.separator-bar {
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, #d1d5db 20%, #d1d5db 80%, transparent);
+  position: relative;
+  animation: separator-glow 3s ease-in-out infinite;
+}
+
+@keyframes separator-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(209, 213, 219, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(209, 213, 219, 0.5);
+  }
+}
+
+/* Badge du numéro d'ordre */
+.order-badge {
+  transition: all 0.3s ease;
+  animation: pulse-subtle 2s infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Animation d'apparition */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.category-item {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.category-item:nth-child(1) { animation-delay: 0.05s; }
+.category-item:nth-child(2) { animation-delay: 0.1s; }
+.category-item:nth-child(3) { animation-delay: 0.15s; }
+.category-item:nth-child(4) { animation-delay: 0.2s; }
+.category-item:nth-child(5) { animation-delay: 0.25s; }
+.category-item:nth-child(n+6) { animation-delay: 0.3s; }
+
+/* Indicateur de drop zone */
+.drop-indicator {
+  position: relative;
+}
+
+.drop-indicator::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.drop-indicator.active::before {
+  opacity: 1;
+}
+
+/* Style pour le curseur pendant le drag */
+.dragging-cursor * {
+  cursor: grabbing !important;
+}
+
+/* Amélioration visuelle du grip */
+.grip-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grip-dots::before,
+.grip-dots::after {
+  content: '⋮';
+  font-size: 18px;
+  line-height: 1;
+  color: currentColor;
+}
+
+/* ============================================
+   BANDEAUX PLUS LARGES
+   ============================================ */
+
+/* Rendre les bandeaux plus larges sur tous les écrans */
+.category-item {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* Réduire les marges du conteneur principal */
+.space-y-5 > * + * {
+  margin-top: 1.25rem;
+}
+
+/* ============================================
+   STYLES MOBILE OPTIMISÉS
+   ============================================ */
+
+/* Zone tactile élargie pour mobile */
+@media (max-width: 768px) {
+  /* Augmenter la zone de tap pour les boutons */
+  .arrow-button {
+    min-width: 44px;
+    min-height: 44px;
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+  }
+
+  /* Bannière mobile compacte et plus large */
+  .category-item {
+    padding: 8px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Réduire l'animation pulse sur mobile (économie batterie) */
+  .arrow-button:not(:disabled) {
+    animation: none;
+  }
+
+  /* Feedback visuel au tap */
+  .arrow-button:active:not(:disabled) {
+    transform: scale(0.9);
+    background: #3b82f6 !important;
+    color: white !important;
+  }
+
+  /* Optimiser le touch */
+  .category-item {
+    touch-action: pan-y;
+  }
+
+  /* Badge plus compact sur mobile */
+  .order-badge {
+    font-size: 0.9rem;
+  }
+
+  /* Réduire les ombres sur mobile (performance) */
+  .ranking-panel,
+  .arrow-button {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  /* Désactiver hover effects sur mobile */
+  .ranking-panel:hover::before {
+    opacity: 0;
+  }
+
+  /* Éviter le débordement horizontal et maximiser la largeur */
+  .category-item {
+    max-width: 100vw;
+    overflow-x: hidden;
+    width: 100% !important;
+  }
+
+  /* Réduire les marges du conteneur sur mobile */
+  .space-y-5 {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+}
+
+/* Tablette (entre mobile et desktop) */
+@media (min-width: 640px) and (max-width: 768px) {
+  /* Augmenter légèrement les boutons sur tablette */
+  .arrow-button {
+    padding: 10px;
+  }
+}
+
+/* Très petits écrans (< 375px) */
+@media (max-width: 374px) {
+  /* Réduire encore plus sur très petits écrans */
+  .arrow-button {
+    padding: 6px;
+  }
+
+  .arrow-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Badge plus petit */
+  .order-badge {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 0.8rem !important;
+  }
+}
+
+/* Mode paysage mobile */
+@media (max-width: 896px) and (orientation: landscape) {
+  /* Réduire les espacements verticaux en mode paysage */
+  .space-y-2 > * + * {
+    margin-top: 8px !important;
+  }
+
+  /* Compacter l'interface */
+  .p-3 {
+    padding: 8px !important;
+  }
+}
+

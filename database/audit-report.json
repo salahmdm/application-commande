@@ -1,0 +1,486 @@
+{
+  "generatedAt": "2025-11-03T08:25:49.972Z",
+  "totalTables": 18,
+  "usedTables": 10,
+  "unusedTables": 8,
+  "details": [
+    {
+      "name": "app_settings",
+      "rowCount": 3,
+      "columns": 7,
+      "usedInCode": true,
+      "occurrences": 4,
+      "sampleLines": [
+        {
+          "line": 1186,
+          "content": "const [settings] = await pool.query('SELECT * FROM app_settings ORDER BY setting_key');"
+        },
+        {
+          "line": 1198,
+          "content": "const [settings] = await pool.query('SELECT * FROM app_settings WHERE setting_key = ?', [key]);"
+        },
+        {
+          "line": 1239,
+          "content": "'UPDATE app_settings SET setting_value = ? WHERE setting_key = ?',"
+        },
+        {
+          "line": 1247,
+          "content": "'SELECT setting_value FROM app_settings WHERE setting_key = ?',"
+        }
+      ]
+    },
+    {
+      "name": "audit_logs",
+      "rowCount": 0,
+      "columns": 10,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "categories",
+      "rowCount": 4,
+      "columns": 9,
+      "usedInCode": true,
+      "occurrences": 22,
+      "sampleLines": [
+        {
+          "line": 177,
+          "content": "LEFT JOIN categories c ON p.category_id = c.id"
+        },
+        {
+          "line": 195,
+          "content": "app.get('/api/categories', async (req, res) => {"
+        },
+        {
+          "line": 197,
+          "content": "console.log('📂 GET /api/categories - Route publique');"
+        },
+        {
+          "line": 199,
+          "content": "const [categories] = await pool.query(`"
+        },
+        {
+          "line": 200,
+          "content": "SELECT * FROM categories"
+        },
+        {
+          "line": 205,
+          "content": "console.log(`✅ ${categories.length} catégories récupérées`);"
+        },
+        {
+          "line": 209,
+          "content": "data: categories"
+        },
+        {
+          "line": 212,
+          "content": "console.error('❌ Erreur GET /api/categories:', error);"
+        },
+        {
+          "line": 758,
+          "content": "app.get('/api/admin/categories', authenticateToken, requireAdmin, async (req, res) => {"
+        },
+        {
+          "line": 760,
+          "content": "const [categories] = await pool.query('SELECT * FROM categories ORDER BY display_order');"
+        }
+      ]
+    },
+    {
+      "name": "favorites",
+      "rowCount": 0,
+      "columns": 4,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "ingredients",
+      "rowCount": 19,
+      "columns": 15,
+      "usedInCode": true,
+      "occurrences": 9,
+      "sampleLines": [
+        {
+          "line": 2391,
+          "content": "FROM ingredients i"
+        },
+        {
+          "line": 2440,
+          "content": "// Vérifier si le slug existe déjà dans ingredients"
+        },
+        {
+          "line": 2444,
+          "content": "const [existing] = await pool.query('SELECT id FROM ingredients WHERE slug = ?', [slug]);"
+        },
+        {
+          "line": 2461,
+          "content": "`INSERT INTO ingredients ("
+        },
+        {
+          "line": 2511,
+          "content": "`SELECT * FROM ingredients WHERE id = ? AND deleted_at IS NULL`,"
+        },
+        {
+          "line": 2532,
+          "content": "`UPDATE ingredients"
+        },
+        {
+          "line": 2572,
+          "content": "const [existing] = await pool.query('SELECT id FROM ingredients WHERE slug = ? AND id != ?', [slug, "
+        },
+        {
+          "line": 2584,
+          "content": "`UPDATE ingredients"
+        },
+        {
+          "line": 2611,
+          "content": "const [existing] = await pool.query('SELECT name FROM ingredients WHERE id = ? AND deleted_at IS NUL"
+        },
+        {
+          "line": 2621,
+          "content": "await pool.query('UPDATE ingredients SET deleted_at = NOW() WHERE id = ?', [id]);"
+        }
+      ]
+    },
+    {
+      "name": "inventory",
+      "rowCount": 14,
+      "columns": 9,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "inventory_logs",
+      "rowCount": 0,
+      "columns": 9,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "loyalty_transactions",
+      "rowCount": 0,
+      "columns": 8,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "news",
+      "rowCount": 3,
+      "columns": 11,
+      "usedInCode": true,
+      "occurrences": 7,
+      "sampleLines": [
+        {
+          "line": 15,
+          "content": "const uploadNews = require('./upload-config-news');"
+        },
+        {
+          "line": 2195,
+          "content": "app.get('/api/home/news', async (req, res) => {"
+        },
+        {
+          "line": 2199,
+          "content": "const [news] = await connection.query(`"
+        },
+        {
+          "line": 2201,
+          "content": "FROM news"
+        },
+        {
+          "line": 2208,
+          "content": "data: news"
+        },
+        {
+          "line": 2223,
+          "content": "app.post('/api/admin/news', authenticateToken, requireManager, async (req, res) => {"
+        },
+        {
+          "line": 2235,
+          "content": "INSERT INTO news (title, description, date, image_url, icon, gradient, bg_pattern, \\`order\\`)"
+        },
+        {
+          "line": 2259,
+          "content": "app.put('/api/admin/news/:id', authenticateToken, requireManager, async (req, res) => {"
+        },
+        {
+          "line": 2262,
+          "content": "console.log('📝 PUT /api/admin/news/:id - Début');"
+        },
+        {
+          "line": 2272,
+          "content": "const [existingNews] = await connection.query('SELECT id FROM news WHERE id = ?', [id]);"
+        }
+      ]
+    },
+    {
+      "name": "notifications",
+      "rowCount": 25,
+      "columns": 10,
+      "usedInCode": true,
+      "occurrences": 1,
+      "sampleLines": [
+        {
+          "line": 1162,
+          "content": "`INSERT INTO notifications (user_id, title, message, type, related_order_id)"
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "rowCount": 12,
+      "columns": 9,
+      "usedInCode": true,
+      "occurrences": 17,
+      "sampleLines": [
+        {
+          "line": 453,
+          "content": "`INSERT INTO order_items ("
+        },
+        {
+          "line": 642,
+          "content": ") FROM order_items oi WHERE oi.order_id = o.id) AS items"
+        },
+        {
+          "line": 1101,
+          "content": "(SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as items_count"
+        },
+        {
+          "line": 1131,
+          "content": "SELECT * FROM order_items WHERE order_id = ?"
+        },
+        {
+          "line": 1308,
+          "content": "(SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE "
+        },
+        {
+          "line": 1309,
+          "content": "(SELECT COALESCE(AVG(items_count), 0) FROM (SELECT COUNT(oi.id) as items_count FROM order_items oi J"
+        },
+        {
+          "line": 1385,
+          "content": "LEFT JOIN order_items oi ON p.id = oi.product_id"
+        },
+        {
+          "line": 1413,
+          "content": "LEFT JOIN order_items oi ON p.id = oi.product_id"
+        },
+        {
+          "line": 1573,
+          "content": "(SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as items_count"
+        },
+        {
+          "line": 1875,
+          "content": "FROM order_items oi"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "rowCount": 10,
+      "columns": 19,
+      "usedInCode": true,
+      "occurrences": 59,
+      "sampleLines": [
+        {
+          "line": 309,
+          "content": "app.post('/api/orders', authenticateOptional, async (req, res) => {"
+        },
+        {
+          "line": 425,
+          "content": "`INSERT INTO orders ("
+        },
+        {
+          "line": 629,
+          "content": "app.get('/api/orders', authenticateToken, async (req, res) => {"
+        },
+        {
+          "line": 631,
+          "content": "const [orders] = await pool.query("
+        },
+        {
+          "line": 643,
+          "content": "FROM orders o"
+        },
+        {
+          "line": 649,
+          "content": "res.json({ success: true, data: orders });"
+        },
+        {
+          "line": 651,
+          "content": "console.error('Erreur orders:', error);"
+        },
+        {
+          "line": 1095,
+          "content": "app.get('/api/admin/orders', authenticateToken, requireManager, async (req, res) => {"
+        },
+        {
+          "line": 1097,
+          "content": "const [orders] = await pool.query(`"
+        },
+        {
+          "line": 1102,
+          "content": "FROM orders o"
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "rowCount": 41,
+      "columns": 17,
+      "usedInCode": true,
+      "occurrences": 24,
+      "sampleLines": [
+        {
+          "line": 167,
+          "content": "app.get('/api/products', async (req, res) => {"
+        },
+        {
+          "line": 169,
+          "content": "console.log('📦 GET /api/products - Route publique');"
+        },
+        {
+          "line": 171,
+          "content": "const [products] = await pool.query(`"
+        },
+        {
+          "line": 176,
+          "content": "FROM products p"
+        },
+        {
+          "line": 182,
+          "content": "console.log(`✅ ${products.length} produits récupérés`);"
+        },
+        {
+          "line": 186,
+          "content": "data: products"
+        },
+        {
+          "line": 189,
+          "content": "console.error('❌ Erreur GET /api/products:', error);"
+        },
+        {
+          "line": 368,
+          "content": "const [products] = await connection.query("
+        },
+        {
+          "line": 369,
+          "content": "'SELECT price FROM products WHERE id = ?',"
+        },
+        {
+          "line": 372,
+          "content": "if (products.length > 0) {"
+        }
+      ]
+    },
+    {
+      "name": "promo_codes",
+      "rowCount": 2,
+      "columns": 12,
+      "usedInCode": true,
+      "occurrences": 7,
+      "sampleLines": [
+        {
+          "line": 383,
+          "content": "`SELECT * FROM promo_codes"
+        },
+        {
+          "line": 1012,
+          "content": "const [codes] = await pool.query('SELECT * FROM promo_codes ORDER BY created_at DESC');"
+        },
+        {
+          "line": 1029,
+          "content": "`INSERT INTO promo_codes ("
+        },
+        {
+          "line": 1057,
+          "content": "`UPDATE promo_codes SET"
+        },
+        {
+          "line": 1082,
+          "content": "await pool.query('DELETE FROM promo_codes WHERE id = ?', [id]);"
+        },
+        {
+          "line": 2120,
+          "content": "FROM promo_codes"
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "rowCount": 0,
+      "columns": 10,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "settings",
+      "rowCount": 4,
+      "columns": 8,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    },
+    {
+      "name": "users",
+      "rowCount": 5,
+      "columns": 14,
+      "usedInCode": true,
+      "occurrences": 17,
+      "sampleLines": [
+        {
+          "line": 226,
+          "content": "const [users] = await pool.query("
+        },
+        {
+          "line": 227,
+          "content": "'SELECT * FROM users WHERE email = ? AND is_active = TRUE',"
+        },
+        {
+          "line": 231,
+          "content": "if (users.length === 0) {"
+        },
+        {
+          "line": 235,
+          "content": "const user = users[0];"
+        },
+        {
+          "line": 246,
+          "content": "await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);"
+        },
+        {
+          "line": 275,
+          "content": "'SELECT id FROM users WHERE email = ?',"
+        },
+        {
+          "line": 288,
+          "content": "`INSERT INTO users (email, password_hash, first_name, last_name, phone, role)"
+        },
+        {
+          "line": 540,
+          "content": "'SELECT id FROM users WHERE email = ? AND id != ?',"
+        },
+        {
+          "line": 583,
+          "content": "`UPDATE users SET ${updates.join(', ')} WHERE id = ?`,"
+        },
+        {
+          "line": 588,
+          "content": "const [users] = await pool.query("
+        }
+      ]
+    },
+    {
+      "name": "v_product_stats",
+      "rowCount": 41,
+      "columns": 8,
+      "usedInCode": false,
+      "occurrences": 0,
+      "sampleLines": []
+    }
+  ]
+}

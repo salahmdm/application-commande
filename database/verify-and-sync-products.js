@@ -6,12 +6,10 @@
 
 const mysql = require('mysql2/promise');
 
-const config = {
-  host: '127.0.0.1',
-  user: 'root',
-  password: 'Muheko,1991@',
-  database: 'blossom_cafe'
-};
+// Utiliser la configuration centralisée depuis config.js
+require('dotenv').config();
+const configModule = require('./config');
+const config = configModule.database;
 
 async function verifyAndSyncProducts() {
   let connection;

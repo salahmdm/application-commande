@@ -11,12 +11,15 @@ const execAsync = promisify(exec);
 
 async function exportDatabase() {
   try {
+    // Utiliser la configuration centralisée depuis config.js
+    require('dotenv').config();
+    const configModule = require('./config');
     const config = {
-      host: '127.0.0.1',
-      port: 3306,
-      user: 'root',
-      password: 'Muheko,1991@',
-      database: 'blossom_cafe'
+      host: configModule.database.host,
+      port: configModule.database.port,
+      user: configModule.database.user,
+      password: configModule.database.password,
+      database: configModule.database.database
     };
 
     console.log('📊 Export de la base de données...\n');
@@ -64,16 +67,19 @@ async function exportDatabase() {
   } catch (error) {
     console.error('❌ Erreur lors de l\'export:', error.message);
     
-    // Si mysqldump échoue, essayer l'export via connexion
+      // Si mysqldump échoue, essayer l'export via connexion
     if (error.message.includes('mysqldump') || error.code === 'ENOENT') {
       console.log('\n🔄 Tentative d\'export via connexion directe...\n');
       try {
+        // Réutiliser la config déjà chargée
+        require('dotenv').config();
+        const configModule = require('./config');
         const config = {
-          host: '127.0.0.1',
-          port: 3306,
-          user: 'root',
-          password: 'Muheko,1991@',
-          database: 'blossom_cafe'
+          host: configModule.database.host,
+          port: configModule.database.port,
+          user: configModule.database.user,
+          password: configModule.database.password,
+          database: configModule.database.database
         };
         await exportViaConnection(config);
       } catch (err) {

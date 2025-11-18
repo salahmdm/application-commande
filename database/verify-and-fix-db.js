@@ -13,12 +13,14 @@ async function verifyAndFixDatabase() {
   try {
     // 1. CONNEXION À MYSQL
     console.log('📊 1. Test de connexion MySQL...');
+    require('dotenv').config();
+    const configModule = require('./config');
     const connection = await mysql.createConnection({
-      host: '127.0.0.1',
-      port: 3306,
-      user: 'root',
-      password: 'Muheko,1991@',
-      database: 'blossom_cafe'
+      host: configModule.database.host,
+      port: configModule.database.port,
+      user: configModule.database.user,
+      password: configModule.database.password,
+      database: configModule.database.database
     });
     
     console.log('✅ Connexion MySQL réussie\n');
@@ -173,7 +175,8 @@ async function verifyAndFixDatabase() {
     console.error('');
     console.error('Solutions possibles:');
     console.error('1. Vérifiez que MySQL est démarré');
-    console.error('2. Vérifiez le mot de passe root: Muheko,1991@');
+    console.error('2. Vérifiez votre fichier .env (DB_PASSWORD)');
+    console.error('   Copiez database/.env.example en database/.env et configurez vos valeurs');
     console.error('3. Vérifiez que la base blossom_cafe existe');
     process.exit(1);
   }

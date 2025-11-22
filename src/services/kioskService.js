@@ -12,16 +12,16 @@ const kioskService = {
    * ou le backend API (développement local)
    */
   shouldUseSupabase() {
-    // Si VITE_API_URL n'est pas défini, on est probablement sur Vercel sans backend
-    const hasBackend = !!import.meta.env.VITE_API_URL;
-    const isProduction = import.meta.env.PROD;
+    // ✅ CORRECTION: Si VITE_API_URL n'est pas défini, utiliser Supabase directement
+    // Cela fonctionne sur Vercel où il n'y a pas de backend Express
+    const hasBackend = !!import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL !== '';
     
-    // En production sans backend, utiliser Supabase directement
-    if (isProduction && !hasBackend) {
+    // Si pas de backend configuré, utiliser Supabase directement
+    if (!hasBackend) {
       return true;
     }
     
-    // En développement, utiliser le backend si disponible
+    // Si backend disponible, l'utiliser
     return false;
   },
 

@@ -149,11 +149,23 @@ class SupabaseService {
 
       const { data, error } = await query.order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase - Erreur getProducts:', error);
+        console.error('   Code:', error.code);
+        console.error('   Message:', error.message);
+        console.error('   Détails:', error.details);
+        throw error;
+      }
+      
+      // ✅ Log de débogage pour Vercel
+      if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
+        console.log(`✅ Supabase getProducts - ${data?.length || 0} produits récupérés`);
+      }
+      
       return { success: true, data };
     } catch (error) {
       console.error('❌ Supabase - Erreur getProducts:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || error.toString() };
     }
   }
 
@@ -231,15 +243,14 @@ class SupabaseService {
     try {
       let query = this.getClient().from('categories');
       
-      // Appliquer les filtres
+      // ✅ CORRECTION: Appliquer les filtres seulement si spécifiés
       if (filters.isActive !== undefined) {
         // Si isActive est un nombre (1/0), convertir en booléen
         const isActiveValue = filters.isActive === 1 || filters.isActive === true;
         query = query.eq('is_active', isActiveValue);
-      } else {
-        // Par défaut, ne récupérer que les catégories actives
-        query = query.eq('is_active', true);
       }
+      // ✅ Si isActive n'est pas défini, ne pas filtrer (récupérer toutes les catégories)
+      
       if (filters.search) {
         query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
@@ -248,11 +259,23 @@ class SupabaseService {
         .select('*')
         .order('display_order', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase - Erreur getCategories:', error);
+        console.error('   Code:', error.code);
+        console.error('   Message:', error.message);
+        console.error('   Détails:', error.details);
+        throw error;
+      }
+      
+      // ✅ Log de débogage pour Vercel
+      if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
+        console.log(`✅ Supabase getCategories - ${data?.length || 0} catégories récupérées`);
+      }
+      
       return { success: true, data };
     } catch (error) {
       console.error('❌ Supabase - Erreur getCategories:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || error.toString() };
     }
   }
 

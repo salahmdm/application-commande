@@ -95,6 +95,7 @@ export const canBeCancelled = (status) => {
  */
 export const isCompleted = (status) => {
   return [
+    ORDER_STATUS.READY,
     ORDER_STATUS.SERVED,
     ORDER_STATUS.CANCELLED
   ].includes(status);

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Package, RefreshCw, Utensils, CakeSlice, 
-  User, MapPin, Volume2, VolumeX, LayoutGrid, Columns
+  User, MapPin, Volume2, VolumeX, LayoutGrid, Columns, History, CheckCircle2
 } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
+import PaymentWorkflowModal from '../../components/manager/PaymentWorkflowModal';
 import orderService from '../../services/orderService';
 import useNotifications from '../../hooks/useNotifications';
 import { formatPrice } from '../../constants/pricing';
@@ -18,10 +19,17 @@ import soundNotificationManager from '../../utils/soundNotifications';
 import orderWebSocketService from '../../services/orderWebSocketService';
 import orderCache from '../../utils/orderCache';
 import useAuth from '../../hooks/useAuth';
+import logger from '../../utils/logger';
 
 /**
  * Gestion des Commandes
  */
+const HISTORY_STATUSES = [
+  ORDER_STATUS.READY,
+  ORDER_STATUS.SERVED,
+  ORDER_STATUS.CANCELLED
+];
+
 const ManagerDashboard = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,59 +38,170 @@ const ManagerDashboard = () => {
   const [sortBy] = useState('smart'); // smart, time, total
   const [viewMode, setViewMode] = useState('grid'); // grid, kanban
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [paymentWorkflowState, setPaymentWorkflowState] = useState({ isOpen: false, order: null });
   const { success, error: showError } = useNotifications();
   const previousOrdersRef = useRef([]);
   const wsConnectedRef = useRef(false);
   const { user } = useAuth();
 
   // Parser les items des commandes
-  const parseOrderItems = (order) => {
-    if (!order.items) return [];
-    try {
-      return typeof order.items === 'string' 
-        ? JSON.parse(order.items || '[]') 
-        : Array.isArray(order.items) 
-        ? order.items 
-        : [];
-    } catch {
-      return [];
+  const parseOrderItems = useCallback((order) => {
+     if (!order.items) return [];
+     try {
+       return typeof order.items === 'string' 
+         ? JSON.parse(order.items || '[]') 
+         : Array.isArray(order.items) 
+         ? order.items 
+         : [];
+     } catch {
+       return [];
+     }
+   }, []);
+
+  const parseOrderPayments = useCallback((order) => {
+    if (!order) return [];
+
+    const rawPayments = order.payments ?? order.payment_details ?? order.paymentDetails ?? null;
+    const normalize = (payment, index) => {
+      if (!payment) return null;
+      const amount = parseFloat(payment.amount ?? payment.value ?? payment.total ?? 0) || 0;
+      if (amount <= 0) return null;
+      return {
+        id: payment.id ?? index ?? null,
+        method: (payment.method || payment.payment_method || payment.mode || 'cash').toLowerCase(),
+        amount,
+        reference: payment.reference || payment.note || ''
+      };
+    };
+
+    if (Array.isArray(rawPayments)) {
+      return rawPayments.map((payment, index) => normalize(payment, index)).filter(Boolean);
     }
-  };
+
+    if (typeof rawPayments === 'string') {
+      try {
+        const parsed = JSON.parse(rawPayments);
+        if (Array.isArray(parsed)) {
+          return parsed.map((payment, index) => normalize(payment, index)).filter(Boolean);
+        }
+        if (parsed && Array.isArray(parsed.payments)) {
+          return parsed.payments.map((payment, index) => normalize(payment, index)).filter(Boolean);
+        }
+      } catch (error) {
+        logger.warn('Impossible de parser payments JSON', error);
+      }
+    }
+
+    if (rawPayments && Array.isArray(rawPayments.payments)) {
+      return rawPayments.payments.map((payment, index) => normalize(payment, index)).filter(Boolean);
+    }
+
+    if (order.parsedPayments && Array.isArray(order.parsedPayments)) {
+      return order.parsedPayments;
+    }
+
+    return [];
+  }, []);
 
   const loadAllOrders = useCallback(async (silent = false, useCache = true) => {
+    let timeoutId;
     try {
       if (!silent) setLoading(true);
       
-      // Vérifier le cache d'abord
+      // Timeout pour éviter un spinner infini si l'API ne répond pas
+      const controller = new AbortController();
+      const timeoutMs = 6000;
+      timeoutId = setTimeout(() => {
+        if (controller && typeof controller.abort === 'function') {
+          controller.abort();
+        }
+      }, timeoutMs);
+      
+      // Vérifier le cache d'abord (CORRECTION: passer les paramètres vides)
       const cacheKey = '/admin/orders';
       if (useCache) {
-        const cached = orderCache.get(cacheKey);
-        if (cached) {
-          console.log('📦 Données chargées depuis le cache');
-          const ordersWithItems = (cached || []).map(order => ({
+        const cached = orderCache.get(cacheKey, {});
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          logger.debug('📦 [DIAGNOSTIC] Données chargées depuis le cache');
+          logger.debug('📦 [DIAGNOSTIC] Cache contient:', cached.length, 'commandes');
+          const ordersWithItems = cached.map(order => ({
             ...order,
-            parsedItems: parseOrderItems(order)
+            parsedItems: parseOrderItems(order),
+            parsedPayments: parseOrderPayments(order)
           }));
+          logger.debug('📦 [DIAGNOSTIC] Commandes après parsing du cache:', ordersWithItems.length);
           setOrders(ordersWithItems);
           if (!silent) setLoading(false);
+          clearTimeout(timeoutId);
+          return;
+        } else {
+          logger.debug('📦 [DIAGNOSTIC] Cache vide ou invalide, chargement depuis l\'API');
+        }
+      } else {
+        logger.debug('📦 [DIAGNOSTIC] Cache désactivé (useCache=false), chargement depuis l\'API');
+        // Invalider le cache pour être sûr
+        orderCache.invalidate(cacheKey);
+      }
+
+      // Utiliser l'endpoint standard (le backend est déjà assoupli en dev)
+      logger.debug('🔍 [DIAGNOSTIC] Appel à orderService.getAllOrders...');
+      const response = await orderService.getAllOrders({ limit: 100 }, { signal: controller.signal });
+
+      logger.debug('🔍 [DIAGNOSTIC] Réponse reçue:', {
+        success: response?.success,
+        hasData: !!response?.data,
+        dataType: Array.isArray(response?.data) ? 'array' : typeof response?.data,
+        dataLength: Array.isArray(response?.data) ? response.data.length : 'N/A',
+        error: response?.error,
+        fullResponse: JSON.stringify(response).substring(0, 500)
+      });
+
+      // CORRECTION: Vérifier response.success ET que response.data est un tableau non vide
+      if (response && response.success === true && Array.isArray(response.data)) {
+        logger.debug('✅ [DIAGNOSTIC] response.success = true');
+        logger.debug('📊 [DIAGNOSTIC] Nombre de commandes dans response.data:', response.data.length);
+        
+        if (response.data.length === 0) {
+          logger.warn('⚠️ [DIAGNOSTIC] response.data est un tableau vide !');
+          setOrders([]);
+          if (!silent) setLoading(false);
+          clearTimeout(timeoutId);
           return;
         }
-      }
-      
-      const response = await orderService.getAllOrders({ limit: 100 });
-      
-      if (response.success) {
-        const ordersWithItems = (response.data || []).map(order => ({
-          ...order,
-          parsedItems: parseOrderItems(order)
-        }));
-        setOrders(ordersWithItems);
         
-        // Mettre en cache
-        orderCache.set(cacheKey, {}, response.data);
+        const ordersWithItems = response.data.map(order => ({
+          ...order,
+          parsedItems: parseOrderItems(order),
+          parsedPayments: parseOrderPayments(order)
+        }));
+        
+        logger.debug('📦 [DIAGNOSTIC] Commandes après parsing:', ordersWithItems.length);
+        // ✅ SÉCURITÉ: Ne pas logger les IDs et numéros de commande (données sensibles)
+        logger.debug('📋 [DIAGNOSTIC] Première commande (exemple):', {
+          status: ordersWithItems[0]?.status,
+          itemsCount: ordersWithItems[0]?.parsedItems?.length || 0
+        });
+        
+        // CORRECTION: S'assurer que setOrders est bien appelé
+        logger.debug('🔄 [DIAGNOSTIC] Appel de setOrders avec', ordersWithItems.length, 'commandes');
+        setOrders(ordersWithItems);
+        logger.debug('✅ [DIAGNOSTIC] setOrders appelé');
+
+        // Mettre en cache seulement si on a des données
+        if (ordersWithItems.length > 0) {
+          orderCache.set(cacheKey, {}, response.data);
+          logger.debug('💾 [DIAGNOSTIC] Données mises en cache:', response.data.length, 'commandes');
+        }
       } else {
+        logger.error('❌ [DIAGNOSTIC] response.success = false OU response.data invalide');
+        logger.error('❌ [DIAGNOSTIC] response:', response);
+        logger.error('❌ [DIAGNOSTIC] response.success:', response?.success);
+        logger.error('❌ [DIAGNOSTIC] response.data type:', typeof response?.data);
+        logger.error('❌ [DIAGNOSTIC] response.data isArray:', Array.isArray(response?.data));
+        logger.error('❌ [DIAGNOSTIC] Erreur:', response?.error);
         if (!silent) {
-          showError(response.error || 'Erreur lors du chargement des commandes');
+          showError(response?.error || 'Erreur lors du chargement des commandes');
         }
         // Ne pas vider les commandes existantes en cas d'erreur silencieuse
         if (!silent) {
@@ -90,9 +209,9 @@ const ManagerDashboard = () => {
         }
       }
     } catch (error) {
-      console.error('❌ Erreur chargement commandes:', error);
-      console.error('   Type:', error.name);
-      console.error('   Message:', error.message);
+      logger.error('❌ Erreur chargement commandes:', error);
+      logger.error('   Type:', error.name);
+      logger.error('   Message:', error.message);
       
       if (!silent) {
         // Messages d'erreur plus spécifiques
@@ -100,6 +219,8 @@ const ManagerDashboard = () => {
         
         if (error.name === 'ConnectionError' || error.message.includes('Failed to fetch') || error.message.includes('fetch failed')) {
           errorMessage = 'Impossible de se connecter au serveur. Vérifiez que le backend est démarré sur le port 5000.';
+        } else if (error.name === 'AbortError') {
+          errorMessage = `Le serveur n'a pas répondu sous ${6000/1000}s.`;
         } else if (error.message.includes('Token') || error.message.includes('401') || error.message.includes('403')) {
           errorMessage = 'Erreur d\'authentification. Veuillez vous reconnecter.';
         } else if (error.message.includes('500')) {
@@ -112,12 +233,14 @@ const ManagerDashboard = () => {
       }
       // Ne pas vider les commandes existantes en cas d'erreur silencieuse
       if (!silent) {
-      setOrders([]);
+        setOrders([]);
       }
     } finally {
       if (!silent) setLoading(false);
+      // Nettoyer le timeout si encore actif
+      if (timeoutId) clearTimeout(timeoutId);
     }
-  }, [showError]);
+  }, [showError, parseOrderItems, parseOrderPayments]);
 
   const handleStatusUpdate = useCallback(async (orderId, newStatus) => {
     try {
@@ -142,7 +265,7 @@ const ManagerDashboard = () => {
         throw new Error(response.error || 'Erreur lors de la mise à jour');
       }
     } catch (error) {
-      console.error('❌ Erreur mise à jour statut:', error);
+      logger.error('❌ Erreur mise à jour statut:', error);
       showError(error.message || 'Impossible de mettre à jour le statut');
     } finally {
       setProcessingOrderId(null);
@@ -171,7 +294,7 @@ const ManagerDashboard = () => {
         throw new Error(response.error || 'Erreur lors de l\'annulation');
       }
     } catch (error) {
-      console.error('❌ Erreur annulation commande:', error);
+      logger.error('❌ Erreur annulation commande:', error);
       showError(error.message || 'Impossible d\'annuler la commande');
     } finally {
       setProcessingOrderId(null);
@@ -197,11 +320,28 @@ const ManagerDashboard = () => {
     previousOrdersRef.current = orders;
   }, [orders, soundEnabled, success]);
 
+  // Timer pour l'horloge - séparé pour éviter les re-renders
+  useEffect(() => {
+    const tickInterval = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => {
+      clearInterval(tickInterval);
+    };
+  }, []); // Pas de dépendances - le timer doit tourner en continu
+
   // WebSocket pour mises à jour en temps réel
+  useEffect(() => {
+    logger.debug('🔄 [DIAGNOSTIC] useEffect initial load (sans cache)');
+    loadAllOrders(false, false);
+  }, [loadAllOrders]);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     
     if (!token || !user) {
+      logger.debug('⏳ [DIAGNOSTIC] WebSocket non initialisé (token ou user manquant)');
       return;
     }
 
@@ -210,7 +350,7 @@ const ManagerDashboard = () => {
 
     // Écouter les événements
     const handleOrderCreated = (order) => {
-      console.log('📦 Nouvelle commande reçue via WebSocket:', order);
+      logger.debug('📦 Nouvelle commande reçue via WebSocket:', order);
       // Invalider le cache et recharger
       orderCache.invalidate('/admin/orders');
       loadAllOrders(true, false);
@@ -227,7 +367,7 @@ const ManagerDashboard = () => {
     };
 
     const handleOrderUpdated = (order) => {
-      console.log('🔄 Commande mise à jour via WebSocket:', order);
+      logger.debug('🔄 Commande mise à jour via WebSocket:', order);
       // Mettre à jour la commande dans le state
       setOrders(prevOrders => {
         const updated = prevOrders.map(o => 
@@ -245,7 +385,7 @@ const ManagerDashboard = () => {
     };
 
     const handleStatusChanged = (data) => {
-      console.log('📌 Statut changé via WebSocket:', data);
+      logger.debug('📌 Statut changé via WebSocket:', data);
       setOrders(prevOrders => 
         prevOrders.map(order => 
           order.id === data.orderId ? { ...order, status: data.status } : order
@@ -259,18 +399,18 @@ const ManagerDashboard = () => {
     };
 
     const handleRefresh = () => {
-      console.log('🔄 Rafraîchissement demandé via WebSocket');
+      logger.debug('🔄 Rafraîchissement demandé via WebSocket');
       orderCache.invalidate('/admin/orders');
       loadAllOrders(true, false);
     };
 
     const handleConnected = () => {
-      console.log('✅ WebSocket connecté');
+      logger.debug('✅ WebSocket connecté');
       wsConnectedRef.current = true;
     };
 
     const handleDisconnected = () => {
-      console.log('❌ WebSocket déconnecté');
+      logger.debug('❌ WebSocket déconnecté');
       wsConnectedRef.current = false;
     };
 
@@ -282,22 +422,19 @@ const ManagerDashboard = () => {
     orderWebSocketService.on('connected', handleConnected);
     orderWebSocketService.on('disconnected', handleDisconnected);
 
-    // Charger les commandes initiales
-    loadAllOrders();
-
-    // Timer pour l'horloge (toujours nécessaire)
-    const tickInterval = setInterval(() => setNow(new Date()), 1000);
+    // Charger les commandes initiales (sans cache pour forcer le chargement)
+    logger.debug('🔄 [DIAGNOSTIC] Chargement initial des commandes (sans cache)');
+    loadAllOrders(false, false); // silent=false, useCache=false pour forcer le chargement
 
     // Polling de fallback seulement si WebSocket n'est pas connecté (toutes les 30 secondes)
     const pollInterval = setInterval(() => {
       if (!wsConnectedRef.current) {
-        console.log('⚠️ WebSocket non connecté, utilisation du polling de fallback');
+        logger.debug('⚠️ WebSocket non connecté, utilisation du polling de fallback');
         loadAllOrders(true, false);
       }
     }, 30000);
 
     return () => {
-      clearInterval(tickInterval);
       clearInterval(pollInterval);
       orderWebSocketService.off('order:created', handleOrderCreated);
       orderWebSocketService.off('order:updated', handleOrderUpdated);
@@ -307,7 +444,7 @@ const ManagerDashboard = () => {
       orderWebSocketService.off('disconnected', handleDisconnected);
       orderWebSocketService.disconnect();
     };
-  }, [loadAllOrders, user, soundEnabled, success]);
+  }, [loadAllOrders, user, soundEnabled, success, parseOrderItems]);
 
   // Configuration des couleurs par statut - Inspiré des meilleurs logiciels professionnels
   // Système de couleurs haute visibilité pour cuisine (Toast, Lightspeed, Square)
@@ -422,19 +559,22 @@ const ManagerDashboard = () => {
     return sorted;
   }, [sortBy]);
 
-  // Filtrage (sans recherche ni filtre type)
-  const filterAndSearch = useCallback((orderList) => {
-    // Exclure les annulées et servies
-    return orderList.filter(o => 
-      o.status !== ORDER_STATUS.CANCELLED && o.status !== ORDER_STATUS.SERVED
-    );
-  }, []);
+  // Filtrage (diagnostic) : ne rien exclure pour voir TOUTES les commandes
+  const filterAndSearch = useCallback((orderList) => orderList, []);
 
-  // Filtrer et trier toutes les commandes
+  const activeOrders = useMemo(() => {
+    return orders.filter(order => !HISTORY_STATUSES.includes(order.status));
+  }, [orders]);
+
+  // Filtrer et trier toutes les commandes actives uniquement
   const displayedOrders = useMemo(() => {
-    const filtered = filterAndSearch(orders);
-    return smartSort(filtered);
-  }, [orders, filterAndSearch, smartSort]);
+    logger.debug('🔍 [DIAGNOSTIC] displayedOrders - orders.length:', activeOrders.length);
+    const filtered = filterAndSearch(activeOrders);
+    logger.debug('🔍 [DIAGNOSTIC] displayedOrders - après filterAndSearch:', filtered.length);
+    const sorted = smartSort(filtered);
+    logger.debug('🔍 [DIAGNOSTIC] displayedOrders - après smartSort:', sorted.length);
+    return sorted;
+  }, [activeOrders, filterAndSearch, smartSort]);
 
   // Raccourcis clavier - mémorisés pour éviter les re-renders (après displayedOrders)
   const keyboardHandlers = useMemo(() => ({
@@ -450,9 +590,6 @@ const ManagerDashboard = () => {
           case '2':
             handleStatusUpdate(firstPending.id, ORDER_STATUS.READY);
             break;
-          case '3':
-            handleStatusUpdate(firstPending.id, ORDER_STATUS.SERVED);
-            break;
           case '4':
             handleCancelOrder(firstPending.id);
             break;
@@ -465,19 +602,115 @@ const ManagerDashboard = () => {
 
   // Statistiques
   const stats = {
-    total: displayedOrders.length,
-    pending: displayedOrders.filter(o => o.status === ORDER_STATUS.PENDING).length,
-    preparing: displayedOrders.filter(o => o.status === ORDER_STATUS.PREPARING).length,
-    ready: displayedOrders.filter(o => o.status === ORDER_STATUS.READY).length,
+    total: activeOrders.length,
+    pending: activeOrders.filter(o => o.status === ORDER_STATUS.PENDING).length,
+    preparing: activeOrders.filter(o => o.status === ORDER_STATUS.PREPARING).length,
+    ready: orders.filter(o => o.status === ORDER_STATUS.READY).length,
     revenue: orders
       .filter(o => o.status !== ORDER_STATUS.CANCELLED)
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0)
   };
 
-  // Format timer elapsed time
-  const formatElapsed = (createdAt) => {
+  const historyOrders = useMemo(() => {
+    const readyOrders = orders.filter(o => HISTORY_STATUSES.includes(o.status));
+    return readyOrders.sort((a, b) => {
+      const aTime = new Date(a.updated_at || a.created_at).getTime();
+      const bTime = new Date(b.updated_at || b.created_at).getTime();
+      return bTime - aTime;
+    });
+  }, [orders]);
+
+  const paymentWorkflowOrder = paymentWorkflowState.order;
+  const isPaymentWorkflowOpen = paymentWorkflowState.isOpen;
+
+  const handlePaymentWorkflowClose = useCallback((updatedOrder = null) => {
+    setPaymentWorkflowState({ isOpen: false, order: null });
+
+    if (updatedOrder && updatedOrder.id) {
+      const normalizedPaymentStatus = (updatedOrder.payment_status || '').toString().toLowerCase();
+      const isPaidFlag = ['completed', 'paid', 'completed_payment'].includes(normalizedPaymentStatus);
+      setOrders(prev => prev.map(order =>
+        order.id === updatedOrder.id
+          ? {
+              ...order,
+              ...updatedOrder,
+              parsedItems: parseOrderItems(updatedOrder),
+              parsedPayments: parseOrderPayments(updatedOrder),
+              is_paid: isPaidFlag,
+              paymentStatus: updatedOrder.payment_status || order.paymentStatus,
+              paymentMethod: updatedOrder.payment_method || order.paymentMethod
+            }
+          : order
+      ));
+      orderCache.invalidate('/admin/orders');
+    }
+  }, [parseOrderItems, parseOrderPayments]);
+
+  const handlePaymentWorkflowSubmit = useCallback(async (payload) => {
+    if (!paymentWorkflowOrder) {
+      return { success: false, error: 'Commande introuvable pour le paiement.' };
+    }
+
+    try {
+      setProcessingOrderId(paymentWorkflowOrder.id);
+
+      const response = await orderService.completePaymentWorkflow(paymentWorkflowOrder.id, payload);
+
+      if (!response.success) {
+        throw new Error(response.error || "Erreur lors de l'enregistrement du paiement");
+      }
+
+      const updatedOrderRaw = response.data || {};
+      const updatedOrder = {
+        ...paymentWorkflowOrder,
+        ...updatedOrderRaw,
+        parsedItems: parseOrderItems(updatedOrderRaw),
+        parsedPayments: parseOrderPayments(updatedOrderRaw)
+      };
+
+      const normalizedPaymentStatus = (updatedOrder.payment_status || updatedOrderRaw.payment_status || '').toString().toLowerCase();
+      const isPaidFlag = ['completed', 'paid', 'completed_payment'].includes(normalizedPaymentStatus);
+
+      updatedOrder.is_paid = isPaidFlag;
+      updatedOrder.paymentStatus = updatedOrder.payment_status || updatedOrderRaw.payment_status || paymentWorkflowOrder.payment_status;
+      updatedOrder.paymentMethod = updatedOrder.payment_method || updatedOrderRaw.payment_method || paymentWorkflowOrder.payment_method;
+
+      setOrders(prev => prev.map(order =>
+        order.id === updatedOrder.id ? updatedOrder : order
+      ));
+
+      orderCache.invalidate('/admin/orders');
+      success('Paiements enregistrés et commande mise à jour');
+
+      return { success: true, updatedOrder };
+    } catch (error) {
+      logger.error('❌ Erreur workflow paiement:', error);
+      showError(error.message || "Impossible d'enregistrer le paiement");
+      return { success: false, error: error.message };
+    } finally {
+      setProcessingOrderId(null);
+    }
+  }, [paymentWorkflowOrder, parseOrderItems, parseOrderPayments, success, showError]);
+
+  const handleTakeInChargeRequest = useCallback(async (order, isPaid) => {
+    if (!order) return;
+
+    if (isPaid) {
+      await handleStatusUpdate(order.id, ORDER_STATUS.PREPARING);
+      return;
+    }
+
+    setPaymentWorkflowState({ isOpen: true, order });
+  }, [handleStatusUpdate]);
+
+  // Format timer elapsed time - s'arrête quand la commande est terminée
+  const formatElapsed = (createdAt, status, completedAt = null) => {
     const start = new Date(createdAt);
-    const diff = Math.max(0, Math.floor((now - start) / 1000));
+    // Pour les commandes terminées, utiliser la date de fin au lieu de maintenant
+    const endDate = (status === ORDER_STATUS.READY || status === ORDER_STATUS.SERVED || status === ORDER_STATUS.CANCELLED) && completedAt
+      ? new Date(completedAt)
+      : now;
+    const diff = Math.max(0, Math.floor((endDate - start) / 1000));
     const h = String(Math.floor(diff / 3600)).padStart(2, '0');
     const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
     const s = String(diff % 60).padStart(2, '0');
@@ -520,15 +753,23 @@ const ManagerDashboard = () => {
   };
 
   // Composant Carte Commande avec Code Couleur
-  const OrderCard = ({ order }) => {
+  const OrderCard = ({ order, onTakeInCharge }) => {
     const statusConfig = getStatusConfig(order.status);
     const typeBadge = getTypeBadge(order.order_type);
     const { entries, plats, desserts } = getItemsByCategory(order.parsedItems || []);
-    const elapsed = formatElapsed(order.created_at);
+    const elapsed = formatElapsed(order.created_at, order.status, order.completed_at || order.updated_at);
     const customer = order.table_number ? `Table ${order.table_number}` : 
                      (order.first_name ? `${order.first_name} ${order.last_name || ''}`.trim() : 'Client');
     const isProcessing = processingOrderId === order.id;
     const totalItems = (order.parsedItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const paymentStatus = order.payment_status || order.paymentStatus || (order.is_paid ? 'completed' : 'pending');
+    const isPaid = paymentStatus === 'completed' || paymentStatus === 'paid' || paymentStatus === 'completed_payment' || order.is_paid === true || order.is_paid === 1;
+
+    const handleTakeInCharge = () => {
+      if (onTakeInCharge) {
+        onTakeInCharge(order, isPaid);
+      }
+    };
 
     return (
       <Card 
@@ -539,25 +780,26 @@ const ManagerDashboard = () => {
         {/* Header avec code couleur amélioré - Style professionnel */}
         <div className={`p-4 ${statusConfig.headerBg} border-b-2 ${statusConfig.borderColor}`}>
           <div className="flex items-center justify-between mb-3">
+            <span className={`px-4 py-1.5 rounded-lg text-sm font-bold text-white ${statusConfig.badgeColor} shadow-lg`}>
+              {statusConfig.vignetteLabel}
+            </span>
+            <span className="block font-bold text-[1.3rem] text-black font-mono text-center flex-1">
+              {formatOrderNumber(order.order_number, order.id)}
+            </span>
+            <span className={`inline-flex items-center px-4 py-1.5 rounded-lg text-sm font-bold text-white ${typeBadge.color} shadow-md hover:shadow-lg transition-shadow`}>
+              {typeBadge.label}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <span className={`text-2xl font-bold ${statusConfig.textColor} tracking-wide font-mono`}>{elapsed}</span>
             </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className={`inline-flex items-center px-4 py-1.5 rounded-lg text-sm font-bold text-white ${typeBadge.color} shadow-md hover:shadow-lg transition-shadow`}>
-                {typeBadge.label}
-              </span>
-            </div>
-          </div>
-          
-          {/* Statut visible avec code couleur - Vignette améliorée */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className={`px-4 py-1.5 rounded-lg text-sm font-bold text-white ${statusConfig.badgeColor} shadow-lg`}>
-                {statusConfig.vignetteLabel}
-              </span>
-              <span className={`text-sm font-semibold ${statusConfig.textColor} font-mono`}>
-                {formatOrderNumber(order.order_number, order.id)}
-              </span>
+            <div className={`relative flex items-center justify-center w-11 h-11 rounded-full border-2 transition-all duration-200 ${isPaid ? 'bg-emerald-500 border-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.35)]' : 'bg-red-100 border-red-300'}`}>
+              <span className={`text-2xl font-bold ${isPaid ? 'text-white' : 'text-red-600'}`}>€</span>
+              {!isPaid && (
+                <span className="absolute w-11 h-[2px] bg-red-500 rotate-45"></span>
+              )}
             </div>
           </div>
 
@@ -654,7 +896,7 @@ const ManagerDashboard = () => {
           <div className="flex gap-2">
             {order.status === ORDER_STATUS.PENDING ? (
               <button
-                onClick={() => handleStatusUpdate(order.id, ORDER_STATUS.PREPARING)}
+                onClick={handleTakeInCharge}
                 disabled={isProcessing}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 active:from-orange-700 active:to-orange-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2"
               >
@@ -668,14 +910,6 @@ const ManagerDashboard = () => {
               >
                 {isProcessing ? 'Chargement...' : 'Terminée'}
               </button>
-            ) : order.status === ORDER_STATUS.READY ? (
-              <button
-                onClick={() => handleStatusUpdate(order.id, ORDER_STATUS.SERVED)}
-                disabled={isProcessing}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl hover:from-blue-700 hover:to-blue-800 active:from-blue-800 active:to-blue-900 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
-              >
-                {isProcessing ? 'Chargement...' : 'Remise'}
-              </button>
             ) : (
               <div className="flex-1 text-center py-2">
                 <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white ${statusConfig.badgeColor} shadow-md`}>
@@ -685,7 +919,7 @@ const ManagerDashboard = () => {
             )}
 
             {/* Bouton Annuler - Style professionnel avec gradient */}
-            {order.status !== ORDER_STATUS.SERVED && order.status !== ORDER_STATUS.CANCELLED && (
+            {order.status !== ORDER_STATUS.SERVED && order.status !== ORDER_STATUS.CANCELLED && order.status !== ORDER_STATUS.READY && (
               <button
                 onClick={() => handleCancelOrder(order.id)}
                 disabled={isProcessing}
@@ -716,7 +950,6 @@ const ManagerDashboard = () => {
           <Button
             variant="outline"
             onClick={() => setViewMode(viewMode === 'grid' ? 'kanban' : 'grid')}
-            icon={viewMode === 'grid' ? <Columns className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
             title={viewMode === 'grid' ? 'Vue Kanban' : 'Vue Grille'}
           >
             {viewMode === 'grid' ? 'Kanban' : 'Grille'}
@@ -733,54 +966,121 @@ const ManagerDashboard = () => {
             icon={soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             title={soundEnabled ? 'Désactiver les sons' : 'Activer les sons'}
           />
+        
+        {/* Bouton Actualiser avec forçage du rechargement sans cache */}
+        <Button
+          variant="outline"
+          onClick={() => {
+            logger.debug('🔄 [DIAGNOSTIC] Rechargement forcé sans cache');
+            orderCache.invalidate('/admin/orders');
+            loadAllOrders(false, false); // silent=false, useCache=false
+          }}
+          title="Recharger sans cache"
+        >
+          Actualiser
+        </Button>
 
-          <Button
-            variant="outline"
-            onClick={() => loadAllOrders()}
-            disabled={loading}
-            icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
-          >
-            Actualiser
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          onClick={() => setShowHistory((prev) => !prev)}
+        >
+          {showHistory ? 'Masquer historique' : 'Historique'}
+        </Button>
       </div>
+      </div>
+      
+      {/* Debug affichage brut des commandes - DÉSACTIVÉ pour l'affichage normal */}
+      {/* 
+      <div className="mt-2 p-3 rounded-lg border border-neutral-200 bg-white">
+        <p className="text-sm text-neutral-700 font-sans">
+          Commandes récupérées: <span className="font-semibold">{orders?.length || 0}</span>
+        </p>
+        {(orders?.length || 0) > 0 && (
+          <pre className="mt-2 max-h-48 overflow-auto text-xs bg-neutral-50 p-2 rounded">
+{JSON.stringify(
+  orders.slice(0, 5).map(o => ({
+    id: o.id,
+    number: o.order_number || o.orderNumber || o.number || null,
+    status: o.status || null,
+    items: Array.isArray(o.items) ? o.items.length : 0,
+    payments: Array.isArray(o.payments) ? o.payments.length : 0
+  })), 
+  null, 
+  2
+) }
+          </pre>
+        )}
+      </div>
+      */}
 
-
-      {/* Statistiques simplifiées */}
+    {/* Statistiques simplifiées */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 w-full max-w-full">
-        <Card padding="sm" className="bg-gradient-to-br from-gray-50 to-gray-100">
+      <Card padding="sm" className="bg-gradient-to-br from-gray-50 to-gray-100">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-neutral-600 font-sans">Total actives</p>
-            <p className="text-xl font-heading font-bold text-black">{stats.total}</p>
+          <p className="text-sm text-neutral-600 font-sans">Total actives</p>
+          <p className="text-xl font-heading font-bold text-black">{stats.total}</p>
           </div>
         </Card>
 
-        <Card padding="sm" className="bg-gradient-to-br from-amber-50 to-amber-100 border-l-4 border-amber-500">
+      <Card padding="sm" className="bg-gradient-to-br from-amber-50 to-amber-100 border-l-4 border-amber-500">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-neutral-600 font-sans">En attente</p>
-            <p className="text-xl font-heading font-bold text-amber-600">{stats.pending}</p>
+          <p className="text-sm text-neutral-600 font-sans">En attente</p>
+          <p className="text-xl font-heading font-bold text-amber-600">{stats.pending}</p>
           </div>
         </Card>
 
-        <Card padding="sm" className="bg-gradient-to-br from-blue-50 to-blue-100 border-l-4 border-blue-500">
+      <Card padding="sm" className="bg-gradient-to-br from-blue-50 to-blue-100 border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-neutral-600 font-sans">Prendre en charge</p>
-            <p className="text-xl font-heading font-bold text-blue-600">{stats.preparing}</p>
+          <p className="text-sm text-neutral-600 font-sans">Prendre en charge</p>
+          <p className="text-xl font-heading font-bold text-blue-600">{stats.preparing}</p>
           </div>
         </Card>
 
-        <Card padding="sm" className="bg-gradient-to-br from-green-50 to-green-100 border-l-4 border-green-500">
+      <Card padding="sm" className="bg-gradient-to-br from-green-50 to-green-100 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-neutral-600 font-sans">Terminées</p>
-            <p className="text-xl font-heading font-bold text-green-600">{stats.ready}</p>
+          <p className="text-sm text-neutral-600 font-sans">Terminées</p>
+          <p className="text-xl font-heading font-bold text-green-600">{stats.ready}</p>
           </div>
         </Card>
       </div>
 
-      {/* Séparation entre statistiques et commandes */}
-      <div className="border-t border-neutral-200 my-6"></div>
+    {/* Séparation entre statistiques et commandes */}
+    <div className="border-t border-neutral-200 my-6"></div>
 
-      {loading && orders.length === 0 ? (
+    {showHistory ? (
+      <div className="mt-6 space-y-4">
+        <div className="border-t border-neutral-200 pt-6"></div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-heading font-bold text-black">Historique des commandes terminées</h2>
+            <p className="text-sm text-neutral-600 font-sans">Commandes marquées comme terminées (plus récentes en premier)</p>
+          </div>
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-100 text-emerald-700 font-semibold">
+            <CheckCircle2 className="w-4 h-4" /> {historyOrders.length} commande{historyOrders.length > 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {loading && historyOrders.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <RefreshCw className="w-12 h-12 animate-spin text-black mb-4" />
+            <p className="text-neutral-600 font-sans">Chargement...</p>
+          </div>
+        ) : historyOrders.length === 0 ? (
+          <Card padding="lg" className="text-center">
+            <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-heading font-bold text-black mb-1">Aucune commande terminée</h3>
+            <p className="text-neutral-600 font-sans">Les commandes terminées apparaîtront ici.</p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-full">
+            {historyOrders.map(order => (
+              <OrderCard key={`history-${order.id}`} order={order} onTakeInCharge={handleTakeInChargeRequest} />
+            ))}
+              </div>
+        )}
+      </div>
+    ) : (
+      loading && activeOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12">
           <RefreshCw className="w-12 h-12 animate-spin text-black mb-4" />
           <p className="text-neutral-600 font-sans">Chargement...</p>
@@ -797,67 +1097,48 @@ const ManagerDashboard = () => {
         </Card>
       ) : viewMode === 'kanban' ? (
         /* Vue Kanban par colonnes */
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 max-w-full">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-full">
           {/* Colonne En attente */}
           <div className="space-y-4">
             <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg border-2 border-red-200 mb-4">
               <h3 className="font-bold text-red-700 text-lg">En attente</h3>
               <p className="text-sm text-red-600">{displayedOrders.filter(o => o.status === ORDER_STATUS.PENDING).length}</p>
-            </div>
+                      </div>
             {displayedOrders
               .filter(o => o.status === ORDER_STATUS.PENDING)
               .map(order => (
-                <OrderCard key={order.id} order={order} />
+                <OrderCard key={order.id} order={order} onTakeInCharge={handleTakeInChargeRequest} />
               ))}
-          </div>
+                    </div>
 
           {/* Colonne En cours */}
           <div className="space-y-4">
             <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg border-2 border-blue-200 mb-4">
               <h3 className="font-bold text-blue-700 text-lg">En cours</h3>
               <p className="text-sm text-blue-600">{displayedOrders.filter(o => o.status === ORDER_STATUS.PREPARING).length}</p>
-            </div>
+                    </div>
             {displayedOrders
               .filter(o => o.status === ORDER_STATUS.PREPARING)
               .map(order => (
-                <OrderCard key={order.id} order={order} />
+                <OrderCard key={order.id} order={order} onTakeInCharge={handleTakeInChargeRequest} />
               ))}
-          </div>
-
-          {/* Colonne Terminée */}
-          <div className="space-y-4">
-            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg border-2 border-emerald-200 mb-4">
-              <h3 className="font-bold text-emerald-700 text-lg">Terminée</h3>
-              <p className="text-sm text-emerald-600">{displayedOrders.filter(o => o.status === ORDER_STATUS.READY).length}</p>
-            </div>
-            {displayedOrders
-              .filter(o => o.status === ORDER_STATUS.READY)
-              .map(order => (
-                <OrderCard key={order.id} order={order} />
-              ))}
-          </div>
-
-          {/* Colonne Remise */}
-          <div className="space-y-4">
-            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg border-2 border-slate-200 mb-4">
-              <h3 className="font-bold text-slate-700 text-lg">Remise</h3>
-              <p className="text-sm text-slate-600">{displayedOrders.filter(o => o.status === ORDER_STATUS.SERVED).length}</p>
-            </div>
-            {displayedOrders
-              .filter(o => o.status === ORDER_STATUS.SERVED)
-              .map(order => (
-                <OrderCard key={order.id} order={order} />
-              ))}
-          </div>
-        </div>
+                  </div>
+                </div>
       ) : (
         /* Vue Grille classique */
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-w-full">
           {displayedOrders.map(order => (
-            <OrderCard key={order.id} order={order} />
+            <OrderCard key={order.id} order={order} onTakeInCharge={handleTakeInChargeRequest} />
           ))}
-        </div>
-      )}
+                                  </div>
+      )
+    )}
+    <PaymentWorkflowModal
+      isOpen={isPaymentWorkflowOpen}
+      order={paymentWorkflowOrder}
+      onClose={handlePaymentWorkflowClose}
+      onSubmit={handlePaymentWorkflowSubmit}
+    />
     </div>
   );
 };

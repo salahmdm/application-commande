@@ -1,0 +1,229 @@
+:root {
+  --kiosk-bg: #f5f5f4;
+  --kiosk-panel: #ffffff;
+  --kiosk-border: #e3e3e2;
+  --kiosk-text: #111111;
+  --kiosk-muted: #6b6b6b;
+  --kiosk-accent: #111111;
+  --kiosk-accent-dark: #515151;
+}
+
+.kiosk-shell {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #ffffff, var(--kiosk-bg));
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  color: var(--kiosk-text);
+  font-family: 'Inter', sans-serif;
+}
+
+.kiosk-shell--compact {
+  display: flex;
+  flex-direction: row;
+  padding-top: 28vh;
+  min-height: calc(100vh - 28vh);
+}
+
+.kiosk-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28vh;
+  background: #ffffff;
+  border-bottom: 1px solid var(--kiosk-border);
+  display: block;
+  z-index: 50;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.kiosk-header__content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+}
+
+.kiosk-header__logo {
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 800;
+  color: var(--kiosk-text);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0;
+  display: block;
+  text-align: center;
+}
+
+.kiosk-shell__ambient,
+.kiosk-shell__orb,
+.kiosk-shell__grid {
+  display: none;
+}
+
+.kiosk-shell__main {
+  flex: 1;
+  background: var(--kiosk-panel);
+  border: none;
+  border-left: none;
+  border-top: 1px solid var(--kiosk-border);
+  border-bottom: 1px solid var(--kiosk-border);
+  border-right: none;
+  border-radius: 0;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-shadow: none;
+  margin-left: 0;
+}
+
+.kiosk-shell__main--compact {
+  padding-bottom: 140px;
+}
+
+.kiosk-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.kiosk-grid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kiosk-grid::-webkit-scrollbar-thumb {
+  background: #d1d1d1;
+  border-radius: 999px;
+}
+
+.kiosk-home-screen__empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 120px 40px;
+  color: var(--kiosk-muted);
+}
+
+.kiosk-home-screen__empty-icon {
+  font-size: 96px;
+  margin-bottom: 16px;
+}
+
+.kiosk-home-screen--loading,
+.kiosk-home-screen--offline {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--kiosk-bg);
+  color: var(--kiosk-text);
+}
+
+.kiosk-home-screen__loading-text {
+  margin-top: 16px;
+  letter-spacing: 0.2em;
+}
+
+.kiosk-cart-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border-top: 1px solid var(--kiosk-border);
+  padding: 18px 48px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  z-index: 40;
+  box-shadow: 0 -8px 25px rgba(15, 23, 42, 0.08);
+}
+
+.kiosk-cart-bar__metrics {
+  display: flex;
+  gap: 32px;
+}
+
+.kiosk-cart-bar__metrics p {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 11px;
+  color: var(--kiosk-muted);
+}
+
+.kiosk-cart-bar__metrics strong {
+  display: block;
+  font-size: 26px;
+  color: var(--kiosk-text);
+}
+
+.kiosk-cart-bar button {
+  border: 1px solid #111111;
+  border-radius: 999px;
+  padding: 14px 28px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.kiosk-cart-bar button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.kiosk-cart-bar button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+@media (max-width: 960px) {
+  .kiosk-shell--compact {
+    flex-direction: column;
+    padding-top: 28vh;
+  }
+
+  .kiosk-header {
+    height: 28vh;
+  }
+
+  .kiosk-shell__main {
+    margin-left: 0;
+    border-radius: 24px;
+    margin: 12px;
+  }
+
+  .kiosk-cart-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 24px;
+  }
+
+  .kiosk-cart-bar__metrics {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .kiosk-cart-bar button {
+    width: 100%;
+  }
+}
+

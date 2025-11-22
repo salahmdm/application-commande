@@ -8,26 +8,27 @@ const mysql = require('mysql2/promise');
 // Utiliser la configuration centralisée depuis config.js
 require('dotenv').config();
 const configModule = require('./config');
+const logger = require('./utils/logger');
 const config = configModule.database;
 
 async function testUserOrders(email = 'pascal.dupont@example.com') {
   let connection;
   
   try {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🔍 TEST COMMANDES UTILISATEUR');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-    console.log('📧 Email recherché:', email);
-    console.log('');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('🔍 TEST COMMANDES UTILISATEUR');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    logger.log('📧 Email recherché:', email);
+    logger.log('');
     
     // Connexion à la base de données
     connection = await mysql.createConnection(config);
-    console.log('✅ Connexion à la base de données réussie\n');
+    logger.log('✅ Connexion à la base de données réussie\n');
     
     // 1. Trouver l'utilisateur
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('1️⃣ RECHERCHE UTILISATEUR');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('1️⃣ RECHERCHE UTILISATEUR');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     const [users] = await connection.query(`
       SELECT id, email, first_name, last_name, role, loyalty_points
@@ -36,25 +37,25 @@ async function testUserOrders(email = 'pascal.dupont@example.com') {
     `, [`%${email}%`, `%${email}%`, `%${email}%`]);
     
     if (users.length === 0) {
-      console.error('❌ Aucun utilisateur trouvé avec cet email/nom');
+      logger.error('❌ Aucun utilisateur trouvé avec cet email/nom');
       process.exit(1);
     }
     
-    console.log(`✅ ${users.length} utilisateur(s) trouvé(s):\n`);
+    logger.log(`✅ ${users.length} utilisateur(s) trouvé(s):\n`);
     users.forEach(user => {
-      console.log(`   ID: ${user.id}`);
-      console.log(`   Email: ${user.email}`);
-      console.log(`   Nom: ${user.first_name} ${user.last_name}`);
-      console.log(`   Rôle: ${user.role}`);
-      console.log(`   Points: ${user.loyalty_points}`);
-      console.log('');
+      logger.log(`   ID: ${user.id}`);
+      logger.log(`   Email: ${user.email}`);
+      logger.log(`   Nom: ${user.first_name} ${user.last_name}`);
+      logger.log(`   Rôle: ${user.role}`);
+      logger.log(`   Points: ${user.loyalty_points}`);
+      logger.log('');
     });
     
     // Pour chaque utilisateur, vérifier les commandes
     for (const user of users) {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`2️⃣ COMMANDES POUR ${user.first_name} ${user.last_name} (ID: ${user.id})`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log(`2️⃣ COMMANDES POUR ${user.first_name} ${user.last_name} (ID: ${user.id})`);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       // Compter les commandes
       const [count] = await connection.query(`
@@ -63,10 +64,10 @@ async function testUserOrders(email = 'pascal.dupont@example.com') {
         WHERE user_id = ?
       `, [user.id]);
       
-      console.log(`📊 Nombre total de commandes: ${count[0].count}\n`);
+      logger.log(`📊 Nombre total de commandes: ${count[0].count}\n`);
       
       if (count[0].count === 0) {
-        console.log('⚠️ Aucune commande trouvée pour cet utilisateur\n');
+        logger.log('⚠️ Aucune commande trouvée pour cet utilisateur\n');
         continue;
       }
       
@@ -96,25 +97,25 @@ async function testUserOrders(email = 'pascal.dupont@example.com') {
         LIMIT 100
       `, [user.id]);
       
-      console.log(`✅ ${orders.length} commande(s) récupérée(s):\n`);
+      logger.log(`✅ ${orders.length} commande(s) récupérée(s):\n`);
       
       // Afficher les 5 premières commandes
       orders.slice(0, 5).forEach((order, index) => {
-        console.log(`   Commande #${index + 1}:`);
-        console.log(`      ID: ${order.id}`);
-        console.log(`      Numéro: ${order.order_number}`);
-        console.log(`      Type: ${order.order_type}`);
-        console.log(`      Statut: ${order.status}`);
-        console.log(`      Montant: ${order.total_amount}€`);
-        console.log(`      Paiement: ${order.payment_status}`);
-        console.log(`      Date: ${order.created_at}`);
-        console.log('');
+        logger.log(`   Commande #${index + 1}:`);
+        logger.log(`      ID: ${order.id}`);
+        logger.log(`      Numéro: ${order.order_number}`);
+        logger.log(`      Type: ${order.order_type}`);
+        logger.log(`      Statut: ${order.status}`);
+        logger.log(`      Montant: ${order.total_amount}€`);
+        logger.log(`      Paiement: ${order.payment_status}`);
+        logger.log(`      Date: ${order.created_at}`);
+        logger.log('');
       });
       
       // Pour chaque commande, vérifier les items
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`3️⃣ ITEMS POUR LES COMMANDES`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log(`3️⃣ ITEMS POUR LES COMMANDES`);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       for (const order of orders.slice(0, 3)) {
         const [items] = await connection.query(`
@@ -131,16 +132,16 @@ async function testUserOrders(email = 'pascal.dupont@example.com') {
           ORDER BY oi.id ASC
         `, [order.id]);
         
-        console.log(`\n   Commande #${order.order_number} (${items.length} items):`);
+        logger.log(`\n   Commande #${order.order_number} (${items.length} items):`);
         items.forEach(item => {
-          console.log(`      - ${item.product_name} x${item.quantity} = ${item.subtotal}€`);
+          logger.log(`      - ${item.product_name} x${item.quantity} = ${item.subtotal}€`);
         });
       }
       
       // Statistiques
-      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`4️⃣ STATISTIQUES`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log(`4️⃣ STATISTIQUES`);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       const [stats] = await connection.query(`
         SELECT 
@@ -152,26 +153,26 @@ async function testUserOrders(email = 'pascal.dupont@example.com') {
         WHERE o.user_id = ?
       `, [user.id]);
       
-      console.log(`   Total commandes: ${stats[0].total_orders}`);
-      console.log(`   CA total: ${stats[0].total_spent}€`);
-      console.log(`   Panier moyen: ${stats[0].average_order}€`);
-      console.log(`   Dernière commande: ${stats[0].last_order_date || 'Aucune'}`);
-      console.log('');
+      logger.log(`   Total commandes: ${stats[0].total_orders}`);
+      logger.log(`   CA total: ${stats[0].total_spent}€`);
+      logger.log(`   Panier moyen: ${stats[0].average_order}€`);
+      logger.log(`   Dernière commande: ${stats[0].last_order_date || 'Aucune'}`);
+      logger.log('');
     }
     
     await connection.end();
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ TEST TERMINÉ');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('✅ TEST TERMINÉ');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   } catch (error) {
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌ ERREUR');
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('Message:', error.message);
-    console.error('Code:', error.code);
-    console.error('SQL State:', error.sqlState);
-    console.error('Stack:', error.stack);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('❌ ERREUR');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('Message:', error.message);
+    logger.error('Code:', error.code);
+    logger.error('SQL State:', error.sqlState);
+    logger.error('Stack:', error.stack);
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     if (connection) {
       await connection.end();

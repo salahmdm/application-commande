@@ -1,0 +1,121 @@
+/* Menu latéral vertical fixe - Style KFC */
+.kiosk-menu {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 280px; /* 260-300px comme spécifié */
+  height: 100vh;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.kiosk-menu__logo {
+  padding: 32px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.kiosk-menu__logo-text {
+  font-size: 32px;
+  font-weight: 900;
+  color: #dc2626; /* Rouge KFC */
+  margin: 0;
+  text-align: center;
+}
+
+.kiosk-menu__nav {
+  flex: 1;
+  padding: 16px 0;
+}
+
+.kiosk-menu__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.kiosk-menu__item {
+  margin: 0;
+  padding: 0;
+}
+
+.kiosk-menu__button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px; /* Gros interlignes comme spécifié */
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 30px; /* 28-34px comme spécifié */
+  font-weight: 600;
+  color: #1f2937;
+  transition: background-color 150ms ease;
+  position: relative;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kiosk-menu__button:active {
+  background-color: #f3f4f6; /* Fond gris clair au tap */
+  transform: scale(0.98);
+}
+
+.kiosk-menu__button:hover {
+  background-color: #f9fafb; /* Hover tactile */
+}
+
+.kiosk-menu__button--active {
+  background-color: #fef2f2; /* Fond légèrement rouge pour actif */
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.kiosk-menu__indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px; /* 4-6px comme spécifié */
+  background: #dc2626; /* Barre rouge verticale */
+  border-radius: 0 3px 3px 0;
+}
+
+.kiosk-menu__icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.kiosk-menu__text {
+  flex: 1;
+  line-height: 1.2;
+}
+
+/* Scrollbar personnalisée */
+.kiosk-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kiosk-menu::-webkit-scrollbar-track {
+  background: #f9fafb;
+}
+
+.kiosk-menu::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.kiosk-menu::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+

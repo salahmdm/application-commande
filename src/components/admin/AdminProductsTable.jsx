@@ -1,5 +1,6 @@
 import React from 'react';
 import { Edit2, Trash2, Power, ChevronUp, ChevronDown } from 'lucide-react';
+import logger from '../../utils/logger';
 
 /**
  * Tableau des produits avec sélection multiple et actions en lot
@@ -44,16 +45,7 @@ const AdminProductsTable = ({
       {/* Vue desktop - Table */}
       <div className="hidden lg:block overflow-x-auto">
         <table className="w-full" style={{ tableLayout: 'fixed' }}>
-          <colgroup>
-            <col style={{ width: '5%' }} />  {/* Checkbox */}
-            <col style={{ width: '35%' }} /> {/* Produit */}
-            <col style={{ width: '15%' }} /> {/* Catégorie */}
-            <col style={{ width: '10%' }} /> {/* Prix */}
-            <col style={{ width: '12%' }} /> {/* Statut */}
-            <col style={{ width: '12%' }} /> {/* Activer/Désactiver */}
-            <col style={{ width: '10%' }} /> {/* Modifier */}
-            <col style={{ width: '10%' }} /> {/* Supprimer */}
-          </colgroup>
+          <colgroup><col style={{ width: '5%' }} /><col style={{ width: '35%' }} /><col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} /></colgroup>
           <thead>
             <tr className="border-b border-gray-200">
               <th className="text-center p-3 font-semibold">
@@ -121,17 +113,7 @@ const AdminProductsTable = ({
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-3">
-                    {product.image_url ? (
-                      <img 
-                        src={`http://localhost:5000${product.image_url}`}
-                        alt={product.name}
-                        className="w-16 h-16 object-cover rounded-xl border-2 border-neutral-200"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 bg-neutral-100 rounded-xl flex items-center justify-center text-2xl border-2 border-neutral-200">
-                        {product.image || '🫖'}
-                      </div>
-                    )}
+                    {/* Image produit - Supprimée pour admin */}
                     <div>
                       <div className="font-heading font-semibold text-black">{product.name}</div>
                       <div className="text-sm text-neutral-600 truncate max-w-xs font-sans">
@@ -184,7 +166,7 @@ const AdminProductsTable = ({
                 <td className="p-3 text-center">
                   <button
                     onClick={() => {
-                      console.log('🔧 Bouton Modifier cliqué pour:', product);
+                      logger.log('🔧 Bouton Modifier cliqué pour:', product);
                       onEdit(product);
                     }}
                     className="p-3 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all duration-200 hover:scale-110 active:scale-95 border-2 border-blue-200"
@@ -222,17 +204,7 @@ const AdminProductsTable = ({
                   onChange={() => onSelectItem(product.id)}
                   className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
                 />
-                {product.image_url ? (
-                  <img 
-                    src={`http://localhost:5000${product.image_url}`}
-                    alt={product.name}
-                    className="w-20 h-20 object-cover rounded-xl border-2 border-neutral-300 flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-20 h-20 bg-neutral-100 rounded-xl flex items-center justify-center text-3xl border-2 border-neutral-300 flex-shrink-0">
-                    {product.image || '🫖'}
-                  </div>
-                )}
+                {/* Image produit - Supprimée pour admin */}
                 <div className="flex-1 min-w-0">
                   <div className="font-heading font-bold text-lg text-black">{product.name}</div>
                   <div className="text-sm text-neutral-600 font-sans line-clamp-2">{product.description}</div>
@@ -288,7 +260,7 @@ const AdminProductsTable = ({
               {/* Bouton Modifier */}
               <button
                 onClick={() => {
-                  console.log('🔧 Bouton Modifier mobile cliqué pour:', product);
+                  logger.log('🔧 Bouton Modifier mobile cliqué pour:', product);
                   onEdit(product);
                 }}
                 className="w-full flex items-center justify-center gap-2 bg-blue-50 text-blue-600 px-4 py-3 rounded-xl hover:bg-blue-100 transition-all duration-200 font-heading font-semibold active:scale-95 border-2 border-blue-200"

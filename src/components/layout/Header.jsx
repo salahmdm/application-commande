@@ -1,9 +1,10 @@
-import React from 'react';
+// Import React non nécessaire avec JSX transform automatique
 import { ShoppingCart, Menu, LogOut } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import useUIStore from '../../store/uiStore';
 import { formatPrice } from '../../constants/pricing';
+// ConfirmLogoutModal déplacé dans MainLayout pour être au premier plan
 
 /**
  * 🎨 Header Ultra-Moderne avec Design Futuriste
@@ -12,26 +13,44 @@ import { formatPrice } from '../../constants/pricing';
 const Header = ({ onMenuClick, sidebarOpen }) => {
   const { user, isAuthenticated, logout } = useAuth();
   const { totalItems, total } = useCart();
-  const setShowCart = useUIStore((state) => state.setShowCart);
+  const { showCart, setShowCart, toggleCart } = useUIStore((state) => ({
+    showCart: state.showCart,
+    setShowCart: state.setShowCart,
+    toggleCart: state.toggleCart
+  }));
   const setCurrentView = useUIStore((state) => state.setCurrentView);
-  
-  const handleLogout = async () => {
-    if (window.confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
-      await logout();
-    }
-  };
+  const setShowLogoutConfirm = useUIStore((state) => state.setShowLogoutConfirm);
   
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   
+  const handleLogout = async () => {
+    // Afficher la modale de confirmation pour tous les rôles
+    setShowLogoutConfirm(true);
+  };
+
+  const handleMenuClick = () => {
+    // Fermer le panier si ouvert
+    setShowCart(false);
+    // Ouvrir/fermer le menu
+    onMenuClick();
+  };
+
+  const handleHomeClick = () => {
+    // Fermer le panier si ouvert
+    setShowCart(false);
+    // Aller à la page d'accueil
+    setCurrentView('home');
+  };
+  
   return (
-    <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200/50 sticky top-0 z-50 shadow-lg shadow-slate-200/50 overflow-x-hidden">
+    <header className="bg-white/95 backdrop-blur-xl border-b border-slate-200/50 fixed top-0 left-0 right-0 z-[100] shadow-lg shadow-slate-200/50 overflow-x-hidden will-change-transform">
       <div className="w-full px-4 sm:px-6 py-4 md:py-6">
         <div className="flex items-center justify-between gap-2 md:gap-6 min-w-0">
           {/* Logo avec effet moderne */}
           <div className="flex items-center gap-3 flex-shrink-0">
             {/* Bouton menu avec effet de verre */}
             <button
-              onClick={onMenuClick}
+              onClick={handleMenuClick}
               className="p-3 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200/50 hover:bg-white/80 transition-all duration-300 flex-shrink-0 active:scale-95 group"
               aria-label={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
               title={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
@@ -40,10 +59,15 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
             </button>
             
             <div className="flex items-center gap-3 sm:gap-6 md:gap-8">
-              {/* Logo avec gradient */}
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent whitespace-nowrap animate-pulse-slow">
+              {/* Logo avec gradient - Bouton vers page d'accueil */}
+              <button
+                onClick={handleHomeClick}
+                className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent whitespace-nowrap animate-pulse-slow hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg px-2 py-1"
+                aria-label="Aller à la page d'accueil"
+                title="Accueil"
+              >
                 Blossom Café
-              </h1>
+              </button>
               
               {/* Boutons mobiles modernes */}
               {isManager && (
@@ -144,7 +168,7 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
 
             {user?.role === 'client' && (
               <button
-                onClick={() => setShowCart(true)}
+                onClick={() => toggleCart()}
                 className="group relative bg-gradient-to-r from-purple-600 to-blue-600 text-white px-4 md:px-6 py-3 rounded-2xl flex items-center gap-2 md:gap-3 shadow-lg hover:shadow-xl hover:shadow-purple-500/25 transition-all duration-300 flex-shrink-0 hover:scale-105 active:scale-95"
                 aria-label={`Panier: ${totalItems} articles, ${formatPrice(total)}`}
               >
@@ -164,11 +188,11 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
               </button>
             )}
             
-            {/* Bouton déconnexion avec effet moderne */}
+            {/* Bouton déconnexion avec effet moderne – toujours visible, en premier plan */}
             {isAuthenticated && (
               <button
                 onClick={handleLogout}
-                className="hidden lg:flex p-3 rounded-2xl hover:bg-red-50 text-red-600 transition-all duration-300 flex-shrink-0 hover:scale-105 active:scale-95 group"
+                className="flex p-3 rounded-2xl hover:bg-red-50 text-red-600 transition-all duration-300 flex-shrink-0 hover:scale-105 active:scale-95 group z-50"
                 aria-label="Déconnexion"
                 title="Déconnexion"
               >
@@ -178,6 +202,7 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
           </div>
         </div>
       </div>
+      
     </header>
   );
 };

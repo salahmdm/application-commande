@@ -1,4 +1,5 @@
 import React from 'react';
+import logger from '../../utils/logger';
 
 /**
  * Composant CategoryFilterPOS - Filtrage par catégories optimisé pour le POS
@@ -68,7 +69,7 @@ const CategoryFilterPOS = ({ categories, selectedCategory, onSelectCategory }) =
           const categoryKey = category.id || category.slug;
           const isActive = selectedCategory === categoryKey;
           
-          console.log('🏷️ CategoryFilterPOS - Catégorie:', {
+          logger.log('🏷️ CategoryFilterPOS - Catégorie:', {
             name: category.name,
             id: category.id,
             slug: category.slug,
@@ -80,8 +81,8 @@ const CategoryFilterPOS = ({ categories, selectedCategory, onSelectCategory }) =
             <button
               key={categoryKey}
               onClick={() => {
-                console.log('🏷️ CategoryFilterPOS - Clic sur catégorie:', categoryKey, category.name);
-                console.log('🏷️ CategoryFilterPOS - Valeur envoyée:', categoryKey, typeof categoryKey);
+                logger.log('🏷️ CategoryFilterPOS - Clic sur catégorie:', categoryKey, category.name);
+                logger.log('🏷️ CategoryFilterPOS - Valeur envoyée:', categoryKey, typeof categoryKey);
                 onSelectCategory(categoryKey);
               }}
               className={`

@@ -1,0 +1,90 @@
+/* Footer fixe - Style KFC */
+.kiosk-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 140px; /* 120-150px comme spécifié */
+  background: #dc2626; /* Rouge KFC */
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40px;
+}
+
+.kiosk-footer__container {
+  width: 100%;
+  max-width: 1600px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.kiosk-footer__info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #ffffff;
+  flex: 1;
+}
+
+.kiosk-footer__total {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.kiosk-footer__label {
+  font-size: 36px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.kiosk-footer__amount {
+  font-size: 48px; /* 40-48px comme spécifié */
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.kiosk-footer__count {
+  font-size: 28px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.kiosk-footer__button {
+  width: 70%; /* 70% largeur comme spécifié */
+  max-width: 800px;
+  height: 80px;
+  background: #ffffff;
+  color: #dc2626;
+  border: none;
+  border-radius: 12px;
+  font-size: 44px; /* 40-48px comme spécifié */
+  font-weight: 900;
+  cursor: pointer;
+  transition: all 200ms ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.kiosk-footer__button:active {
+  background: #f3f4f6;
+  transform: scale(0.98);
+}
+
+.kiosk-footer__button:disabled {
+  background: #9ca3af;
+  color: #ffffff;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.kiosk-footer__button:disabled:active {
+  transform: none;
+}
+

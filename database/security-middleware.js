@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { body, param, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const config = require('./config');
+const logger = require('./utils/clientLogger');
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -84,7 +85,7 @@ const generalRateLimit = rateLimit({
   },
   // Handler personnalisé pour les erreurs
   handler: (req, res) => {
-    console.warn('⚠️ [RATE LIMIT] Limite atteinte - IP:', req.ip, 'Path:', req.path);
+    logger.warn('⚠️ [RATE LIMIT] Limite atteinte - IP:', req.ip, 'Path:', req.path);
     res.status(429).json({
       error: 'Trop de requêtes',
       message: config.rateLimit.message || 'Trop de requêtes depuis cette IP, veuillez réessayer plus tard.',
@@ -112,7 +113,7 @@ const authRateLimit = rateLimit({
   },
   // Handler personnalisé
   handler: (req, res) => {
-    console.warn('⚠️ [RATE LIMIT AUTH] Limite atteinte - IP:', req.ip, 'Path:', req.path);
+    logger.warn('⚠️ [RATE LIMIT AUTH] Limite atteinte - IP:', req.ip, 'Path:', req.path);
     res.status(429).json({
       error: 'Trop de tentatives de connexion',
       message: 'Trop de tentatives de connexion depuis cette IP. Veuillez réessayer dans 15 minutes.',
@@ -151,7 +152,7 @@ const adminRateLimit = rateLimit({
     return false;
   },
   handler: (req, res) => {
-    console.warn('⚠️ [RATE LIMIT ADMIN] Limite atteinte - IP:', req.ip, 'Path:', req.path);
+    logger.warn('⚠️ [RATE LIMIT ADMIN] Limite atteinte - IP:', req.ip, 'Path:', req.path);
     res.status(429).json({
       error: 'Trop de requêtes',
       message: 'Trop de requêtes admin depuis cette IP, veuillez réessayer plus tard.',
@@ -183,10 +184,13 @@ try {
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    // Utiliser ValidationError pour une gestion cohérente via errorHandler
+    // ✅ Corriger: Utiliser path ou param pour le nom du champ (express-validator peut utiliser les deux)
     const validationError = new ValidationError(
       'Données invalides',
-      errors.array().map(e => ({ field: e.param, message: e.msg }))
+      errors.array().map(e => ({ 
+        field: e.path || e.param || e.location, // path est la propriété standard, param est l'ancienne
+        message: e.msg 
+      }))
     );
     return next(validationError); // Passer à errorHandler pour formatage cohérent
   }
@@ -261,7 +265,7 @@ const csrfProtection = (req, res, next) => {
   
   // Vérifier que les deux tokens existent
   if (!cookieToken || !headerToken) {
-    console.warn('⚠️ [CSRF] Token manquant - Cookie:', !!cookieToken, 'Header:', !!headerToken, 'Path:', req.path, 'IP:', req.ip);
+    logger.warn('⚠️ [CSRF] Token manquant - Cookie:', !!cookieToken, 'Header:', !!headerToken, 'Path:', req.path, 'IP:', req.ip);
     return res.status(403).json({
       error: 'Token CSRF manquant',
       message: 'Une erreur de sécurité est survenue. Veuillez rafraîchir la page.'
@@ -274,7 +278,7 @@ const csrfProtection = (req, res, next) => {
   
   // Vérifier que les tokens ont la même longueur
   if (cookieBuffer.length !== headerBuffer.length) {
-    console.warn('⚠️ [CSRF] Tokens de longueur différente - Path:', req.path, 'IP:', req.ip);
+    logger.warn('⚠️ [CSRF] Tokens de longueur différente - Path:', req.path, 'IP:', req.ip);
     return res.status(403).json({
       error: 'Token CSRF invalide',
       message: 'Une erreur de sécurité est survenue. Veuillez rafraîchir la page.'
@@ -283,7 +287,7 @@ const csrfProtection = (req, res, next) => {
   
   // Comparaison timing-safe
   if (!crypto.timingSafeEqual(cookieBuffer, headerBuffer)) {
-    console.warn('⚠️ [CSRF] Token invalide - Path:', req.path, 'IP:', req.ip);
+    logger.warn('⚠️ [CSRF] Token invalide - Path:', req.path, 'IP:', req.ip);
     return res.status(403).json({
       error: 'Token CSRF invalide',
       message: 'Une erreur de sécurité est survenue. Veuillez rafraîchir la page.'
@@ -296,7 +300,8 @@ const csrfProtection = (req, res, next) => {
 
 // Auth: require JWT in cookie or Authorization Bearer
 const authenticateToken = (req, res, next) => {
-  const tokenFromCookie = req.cookies && req.cookies.token;
+  // ✅ Support des cookies token (normal) et kiosk_token (pour les bornes)
+  const tokenFromCookie = req.cookies && (req.cookies.token || req.cookies.kiosk_token);
   const authHeader = req.headers['authorization'];
   const tokenFromHeader = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.split(' ')[1]
@@ -306,8 +311,8 @@ const authenticateToken = (req, res, next) => {
   if (!token) {
     // ✅ SÉCURITÉ: Vérifier si le bypass dev est autorisé avec toutes les conditions
     if (canUseDevBypass(req)) {
-      // ⚠️ LOGGER l'utilisation du bypass pour traçabilité
-      console.warn('⚠️ [DEV BYPASS] Utilisation du bypass dev pour:', req.path, 'IP:', req.ip);
+      // ⚠️ LOGGER l'utilisation du bypass pour traçabilité (toujours loggé même en prod pour sécurité)
+      logger.warn('⚠️ [DEV BYPASS] Utilisation du bypass dev pour:', req.path, 'IP:', req.ip);
       req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
       return next();
     }
@@ -320,8 +325,8 @@ const authenticateToken = (req, res, next) => {
     if (err) {
       // ✅ SÉCURITÉ: Vérifier si le bypass dev est autorisé avec toutes les conditions
       if (canUseDevBypass(req)) {
-        // ⚠️ LOGGER l'utilisation du bypass pour traçabilité
-        console.warn('⚠️ [DEV BYPASS] Token invalide, utilisation du bypass dev pour:', req.path, 'IP:', req.ip);
+        // ⚠️ LOGGER l'utilisation du bypass pour traçabilité (toujours loggé même en prod pour sécurité)
+        logger.warn('⚠️ [DEV BYPASS] Token invalide, utilisation du bypass dev pour:', req.path, 'IP:', req.ip);
         req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
         return next();
       }
@@ -340,13 +345,13 @@ const authenticateToken = (req, res, next) => {
 const requireRole = (roles) => (req, res, next) => {
   // ✅ SÉCURITÉ: Vérifier si le bypass dev est autorisé avec toutes les conditions
   if (canUseDevBypass(req)) {
-    // ⚠️ LOGGER l'utilisation du bypass pour traçabilité
+    // ⚠️ LOGGER l'utilisation du bypass pour traçabilité (toujours loggé même en prod pour sécurité)
     if (!req.user) {
-      console.warn('⚠️ [DEV BYPASS] Pas d\'utilisateur, injection bypass dev pour:', req.path, 'IP:', req.ip);
+      logger.warn('⚠️ [DEV BYPASS] Pas d\'utilisateur, injection bypass dev pour:', req.path, 'IP:', req.ip);
       req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
     } else if (req.user.devBypass) {
       // Si l'utilisateur a déjà le bypass, laisser passer (mais logger)
-      console.warn('⚠️ [DEV BYPASS] Bypass rôle pour:', req.path, 'Rôle requis:', roles, 'IP:', req.ip);
+      logger.warn('⚠️ [DEV BYPASS] Bypass rôle pour:', req.path, 'Rôle requis:', roles, 'IP:', req.ip);
     }
     return next();
   }
@@ -359,6 +364,7 @@ const requireRole = (roles) => (req, res, next) => {
 };
 const requireAdmin = requireRole('admin');
 const requireManager = requireRole(['manager', 'admin']);
+const requireKiosk = requireRole('kiosk');
 
 // ✅ SÉCURITÉ: Validateurs stricts avec express-validator
 
@@ -375,6 +381,7 @@ const loginValidation = [
 ];
 
 // Validation register
+// ✅ SÉCURITÉ: Tous les inscrits sont automatiquement en rôle 'client' (forcé côté backend)
 const registerValidation = [
   body('email')
     .isEmail().withMessage('Email invalide')
@@ -385,13 +392,27 @@ const registerValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre')
     .isLength({ max: 255 }).withMessage('Mot de passe trop long'),
   body('firstName')
-    .optional()
     .trim()
+    .notEmpty().withMessage('Le prénom est requis')
     .isLength({ min: 1, max: 100 }).withMessage('Le prénom doit contenir entre 1 et 100 caractères'),
   body('lastName')
-    .optional()
     .trim()
+    .notEmpty().withMessage('Le nom est requis')
     .isLength({ min: 1, max: 100 }).withMessage('Le nom doit contenir entre 1 et 100 caractères'),
+  body('phone')
+    .optional({ checkFalsy: true }) // ✅ Ne valider que si la valeur est fournie et non vide
+    .trim()
+    .custom((value) => {
+      // Si le téléphone est vide/null/undefined, c'est valide (optionnel)
+      if (!value || value.trim() === '') {
+        return true;
+      }
+      // Sinon, valider le format
+      const phoneRegex = /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
+      return phoneRegex.test(value);
+    }).withMessage('Numéro de téléphone invalide')
+    .isLength({ max: 20 }).withMessage('Numéro de téléphone trop long'),
+  // ✅ Le champ 'role' est intentionnellement ignoré - tous les inscrits sont forcés en 'client' côté backend
   handleValidationErrors
 ];
 
@@ -726,6 +747,7 @@ module.exports = {
   requireRole,
   requireAdmin,
   requireManager,
+  requireKiosk, // ✅ Export du middleware kiosk
   csrfProtection,
   generateCsrfToken,
   loginValidation,

@@ -1,3 +1,4 @@
+const logger = require('./utils/logger');
 /**
  * Corrections de sécurité pour Blossom Café
  * Appliquer ces corrections dans admin-api.js
@@ -114,27 +115,27 @@ app.post('/api/auth/login', authRateLimit, async (req, res) => {
 // REMPLACER les logs sensibles:
 /*
 // ❌ AVANT
-console.log('   - Token (premiers caractères):', token.substring(0, 30) + '...');
-console.log('   - User Email:', user.email);
-console.error('SQL:', error.sql);
-console.error('Stack:', error.stack);
+logger.log('   - Token (premiers caractères):', token.substring(0, 30) + '...');
+logger.log('   - User Email:', user.email);
+logger.error('SQL:', error.sql);
+logger.error('Stack:', error.stack);
 
 // ✅ APRÈS
 if (process.env.NODE_ENV === 'development') {
-  console.log('   - Token présent: OUI');
-  console.log('   - User ID:', user.id);
+  logger.log('   - Token présent: OUI');
+  logger.log('   - User ID:', user.id);
 } else {
-  console.log('   - Token présent: OUI');
-  console.log('   - User ID:', user.id);
+  logger.log('   - Token présent: OUI');
+  logger.log('   - User ID:', user.id);
   // Ne jamais logger les emails ou tokens en production
 }
 
 // Pour les erreurs SQL
 if (process.env.NODE_ENV === 'development') {
-  console.error('SQL Error:', error.sql);
-  console.error('Stack:', error.stack);
+  logger.error('SQL Error:', error.sql);
+  logger.error('Stack:', error.stack);
 } else {
-  console.error('SQL Error:', error.code);
+  logger.error('SQL Error:', error.code);
   // Ne pas logger le SQL complet en production
 }
 */

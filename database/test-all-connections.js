@@ -5,11 +5,12 @@
 const mysql = require('mysql2/promise');
 const http = require('http');
 const configModule = require('./config');
+const logger = require('./utils/logger');
 
 async function testAllConnections() {
-  console.log('========================================');
-  console.log('🔍 TEST COMPLET DE CONNEXION');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('🔍 TEST COMPLET DE CONNEXION');
+  logger.log('========================================\n');
   
   const results = {
     database: { ok: false, message: '' },
@@ -17,7 +18,7 @@ async function testAllConnections() {
   };
   
   // 1. Test Base de données MySQL
-  console.log('1️⃣ Test de connexion à la base de données MySQL...');
+  logger.log('1️⃣ Test de connexion à la base de données MySQL...');
   try {
     const connection = await mysql.createConnection({
       host: configModule.database.host,
@@ -44,18 +45,18 @@ async function testAllConnections() {
       ok: true,
       message: `✅ Base de données connectée\n   - Tables: ${tables.length}\n   - Produits: ${products[0].count}\n   - Catégories: ${categories[0].count}\n   - Utilisateurs actifs: ${users[0].count}`
     };
-    console.log(results.database.message);
+    logger.log(results.database.message);
   } catch (error) {
     results.database = {
       ok: false,
       message: `❌ Erreur de connexion MySQL: ${error.message}\n   Code: ${error.code}`
     };
-    console.error(results.database.message);
+    logger.error(results.database.message);
   }
-  console.log('');
+  logger.log('');
   
   // 2. Test Backend API
-  console.log('2️⃣ Test de connexion au Backend API...');
+  logger.log('2️⃣ Test de connexion au Backend API...');
   try {
     const backendTest = await new Promise((resolve, reject) => {
       const req = http.request({
@@ -90,19 +91,19 @@ async function testAllConnections() {
       ok: true,
       message: `✅ Backend API accessible\n   - Status: ${backendTest.status}\n   - Port: 5000\n   - URL: http://localhost:5000/api`
     };
-    console.log(results.backend.message);
+    logger.log(results.backend.message);
   } catch (error) {
     results.backend = {
       ok: false,
       message: `❌ Backend API non accessible\n   - Erreur: ${error.message}\n   - Port: 5000\n   - Solution: Démarrez le backend avec "npm run backend"`
     };
-    console.error(results.backend.message);
+    logger.error(results.backend.message);
   }
-  console.log('');
+  logger.log('');
   
   // 3. Test connexion Backend -> BDD
   if (results.backend.ok && results.database.ok) {
-    console.log('3️⃣ Test de connexion Backend -> Base de données...');
+    logger.log('3️⃣ Test de connexion Backend -> Base de données...');
     try {
       const apiTest = await new Promise((resolve, reject) => {
         const req = http.request({
@@ -134,69 +135,71 @@ async function testAllConnections() {
       });
       
       if (apiTest.status === 200 && apiTest.data.success) {
-        console.log(`✅ Backend peut accéder à la BDD\n   - Catégories récupérées: ${apiTest.data.data?.length || 0}`);
+        logger.log(`✅ Backend peut accéder à la BDD\n   - Catégories récupérées: ${apiTest.data.data?.length || 0}`);
       } else {
-        console.log(`⚠️ Backend répond mais avec un code: ${apiTest.status}`);
+        logger.log(`⚠️ Backend répond mais avec un code: ${apiTest.status}`);
       }
     } catch (error) {
-      console.error(`❌ Erreur lors du test Backend -> BDD: ${error.message}`);
+      logger.error(`❌ Erreur lors du test Backend -> BDD: ${error.message}`);
     }
-    console.log('');
+    logger.log('');
   }
   
   // Résumé
-  console.log('========================================');
-  console.log('📊 RÉSUMÉ DES TESTS');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('📊 RÉSUMÉ DES TESTS');
+  logger.log('========================================\n');
   
   Object.entries(results).forEach(([name, result]) => {
-    console.log(`${name.toUpperCase()}:`);
-    console.log(result.message);
-    console.log('');
+    logger.log(`${name.toUpperCase()}:`);
+    logger.log(result.message);
+    logger.log('');
   });
   
   const allOk = Object.values(results).every(r => r.ok);
   if (allOk) {
-    console.log('✅ TOUTES LES CONNEXIONS SONT OPÉRATIONNELLES !');
-    console.log('');
-    console.log('🌐 URLs:');
-    console.log('   - Backend API: http://localhost:5000/api');
-    console.log('   - Frontend:    http://localhost:3000 (si démarré)');
-    console.log('   - BDD MySQL:   Port 3306');
+    logger.log('✅ TOUTES LES CONNEXIONS SONT OPÉRATIONNELLES !');
+    logger.log('');
+    logger.log('🌐 URLs:');
+    logger.log('   - Backend API: http://localhost:5000/api');
+    logger.log('   - Frontend:    http://localhost:3000 (si démarré)');
+    logger.log('   - BDD MySQL:   Port 3306');
   } else {
-    console.log('❌ CERTAINES CONNEXIONS NE SONT PAS ÉTABLIES');
-    console.log('');
-    console.log('💡 Actions à effectuer:');
+    logger.log('❌ CERTAINES CONNEXIONS NE SONT PAS ÉTABLIES');
+    logger.log('');
+    logger.log('💡 Actions à effectuer:');
     if (!results.database.ok) {
-      console.log('');
-      console.log('🔹 Problème Base de données:');
-      console.log('   1. Vérifiez que MySQL est démarré');
-      console.log('   2. Vérifiez les identifiants dans database/.env:');
-      console.log('      - DB_HOST');
-      console.log('      - DB_PORT');
-      console.log('      - DB_USER');
-      console.log('      - DB_PASSWORD');
-      console.log('      - DB_NAME');
+      logger.log('');
+      logger.log('🔹 Problème Base de données:');
+      logger.log('   1. Vérifiez que MySQL est démarré');
+      logger.log('   2. Vérifiez les identifiants dans database/.env:');
+      logger.log('      - DB_HOST');
+      logger.log('      - DB_PORT');
+      logger.log('      - DB_USER');
+      logger.log('      - DB_PASSWORD');
+      logger.log('      - DB_NAME');
     }
     if (!results.backend.ok) {
-      console.log('');
-      console.log('🔹 Problème Backend API:');
-      console.log('   1. Démarrez le backend: npm run backend');
-      console.log('   2. Vérifiez que le port 5000 est libre');
-      console.log('   3. Vérifiez les logs du backend pour les erreurs');
+      logger.log('');
+      logger.log('🔹 Problème Backend API:');
+      logger.log('   1. Démarrez le backend: npm run backend');
+      logger.log('   2. Vérifiez que le port 5000 est libre');
+      logger.log('   3. Vérifiez les logs du backend pour les erreurs');
     }
-    console.log('');
-    console.log('💡 Pour démarrer les serveurs:');
-    console.log('   npm run start  (démarre backend + frontend)');
+    logger.log('');
+    logger.log('💡 Pour démarrer les serveurs:');
+    logger.log('   npm run start  (démarre backend + frontend)');
   }
   
-  console.log('');
+  logger.log('');
 }
 
 testAllConnections().catch(error => {
-  console.error('❌ Erreur lors des tests:', error);
+  logger.error('❌ Erreur lors des tests:', error);
   process.exit(1);
 });
+
+
 
 
 

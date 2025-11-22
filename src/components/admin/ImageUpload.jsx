@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import Button from '../common/Button';
+import logger from '../../utils/logger';
 
 /**
  * Composant ImageUpload - Gestion moderne d'images
@@ -54,21 +55,22 @@ const ImageUpload = ({
       const response = await fetch('http://localhost:5000/api/admin/products/upload-image', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: formData
+        body: formData,
+        credentials: 'include' // envoyer les cookies httpOnly pour l'auth
       });
 
       const data = await response.json();
 
       if (data.success) {
         onImageChange(data.imageUrl);
-        console.log('✅ Image uploadée:', data.imageUrl);
+        logger.debug('✅ Image uploadée:', data.imageUrl);
       } else {
         throw new Error(data.error || 'Erreur upload');
       }
     } catch (err) {
-      console.error('❌ Erreur upload:', err);
+      logger.error('❌ Erreur upload:', err);
       setError('Erreur lors de l\'upload. Réessayez.');
       setPreview(currentImage);
     } finally {
@@ -101,9 +103,9 @@ const ImageUpload = ({
 
       setPreview(null);
       if (onImageRemove) onImageRemove();
-      console.log('🗑️ Image supprimée');
+      logger.debug('🗑️ Image supprimée');
     } catch (err) {
-      console.error('❌ Erreur suppression:', err);
+      logger.error('❌ Erreur suppression:', err);
       setError('Erreur lors de la suppression.');
     } finally {
       setUploading(false);

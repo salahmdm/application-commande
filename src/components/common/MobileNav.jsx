@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, ShoppingBag, Clock, User, Package, BarChart3, PlusCircle } from 'lucide-react';
+import { Home, ShoppingBag, Clock, User, Package, BarChart3, PlusCircle, ShoppingCart } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useUIStore from '../../store/uiStore';
 import useCart from '../../hooks/useCart';
@@ -10,23 +10,24 @@ import useCart from '../../hooks/useCart';
  */
 const MobileNav = () => {
   const { role } = useAuth();
-  const { currentView, setCurrentView } = useUIStore();
+  const { currentView, setCurrentView, setShowCart, toggleCart } = useUIStore();
   const { totalItems } = useCart();
 
   const getNavItems = () => {
     if (role === 'client') {
       return [
-        { id: 'home', label: 'Accueil', icon: Home },
-        { id: 'products', label: 'Produits', icon: ShoppingBag },
-        { id: 'orders', label: 'Commandes', icon: Clock },
-        { id: 'profile', label: 'Profil', icon: User }
+        { id: 'home', label: 'Accueil', icon: Home, action: 'navigate' },
+        { id: 'products', label: 'Produits', icon: ShoppingBag, action: 'navigate' },
+        { id: 'cart', label: 'Panier', icon: ShoppingCart, action: 'cart' },
+        { id: 'orders', label: 'Commandes', icon: Clock, action: 'navigate' },
+        { id: 'profile', label: 'Profil', icon: User, action: 'navigate' }
       ];
     } else if (role === 'manager' || role === 'admin') {
       return [
-        { id: 'manager-pos', label: 'POS', icon: PlusCircle },
-        { id: 'manager-orders', label: 'Commandes', icon: Package },
-        { id: 'manager-stats', label: 'Stats', icon: BarChart3 },
-        { id: 'profile', label: 'Profil', icon: User }
+        { id: 'manager-pos', label: 'POS', icon: PlusCircle, action: 'navigate' },
+        { id: 'manager-orders', label: 'Commandes', icon: Package, action: 'navigate' },
+        { id: 'manager-stats', label: 'Stats', icon: BarChart3, action: 'navigate' },
+        { id: 'profile', label: 'Profil', icon: User, action: 'navigate' }
       ];
     }
     return [];
@@ -34,18 +35,28 @@ const MobileNav = () => {
 
   const navItems = getNavItems();
 
+  const handleItemClick = (item) => {
+    if (item.action === 'cart') {
+      toggleCart();
+    } else {
+      // Fermer le panier si ouvert quand on navigue
+      setShowCart(false);
+      setCurrentView(item.id);
+    }
+  };
+
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-neutral-200 z-40 shadow-elegant safe-area-inset-bottom">
-      <div className="grid grid-cols-4 h-16">
+      <div className={`grid h-16 ${role === 'client' ? 'grid-cols-5' : 'grid-cols-4'}`}>
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = currentView === item.id;
-          const showBadge = item.id === 'products' && totalItems > 0;
+          const isActive = item.action === 'cart' ? false : currentView === item.id;
+          const showBadge = item.id === 'cart' && totalItems > 0;
 
           return (
             <button
               key={item.id}
-              onClick={() => setCurrentView(item.id)}
+              onClick={() => handleItemClick(item)}
               className={`
                 flex flex-col items-center justify-center gap-1 relative
                 transition-all duration-200 active:scale-95
@@ -58,8 +69,8 @@ const MobileNav = () => {
               <div className="relative">
                 <Icon className={`w-6 h-6 transition-transform duration-200 ${isActive ? 'scale-125' : ''}`} />
                 {showBadge && (
-                  <div className="absolute -top-2 -right-2 bg-accent-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold shadow-glow">
-                    {totalItems}
+                  <div className="absolute -top-2 -right-2 bg-black text-white text-xs min-w-[20px] h-5 rounded-full flex items-center justify-center font-bold shadow-lg px-1">
+                    {totalItems > 99 ? '99+' : totalItems}
                   </div>
                 )}
               </div>

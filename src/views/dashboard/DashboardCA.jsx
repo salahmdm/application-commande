@@ -43,6 +43,7 @@ import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import dashboardService from '../../services/dashboardService';
 import { formatPrice } from '../../constants/pricing';
+import logger from '../../utils/logger';
 
 /**
  * Dashboard CA - Version Mobile-First Responsive
@@ -83,7 +84,8 @@ const DashboardCA = () => {
     try {
       const saved = localStorage.getItem('dashboard-transactions-height');
       return saved ? parseInt(saved) : 600;
-    } catch {
+    } catch (error) {
+      logger.warn('DashboardCA: lecture de la hauteur transactions impossible, valeur par défaut utilisée.', error);
       return 600;
     }
   };
@@ -93,7 +95,9 @@ const DashboardCA = () => {
     setTransactionsHeight(height);
     try {
       localStorage.setItem('dashboard-transactions-height', height.toString());
-    } catch {}
+    } catch (error) {
+      logger.warn('DashboardCA: impossible de sauvegarder la hauteur des transactions.', error);
+    }
   };
 
   const [chartType, setChartType] = useState('area');
@@ -239,7 +243,7 @@ const DashboardCA = () => {
         setTransactions(ordersPeriodResponse.data || []);
       }
     } catch (error) {
-      console.error('❌ Erreur:', error);
+      logger.error('❌ Erreur:', error);
     } finally {
       setLoading(false);
     }
@@ -1016,12 +1020,21 @@ const DashboardCA = () => {
                       <th className="text-left p-2 md:p-3 font-bold text-gray-900">Client</th>
                       <th className="text-right p-2 md:p-3 font-bold text-gray-900">Articles</th>
                       <th className="text-right p-2 md:p-3 font-bold text-gray-900">Total</th>
+                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Méthode</th>
                       <th className="text-left p-2 md:p-3 font-bold text-gray-900">Paiement</th>
                       <th className="text-left p-2 md:p-3 font-bold text-gray-900">Statut</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((t) => (
+                    {transactions.map((t) => {
+                      const rawPaymentStatus = (t.payment_status || t.paymentStatus || '').toLowerCase();
+                      const isTransactionPaid = ['completed', 'paid', 'completed_payment'].includes(rawPaymentStatus);
+                      const paymentLabel = isTransactionPaid ? 'Payé' : 'Non payé';
+                      const paymentBadgeClass = isTransactionPaid
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                        : 'bg-red-100 text-red-600 border border-red-200';
+
+                      return (
                       <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="p-2 md:p-3 text-gray-700">
                           {new Date(t.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -1034,6 +1047,11 @@ const DashboardCA = () => {
                         <td className="p-2 md:p-3 text-right font-semibold text-emerald-700">{formatPrice(parseFloat(t.total_amount || 0))}</td>
                         <td className="p-2 md:p-3 text-gray-700">{t.payment_method || 'N/A'}</td>
                         <td className="p-2 md:p-3">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${paymentBadgeClass}`}>
+                            {paymentLabel}
+                          </span>
+                        </td>
+                        <td className="p-2 md:p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                             t.status === 'served' ? 'bg-green-100 text-green-700' :
                             t.status === 'preparing' ? 'bg-yellow-100 text-yellow-700' :
@@ -1042,7 +1060,8 @@ const DashboardCA = () => {
                           }`}>{t.status}</span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (

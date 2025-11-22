@@ -4,11 +4,12 @@
 
 const mysql = require('mysql2/promise');
 const configModule = require('./config');
+const logger = require('./utils/logger');
 
 async function checkData() {
-  console.log('========================================');
-  console.log('🔍 VÉRIFICATION DES DONNÉES BDD');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('🔍 VÉRIFICATION DES DONNÉES BDD');
+  logger.log('========================================\n');
   
   try {
     const connection = await mysql.createConnection({
@@ -19,22 +20,22 @@ async function checkData() {
       database: configModule.database.database
     });
     
-    console.log('✅ Connexion MySQL réussie\n');
+    logger.log('✅ Connexion MySQL réussie\n');
     
     // 1. Vérifier les catégories
-    console.log('1️⃣ CATÉGORIES:');
+    logger.log('1️⃣ CATÉGORIES:');
     const [categories] = await connection.execute(
       'SELECT id, name, slug, icon, display_order, is_active FROM categories ORDER BY display_order'
     );
     
-    console.log(`   Total: ${categories.length} catégories`);
+    logger.log(`   Total: ${categories.length} catégories`);
     categories.forEach(cat => {
-      console.log(`   - ${cat.icon || ''} ${cat.name} (${cat.slug}) - ${cat.is_active ? '✅ Actif' : '❌ Inactif'}`);
+      logger.log(`   - ${cat.icon || ''} ${cat.name} (${cat.slug}) - ${cat.is_active ? '✅ Actif' : '❌ Inactif'}`);
     });
-    console.log('');
+    logger.log('');
     
     // 2. Vérifier les produits
-    console.log('2️⃣ PRODUITS:');
+    logger.log('2️⃣ PRODUITS:');
     const [products] = await connection.execute(
       `SELECT p.id, p.name, p.description, p.price, p.stock, p.is_available, 
               c.name as category_name, c.slug as category_slug
@@ -44,21 +45,21 @@ async function checkData() {
        LIMIT 20`
     );
     
-    console.log(`   Total (affiche 20 premiers): ${products.length} produits`);
+    logger.log(`   Total (affiche 20 premiers): ${products.length} produits`);
     products.forEach(prod => {
-      console.log(`   - ${prod.name} (${prod.category_name})`);
-      console.log(`     Description: ${prod.description || 'N/A'}`);
-      console.log(`     Prix: ${prod.price}€ - Stock: ${prod.stock} - ${prod.is_available ? '✅ Disponible' : '❌ Indisponible'}`);
+      logger.log(`   - ${prod.name} (${prod.category_name})`);
+      logger.log(`     Description: ${prod.description || 'N/A'}`);
+      logger.log(`     Prix: ${prod.price}€ - Stock: ${prod.stock} - ${prod.is_available ? '✅ Disponible' : '❌ Indisponible'}`);
     });
-    console.log('');
+    logger.log('');
     
     // 3. Compter tous les produits
     const [count] = await connection.execute('SELECT COUNT(*) as total FROM products');
-    console.log(`3️⃣ TOTAL PRODUITS DANS LA BDD: ${count[0].total}`);
-    console.log('');
+    logger.log(`3️⃣ TOTAL PRODUITS DANS LA BDD: ${count[0].total}`);
+    logger.log('');
     
     // 4. Vérifier des produits spécifiques mentionnés
-    console.log('4️⃣ PRODUITS SPÉCIFIQUES MENTIONNÉS:');
+    logger.log('4️⃣ PRODUITS SPÉCIFIQUES MENTIONNÉS:');
     const specificProducts = [
       'Thé Vert Sencha',
       'Croissant au Beurre',
@@ -77,15 +78,15 @@ async function checkData() {
       );
       
       if (found.length > 0) {
-        console.log(`   ✅ ${productName}: Trouvé - Prix: ${found[0].price}€ - ID: ${found[0].id}`);
+        logger.log(`   ✅ ${productName}: Trouvé - Prix: ${found[0].price}€ - ID: ${found[0].id}`);
       } else {
-        console.log(`   ❌ ${productName}: NON TROUVÉ dans la BDD`);
+        logger.log(`   ❌ ${productName}: NON TROUVÉ dans la BDD`);
       }
     }
-    console.log('');
+    logger.log('');
     
     // 5. Vérifier les catégories spécifiques
-    console.log('5️⃣ CATÉGORIES SPÉCIFIQUES MENTIONNÉES:');
+    logger.log('5️⃣ CATÉGORIES SPÉCIFIQUES MENTIONNÉES:');
     const specificCategories = [
       'Thés',
       'Pâtisseries',
@@ -101,26 +102,26 @@ async function checkData() {
       );
       
       if (found.length > 0) {
-        console.log(`   ✅ ${catName}: Trouvé - Slug: ${found[0].slug} - ID: ${found[0].id}`);
+        logger.log(`   ✅ ${catName}: Trouvé - Slug: ${found[0].slug} - ID: ${found[0].id}`);
       } else {
-        console.log(`   ❌ ${catName}: NON TROUVÉ dans la BDD`);
+        logger.log(`   ❌ ${catName}: NON TROUVÉ dans la BDD`);
       }
     }
-    console.log('');
+    logger.log('');
     
     await connection.end();
     
-    console.log('========================================');
-    console.log('✅ VÉRIFICATION TERMINÉE');
-    console.log('========================================');
-    console.log('');
-    console.log('💡 CONCLUSION:');
-    console.log('   Si les produits sont dans la BDD: Données enregistrées en base');
-    console.log('   Si les produits ne sont pas dans la BDD: Données de secours (fallback) utilisées');
-    console.log('');
+    logger.log('========================================');
+    logger.log('✅ VÉRIFICATION TERMINÉE');
+    logger.log('========================================');
+    logger.log('');
+    logger.log('💡 CONCLUSION:');
+    logger.log('   Si les produits sont dans la BDD: Données enregistrées en base');
+    logger.log('   Si les produits ne sont pas dans la BDD: Données de secours (fallback) utilisées');
+    logger.log('');
     
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
+    logger.error('❌ Erreur:', error.message);
     process.exit(1);
   }
 }

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { InputValidator, XSSProtection } from '../../services/secureAuthService';
+import logger from '../../utils/logger';
 
 /**
  * Hook de validation de formulaire sécurisé
@@ -144,7 +145,7 @@ export const useSecureForm = (initialValues = {}, validationRules = {}) => {
 
       await onSubmit(cleanData);
     } catch (error) {
-      console.error('❌ Form submission error:', error);
+      logger.error('❌ Form submission error:', error);
       throw error;
     } finally {
       setIsSubmitting(false);

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Download, Printer, Mail, User, Briefcase } from 'lucide-react';
 import Button from './Button';
 import Input from './Input';
 import { downloadReceipt, printReceipt } from '../../services/receiptService';
+import businessInfoService, { DEFAULT_BUSINESS_INFO } from '../../services/businessInfoService';
 import useNotifications from '../../hooks/useNotifications';
 import { formatOrderNumber } from '../../utils/orderHelpers';
+import logger from '../../utils/logger';
 
 /**
  * Modal de génération de ticket de caisse
@@ -18,20 +20,50 @@ const ReceiptModal = ({ isOpen, onClose, order }) => {
     company: '',
     siret: ''
   });
+  const [businessInfo, setBusinessInfo] = useState(DEFAULT_BUSINESS_INFO);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let active = true;
+    const loadBusinessInfo = async () => {
+      try {
+        const info = await businessInfoService.getBusinessInfo();
+        if (active) {
+          setBusinessInfo(info);
+        }
+      } catch (error) {
+        logger.error('Erreur chargement informations entreprise:', error);
+        if (active) {
+          setBusinessInfo(DEFAULT_BUSINESS_INFO);
+        }
+      }
+    };
+
+    loadBusinessInfo();
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen || !order) return null;
 
   const handleDownload = () => {
     try {
       setLoading(true);
-      downloadReceipt(order, { clientType, clientInfo });
+      downloadReceipt(order, {
+        clientType,
+        clientInfo,
+        businessInfo,
+        ticketDisplay: businessInfo.displayPreferences
+      });
       success('✅ Ticket téléchargé avec succès !');
       setTimeout(() => {
         onClose();
       }, 1000);
     } catch (err) {
-      console.error('Erreur génération ticket:', err);
+      logger.error('Erreur génération ticket:', err);
       showError('❌ Erreur lors de la génération du ticket');
     } finally {
       setLoading(false);
@@ -41,13 +73,18 @@ const ReceiptModal = ({ isOpen, onClose, order }) => {
   const handlePrint = () => {
     try {
       setLoading(true);
-      printReceipt(order, { clientType, clientInfo });
+      printReceipt(order, {
+        clientType,
+        clientInfo,
+        businessInfo,
+        ticketDisplay: businessInfo.displayPreferences
+      });
       success('✅ Ticket ouvert pour impression !');
       setTimeout(() => {
         onClose();
       }, 1000);
     } catch (err) {
-      console.error('Erreur génération ticket:', err);
+      logger.error('Erreur génération ticket:', err);
       showError('❌ Erreur lors de la génération du ticket');
     } finally {
       setLoading(false);
@@ -65,7 +102,7 @@ const ReceiptModal = ({ isOpen, onClose, order }) => {
       // TODO: Implémenter l'envoi par email via l'API backend
       showError('🚧 Fonctionnalité d\'envoi par email en cours de développement');
     } catch (err) {
-      console.error('Erreur envoi email:', err);
+      logger.error('Erreur envoi email:', err);
       showError('❌ Erreur lors de l\'envoi par email');
     } finally {
       setLoading(false);
@@ -73,14 +110,11 @@ const ReceiptModal = ({ isOpen, onClose, order }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 pt-20 md:pt-24 lg:pt-28">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[calc(100vh-5rem-2rem)] md:max-h-[calc(100vh-6rem-2rem)] lg:max-h-[calc(100vh-7rem-2rem)] overflow-y-auto">
         {/* En-tête */}
         <div className="sticky top-0 bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 border-green-200 p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-              <span className="text-2xl">🧾</span>
-            </div>
             <div>
               <h2 className="text-xl font-heading font-bold text-gray-900">
                 Générer un Ticket de Caisse
@@ -211,7 +245,7 @@ const ReceiptModal = ({ isOpen, onClose, order }) => {
             </h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm font-sans">
-                <span className="text-gray-600">Nombre d'articles:</span>
+                <span className="text-gray-600">Nombre d&apos;articles:</span>
                 <span className="font-semibold text-gray-900">
                   {order.items?.length || 0}
                 </span>

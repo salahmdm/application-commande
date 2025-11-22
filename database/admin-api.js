@@ -24,6 +24,57 @@ const { errorHandler, asyncHandler, notFoundHandler } = require('./middleware/er
 const { parsePaginationParams, getPaginationMetadata, formatPaginatedResponse } = require('./utils/pagination'); // ✅ Pagination
 const PoolMonitor = require('./utils/pool-monitor'); // ✅ OPTIMISATION: Monitoring du pool
 const cache = require('./utils/cache'); // ✅ OPTIMISATION: Cache pour données fréquentes
+
+/**
+ * ✅ Générer un identifiant unique de 11 caractères (mélange lettres et chiffres)
+ * Format: Lettres majuscules (A-Z) et chiffres (0-9)
+ * @returns {string} Identifiant unique de 11 caractères
+ */
+const generateClientIdentifier = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; // 26 lettres + 10 chiffres = 36 caractères
+  let identifier = '';
+  
+  // Générer 11 caractères aléatoires
+  for (let i = 0; i < 11; i++) {
+    const randomIndex = crypto.randomInt(0, chars.length);
+    identifier += chars[randomIndex];
+  }
+  
+  return identifier;
+};
+
+/**
+ * ✅ Générer un identifiant client unique (vérifier qu'il n'existe pas déjà en base)
+ * @param {Object} pool - Pool MySQL
+ * @returns {Promise<string>} Identifiant unique
+ */
+const generateUniqueClientIdentifier = async (pool) => {
+  let identifier;
+  let attempts = 0;
+  const maxAttempts = 10; // Limiter les tentatives pour éviter une boucle infinie
+  
+  do {
+    identifier = generateClientIdentifier();
+    const [existing] = await pool.query(
+      'SELECT id FROM users WHERE client_identifier = ?',
+      [identifier]
+    );
+    
+    if (existing.length === 0) {
+      // Identifiant unique trouvé
+      return identifier;
+    }
+    
+    attempts++;
+    if (attempts >= maxAttempts) {
+      // En cas d'échec répété, ajouter un timestamp pour garantir l'unicité
+      const timestamp = Date.now().toString().slice(-4); // 4 derniers chiffres du timestamp
+      identifier = generateClientIdentifier().slice(0, 7) + timestamp;
+      logger.warn('⚠️ Utilisation d\'un identifiant avec timestamp pour garantir l\'unicité');
+      return identifier;
+    }
+  } while (true);
+};
 const { 
   helmetConfig, 
   authRateLimit, 
@@ -32,6 +83,7 @@ const {
   csrfProtection, 
   generateCsrfToken,
   authenticateToken, // ✅ Import depuis security-middleware.js (inclut session timeout)
+  requireKiosk, // ✅ Middleware pour rôle kiosk
   loginValidation,
   registerValidation,
   validateUser,
@@ -54,10 +106,19 @@ const httpServer = http.createServer(app);
 // ✅ SIMPLIFICATION: Variable pour faciliter les vérifications
 const isProd = process.env.NODE_ENV === 'production';
 
-// Configuration CORS sécurisée - Plus permissive en développement
-const allowedOrigins = isProd
+// Normalisation des origines CORS (supprimer la barre finale)
+const normalizeOrigin = (origin = '') => origin.replace(/\/$/, '');
+
+// Configuration CORS sécurisée
+// ✅ Port 3000: Application principale (App.jsx)
+// ✅ Port 3010: Kiosk (KioskApp.jsx)
+const allowedOrigins = (isProd
   ? (process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [])
-  : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3005', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'];
+  : [
+      'http://localhost:3000',      // Application principale
+      'http://localhost:3010'       // Kiosk
+    ]
+).map(normalizeOrigin);
 
 const io = new Server(httpServer, {
   cors: {
@@ -74,6 +135,29 @@ const io = new Server(httpServer, {
 // ================================================================
 // Appliquer Helmet pour les headers de sécurité
 app.use(helmetConfig);
+
+// ✅ OPTIMISATION: Compression des réponses (réduit la taille de 60-70%)
+// Installer avec: npm install compression
+// Si le package n'est pas installé, la compression sera désactivée sans erreur
+try {
+  const compression = require('compression');
+  app.use(compression({
+    level: 6, // Niveau de compression optimal (0-9)
+    threshold: 1024, // Compresser seulement si > 1KB
+    filter: (req, res) => {
+      // Ne pas compresser si le client ne le supporte pas
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      // Utiliser le filtre par défaut
+      return compression.filter(req, res);
+    }
+  }));
+  logger.log('✅ Compression activée pour les réponses API');
+} catch (error) {
+  // Package compression non installé - continuer sans compression
+  logger.log('ℹ️ Compression non disponible (optionnel) - installez avec: npm install compression');
+}
 
 // ✅ SÉCURITÉ: Le bypass dev doit être explicitement activé
 // Ne JAMAIS activer automatiquement, même en développement
@@ -98,7 +182,7 @@ const devBypass = (mw) => {
   return (req, res, next) => {
     if (canUseDevBypass(req)) {
       // ⚠️ LOGGER l'utilisation du bypass
-      console.warn('⚠️ [DEV BYPASS] Bypass middleware pour:', req.path, 'IP:', req.ip);
+      logger.warn('⚠️ [DEV BYPASS] Bypass middleware pour:', req.path, 'IP:', req.ip);
       if (!req.user) {
         req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
       }
@@ -131,7 +215,7 @@ app.use('/api/admin', adminRateLimit);
  */
 async function generateOrderNumber(connection) {
   try {
-    console.log('🔢 [generateOrderNumber] Début de la génération séquentielle...');
+    logger.log('🔢 [generateOrderNumber] Début de la génération séquentielle...');
     
     // Récupérer le dernier numéro de commande au format CMD-XXXX
     const [lastOrders] = await connection.query(
@@ -164,29 +248,29 @@ async function generateOrderNumber(connection) {
     
     if (existing.length > 0) {
       // Collision détectée, incrémenter
-      console.warn('⚠️ Collision détectée, incrémentation...');
+      logger.warn('⚠️ Collision détectée, incrémentation...');
       return generateOrderNumber(connection);
     }
     
-    console.log('📌 [generateOrderNumber] Génération numéro de commande séquentiel:');
-    console.log('   - Format: CMD-XXXX');
-    console.log('   - Nouveau numéro généré:', orderNumber);
-    console.log('   - Format vérifié:', orderNumber.match(/^CMD-\d{4}$/) ? '✅' : '❌');
+    logger.log('📌 [generateOrderNumber] Génération numéro de commande séquentiel:');
+    logger.log('   - Format: CMD-XXXX');
+    logger.log('   - Nouveau numéro généré:', orderNumber);
+    logger.log('   - Format vérifié:', orderNumber.match(/^CMD-\d{4}$/) ? '✅' : '❌');
     
     // Vérifier que le format est correct
     if (!orderNumber.match(/^CMD-\d{4}$/)) {
-      console.error('❌ [generateOrderNumber] Format invalide généré:', orderNumber);
+      logger.error('❌ [generateOrderNumber] Format invalide généré:', orderNumber);
       throw new Error(`Format de numéro de commande invalide: ${orderNumber}`);
     }
     
     return orderNumber;
   } catch (error) {
-    console.error('❌ [generateOrderNumber] Erreur lors de la génération:', error);
-    console.error('   Stack:', error.stack);
+    logger.error('❌ [generateOrderNumber] Erreur lors de la génération:', error);
+    logger.error('   Stack:', error.stack);
     // En cas d'erreur, utiliser un fallback séquentiel basique
     const [countResult] = await connection.query('SELECT COUNT(*) as count FROM orders');
     const fallbackNumber = `CMD-${String((countResult[0]?.count || 0) + 1).padStart(4, '0')}`;
-    console.error('   ⚠️ Utilisation du fallback séquentiel:', fallbackNumber);
+    logger.error('   ⚠️ Utilisation du fallback séquentiel:', fallbackNumber);
     return fallbackNumber;
   }
 }
@@ -206,7 +290,8 @@ app.use(cors({
     }
     
     // Vérifier si l'origine est autorisée
-    if (origin && allowedOrigins.includes(origin)) {
+    const normalizedOrigin = origin ? normalizeOrigin(origin) : null;
+    if (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) {
       callback(null, true);
     } else {
       logger.security('CORS blocked', { origin, allowedOrigins });
@@ -249,9 +334,9 @@ app.use(express.urlencoded({ limit: '1mb', extended: true })); // 1MB pour form 
 // ✅ SÉCURITÉ: Ne logger que les informations non sensibles
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-    console.log(`  Origin: ${req.headers.origin || 'N/A'}`);
-    console.log(`  Referer: ${req.headers.referer || 'N/A'}`);
+    logger.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    logger.log(`  Origin: ${req.headers.origin || 'N/A'}`);
+    logger.log(`  Referer: ${req.headers.referer || 'N/A'}`);
   }
   next();
 });
@@ -316,7 +401,7 @@ pool.on('connection', (connection) => {
   connectionCount++;
   // Log seulement toutes les 10 connexions pour éviter la surcharge
   if (connectionCount % 10 === 0 || connectionCount <= 5) {
-    console.log('🔌 Nouvelle connexion MySQL établie (ID:', connection.threadId + ', Total:', connectionCount + ')');
+    logger.log('🔌 Nouvelle connexion MySQL établie (ID:', connection.threadId + ', Total:', connectionCount + ')');
   }
   
   // ✅ STABILITÉ: Configurer les timeouts MySQL pour chaque nouvelle connexion
@@ -325,43 +410,43 @@ pool.on('connection', (connection) => {
   Promise.all([
     new Promise((resolve) => {
       connection.query('SET SESSION wait_timeout = 28800', (err) => {
-        if (err && connectionCount <= 5) console.warn('⚠️ Erreur SET wait_timeout:', err.message);
+        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET wait_timeout:', err.message);
         resolve();
       });
     }),
     new Promise((resolve) => {
       connection.query('SET SESSION interactive_timeout = 28800', (err) => {
-        if (err && connectionCount <= 5) console.warn('⚠️ Erreur SET interactive_timeout:', err.message);
+        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET interactive_timeout:', err.message);
         resolve();
       });
     }),
     new Promise((resolve) => {
       connection.query('SET SESSION net_read_timeout = 60', (err) => {
-        if (err && connectionCount <= 5) console.warn('⚠️ Erreur SET net_read_timeout:', err.message);
+        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET net_read_timeout:', err.message);
         resolve();
       });
     }),
     new Promise((resolve) => {
       connection.query('SET SESSION net_write_timeout = 60', (err) => {
-        if (err && connectionCount <= 5) console.warn('⚠️ Erreur SET net_write_timeout:', err.message);
+        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET net_write_timeout:', err.message);
         resolve();
       });
     }),
     new Promise((resolve) => {
       // ✅ STABILITÉ: Exécuter une requête simple pour activer la connexion
       connection.query('SELECT 1', (err) => {
-        if (err && connectionCount <= 5) console.warn('⚠️ Erreur test connexion:', err.message);
+        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur test connexion:', err.message);
         resolve();
       });
     })
   ]).then(() => {
     // Log seulement pour les premières connexions
     if (connectionCount <= 5) {
-      console.log('   ✅ Timeouts MySQL configurés pour cette connexion (8h)');
+      logger.log('   ✅ Timeouts MySQL configurés pour cette connexion (8h)');
     }
   }).catch((err) => {
     if (connectionCount <= 5) {
-      console.warn('⚠️ Erreur configuration timeouts MySQL:', err.message);
+      logger.warn('⚠️ Erreur configuration timeouts MySQL:', err.message);
     }
   });
 });
@@ -400,22 +485,22 @@ if (process.env.NODE_ENV !== 'production' || process.env.SECURITY_MODE === 'rela
 }
 
 pool.on('error', (err) => {
-  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.error('❌ Erreur pool MySQL:', err.message);
-  console.error('   Code:', err.code);
-  console.error('   Stack:', err.stack);
-  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.error('❌ Erreur pool MySQL:', err.message);
+  logger.error('   Code:', err.code);
+  logger.error('   Stack:', err.stack);
+  logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-    console.warn('⚠️ Connexion MySQL perdue, le pool va se reconnecter automatiquement');
+    logger.warn('⚠️ Connexion MySQL perdue, le pool va se reconnecter automatiquement');
   } else if (err.code === 'ECONNREFUSED') {
-    console.error('❌ MySQL refuse la connexion - Vérifiez que MySQL est démarré');
+    logger.error('❌ MySQL refuse la connexion - Vérifiez que MySQL est démarré');
   } else if (err.code === 'PROTOCOL_PACKETS_OUT_OF_ORDER') {
-    console.warn('⚠️ Erreur de protocole MySQL, reconnexion en cours...');
+    logger.warn('⚠️ Erreur de protocole MySQL, reconnexion en cours...');
   } else if (err.code === 'ETIMEDOUT') {
-    console.warn('⚠️ Timeout de connexion MySQL');
+    logger.warn('⚠️ Timeout de connexion MySQL');
   } else if (err.code === 'ECONNRESET') {
-    console.warn('⚠️ Connexion MySQL réinitialisée par le serveur');
+    logger.warn('⚠️ Connexion MySQL réinitialisée par le serveur');
   }
 });
 
@@ -428,7 +513,7 @@ let keepAliveInterval = setInterval(() => {
   if (shuttingDown) return;
   pool.getConnection((err, connection) => {
     if (err) {
-      console.error('❌ Erreur lors du ping de connexion:', err.message);
+      logger.error('❌ Erreur lors du ping de connexion:', err.message);
       // Ne pas arrêter l'intervalle, continuer à essayer
       return;
     }
@@ -436,7 +521,7 @@ let keepAliveInterval = setInterval(() => {
     // ✅ STABILITÉ: Faire un ping pour maintenir la connexion active
     connection.ping((pingErr) => {
       if (pingErr) {
-        console.error('❌ Erreur ping MySQL:', pingErr.message);
+        logger.error('❌ Erreur ping MySQL:', pingErr.message);
         connection.release();
         return;
       }
@@ -446,13 +531,13 @@ let keepAliveInterval = setInterval(() => {
       Promise.all([
         new Promise((resolve) => {
           connection.query('SET SESSION wait_timeout = 28800', (err1) => {
-            if (err1) console.warn('⚠️ Erreur SET wait_timeout:', err1.message);
+            if (err1) logger.warn('⚠️ Erreur SET wait_timeout:', err1.message);
             resolve();
           });
         }),
         new Promise((resolve) => {
           connection.query('SET SESSION interactive_timeout = 28800', (err2) => {
-            if (err2) console.warn('⚠️ Erreur SET interactive_timeout:', err2.message);
+            if (err2) logger.warn('⚠️ Erreur SET interactive_timeout:', err2.message);
             resolve();
           });
         }),
@@ -460,7 +545,7 @@ let keepAliveInterval = setInterval(() => {
           // ✅ STABILITÉ: Exécuter une requête SELECT simple pour maintenir la connexion active
           // Cette requête active la connexion et empêche MySQL de la fermer
           connection.query('SELECT 1 as keepalive, NOW() as current_time', (err3) => {
-            if (err3) console.warn('⚠️ Erreur keepalive query:', err3.message);
+            if (err3) logger.warn('⚠️ Erreur keepalive query:', err3.message);
             resolve();
           });
         })
@@ -469,10 +554,10 @@ let keepAliveInterval = setInterval(() => {
         // Log seulement toutes les 5 minutes pour ne pas surcharger les logs
         const now = new Date();
         if (now.getMinutes() % 5 === 0 && now.getSeconds() < 20) {
-          console.log('💓 Ping MySQL réussi - Connexions actives et timeouts rafraîchis');
+          logger.log('💓 Ping MySQL réussi - Connexions actives et timeouts rafraîchis');
         }
       }).catch((keepAliveErr) => {
-        console.error('❌ Erreur lors du keep-alive:', keepAliveErr.message);
+        logger.error('❌ Erreur lors du keep-alive:', keepAliveErr.message);
         connection.release();
       });
     });
@@ -482,30 +567,30 @@ let keepAliveInterval = setInterval(() => {
 
 // ✅ OPTIMISATION: Nettoyer l'intervalle et le monitoring à l'arrêt du serveur
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
+  logger.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
   shuttingDown = true;
   clearInterval(keepAliveInterval);
   poolMonitor.stop();
   try {
     await pool.end();
-    console.log('✅ Pool MySQL fermé proprement');
+    logger.log('✅ Pool MySQL fermé proprement');
   } catch (e) {
-    console.error('⚠️ Erreur fermeture Pool:', e.message);
+    logger.error('⚠️ Erreur fermeture Pool:', e.message);
   } finally {
     process.exit(0);
   }
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
+  logger.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
   shuttingDown = true;
   clearInterval(keepAliveInterval);
   poolMonitor.stop();
   try {
     await pool.end();
-    console.log('✅ Pool MySQL fermé proprement');
+    logger.log('✅ Pool MySQL fermé proprement');
   } catch (e) {
-    console.error('⚠️ Erreur fermeture Pool:', e.message);
+    logger.error('⚠️ Erreur fermeture Pool:', e.message);
   } finally {
     process.exit(0);
   }
@@ -514,9 +599,9 @@ process.on('SIGTERM', async () => {
 // Test de connexion avec gestion d'erreur améliorée et configuration des timeouts
 pool.getConnection()
   .then(connection => {
-    console.log('✅ Connexion MySQL réussie');
-    console.log(`📊 Base de données: ${config.database.database}`);
-    console.log(`🔌 Host: ${config.database.host}:${config.database.port}`);
+    logger.log('✅ Connexion MySQL réussie');
+    logger.log(`📊 Base de données: ${config.database.database}`);
+    logger.log(`🔌 Host: ${config.database.host}:${config.database.port}`);
     
     // ✅ STABILITÉ: Configurer les timeouts sur la connexion de test
     return Promise.all([
@@ -525,21 +610,21 @@ pool.getConnection()
       connection.query('SET SESSION net_read_timeout = 30'),
       connection.query('SET SESSION net_write_timeout = 30')
     ]).then(() => {
-      console.log('✅ Timeouts MySQL configurés (8 heures)');
+      logger.log('✅ Timeouts MySQL configurés (8 heures)');
       connection.release();
     });
   })
   .catch(err => {
-    console.error('❌ Erreur de connexion MySQL:', err.message);
-    console.error('');
-    console.error('🔍 Vérifications:');
-    console.error('   1. MySQL est-il démarré ?');
-    console.error('   2. Vérifiez votre fichier .env (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)');
-    console.error('   3. Base de données existe-t-elle ?');
-    console.error('   4. Copiez database/.env.example en database/.env et configurez vos valeurs');
-    console.error('   4. Port 3306 accessible ?');
-    console.error('');
-    console.error('💡 Lancez: node verify-and-fix-db.js');
+    logger.error('❌ Erreur de connexion MySQL:', err.message);
+    logger.error('');
+    logger.error('🔍 Vérifications:');
+    logger.error('   1. MySQL est-il démarré ?');
+    logger.error('   2. Vérifiez votre fichier .env (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)');
+    logger.error('   3. Base de données existe-t-elle ?');
+    logger.error('   4. Copiez database/.env.example en database/.env et configurez vos valeurs');
+    logger.error('   4. Port 3306 accessible ?');
+    logger.error('');
+    logger.error('💡 Lancez: node verify-and-fix-db.js');
     process.exit(1);
   });
 
@@ -562,9 +647,9 @@ const authenticateOptional = (req, res, next) => {
 
   // ✅ SÉCURITÉ: Logs minimaux en production
   if (process.env.NODE_ENV === 'development') {
-    console.log('🔐 authenticateOptional - Vérification...');
-    console.log('   Token depuis cookie:', req.cookies?.token ? 'OUI' : 'NON');
-    console.log('   Token depuis header:', req.headers['authorization'] ? 'OUI' : 'NON');
+    logger.log('🔐 authenticateOptional - Vérification...');
+    logger.log('   Token depuis cookie:', req.cookies?.token ? 'OUI' : 'NON');
+    logger.log('   Token depuis header:', req.headers['authorization'] ? 'OUI' : 'NON');
   }
 
   // Si pas de token, vérifier si c'est un invité
@@ -573,7 +658,7 @@ const authenticateOptional = (req, res, next) => {
     if (guestName) {
       // Utilisateur invité
       if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Utilisateur invité détecté');
+        logger.log('✅ Utilisateur invité détecté');
       }
       req.user = {
         id: null, // Pas d'ID dans la base de données pour les invités
@@ -584,7 +669,7 @@ const authenticateOptional = (req, res, next) => {
       return next();
     }
     if (process.env.NODE_ENV === 'development') {
-      console.error('❌ Erreur: Ni token ni nom invité');
+      logger.error('❌ Erreur: Ni token ni nom invité');
     }
     return res.status(401).json({ error: 'Token manquant ou nom invité manquant' });
   }
@@ -593,13 +678,13 @@ const authenticateOptional = (req, res, next) => {
   jwt.verify(token, config.jwt.secret, (err, user) => {
     if (err) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('❌ Token invalide:', err.message);
+        logger.error('❌ Token invalide:', err.message);
       }
       // Si le token est invalide, essayer de traiter comme invité
       const guestName = req.body.guestName || req.headers['x-guest-name'];
       if (guestName) {
         if (process.env.NODE_ENV === 'development') {
-          console.log('⚠️ Token invalide, traitement comme invité');
+          logger.log('⚠️ Token invalide, traitement comme invité');
         }
         req.user = {
           id: null,
@@ -612,7 +697,7 @@ const authenticateOptional = (req, res, next) => {
       return res.status(403).json({ error: 'Token invalide' });
     }
     if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Token valide pour utilisateur ID:', user.id, 'role:', user.role);
+      logger.log('✅ Token valide pour utilisateur ID:', user.id, 'role:', user.role);
     }
     req.user = user;
     req.user.isGuest = false;
@@ -792,6 +877,44 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
       'SELECT * FROM users WHERE email = ? AND is_active = TRUE',
       [email]
     );
+    
+    // ✅ Générer un identifiant client s'il n'existe pas (pour les anciens clients)
+    // Vérifier d'abord si la colonne existe en gérant l'erreur
+    if (users.length > 0 && users[0].role === 'client') {
+      const hasIdentifier = users[0].client_identifier !== undefined && users[0].client_identifier !== null;
+      
+      if (!hasIdentifier) {
+        try {
+          // Générer l'identifiant client pour les clients existants qui n'en ont pas
+          const clientIdentifier = await generateUniqueClientIdentifier(pool);
+          await pool.query(
+            'UPDATE users SET client_identifier = ? WHERE id = ?',
+            [clientIdentifier, users[0].id]
+          );
+          users[0].client_identifier = clientIdentifier;
+          logger.log('✅ Identifiant client généré pour un client existant:', clientIdentifier);
+        } catch (error) {
+          if (error.code === 'ER_BAD_FIELD_ERROR' || error.sqlMessage?.includes('client_identifier')) {
+            // La colonne n'existe pas encore, ne rien faire pour l'instant
+            logger.warn('⚠️ Colonne client_identifier non disponible. Exécutez la migration SQL: database/migrations/sql/add-client-identifier.sql');
+            users[0].client_identifier = null;
+          } else if (error.code === 'ER_DUP_ENTRY') {
+            // L'identifiant existe déjà (cas rare), récupérer celui existant
+            const [existing] = await pool.query(
+              'SELECT client_identifier FROM users WHERE id = ?',
+              [users[0].id]
+            );
+            if (existing.length > 0) {
+              users[0].client_identifier = existing[0].client_identifier;
+              logger.log('✅ Identifiant client récupéré:', existing[0].client_identifier);
+            }
+          } else {
+            logger.error('⚠️ Erreur lors de la génération de l\'identifiant client:', error);
+            users[0].client_identifier = null;
+          }
+        }
+      }
+    }
 
     if (users.length === 0) {
       logger.security('Login failed - User not found', { 
@@ -845,7 +968,7 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
       );
     } catch (error) {
       // Si la table n'existe pas encore, on continue quand même
-      console.warn('⚠️ Table refresh_tokens non disponible, refresh token non stocké:', error.message);
+      logger.warn('⚠️ Table refresh_tokens non disponible, refresh token non stocké:', error.message);
     }
 
     const { password_hash, ...userWithoutPassword } = user;
@@ -862,7 +985,7 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
     };
     
     res.cookie('token', accessToken, cookieOptions);
-    console.log('✅ Cookie token défini:', cookieOptions);
+    logger.log('✅ Cookie token défini:', cookieOptions);
 
     // ✅ STOCKER LE REFRESH TOKEN DANS UN COOKIE SÉPARÉ
     const refreshCookieOptions = {
@@ -875,14 +998,14 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
     };
     
     res.cookie('refreshToken', refreshToken, refreshCookieOptions);
-    console.log('✅ Cookie refreshToken défini:', refreshCookieOptions);
+    logger.log('✅ Cookie refreshToken défini:', refreshCookieOptions);
 
     // Ne plus envoyer le token dans le body JSON (sécurité)
     // Le frontend récupérera le token depuis le cookie automatiquement
-    console.log('✅ Réponse JSON envoyée avec user:', { id: userWithoutPassword.id, email: userWithoutPassword.email, role: userWithoutPassword.role });
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ POST /api/auth/login - Succès');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('✅ Réponse JSON envoyée avec user:', { id: userWithoutPassword.id, email: userWithoutPassword.email, role: userWithoutPassword.role });
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('✅ POST /api/auth/login - Succès');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     res.json({
       success: true,
@@ -890,10 +1013,15 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
       user: userWithoutPassword
     });
   } catch (error) {
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌ POST /api/auth/login - Erreur:', error);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    res.status(500).json({ error: 'Erreur serveur', message: error.message });
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('❌ POST /api/auth/login - Erreur:', error);
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      error: 'Erreur serveur',
+      ...(isProd ? {} : { message: error.message })
+    });
   }
 });
 // Route de refresh token
@@ -984,7 +1112,7 @@ app.post('/api/auth/refresh', async (req, res) => {
       }
     }
   } catch (error) {
-    console.error('Erreur refresh token:', error);
+    logger.error('Erreur refresh token:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -999,7 +1127,7 @@ app.post('/api/auth/logout', authenticateToken, async (req, res) => {
       try {
         await pool.query('DELETE FROM refresh_tokens WHERE token = ?', [refreshToken]);
       } catch (error) {
-        console.warn('⚠️ Erreur suppression refresh token:', error.message);
+        logger.warn('⚠️ Erreur suppression refresh token:', error.message);
       }
     }
 
@@ -1024,35 +1152,121 @@ app.post('/api/auth/logout', authenticateToken, async (req, res) => {
 
     res.json({ success: true, message: 'Déconnexion réussie' });
   } catch (error) {
-    console.error('Erreur logout:', error);
+    logger.error('Erreur logout:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 // Register
+// ✅ SÉCURITÉ: Le rôle est forcé à 'client' - toute tentative d'inscription avec un autre rôle est ignorée
 app.post('/api/auth/register', registerValidation, async (req, res) => {
   try {
+    // ✅ Ignorer intentionnellement req.body.role pour forcer 'client'
     const { email, password, firstName, lastName, phone } = req.body;
+
+    // ✅ Validation supplémentaire côté serveur (sécurité)
+    if (!email || !email.trim()) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email requis',
+        code: 'VALIDATION_ERROR',
+        details: [{ field: 'email', message: 'Email requis' }]
+      });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Mot de passe invalide',
+        code: 'VALIDATION_ERROR',
+        details: [{ field: 'password', message: 'Le mot de passe doit contenir au moins 8 caractères' }]
+      });
+    }
+
+    if (!firstName || !firstName.trim()) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Prénom requis',
+        code: 'VALIDATION_ERROR',
+        details: [{ field: 'firstName', message: 'Prénom requis' }]
+      });
+    }
+
+    if (!lastName || !lastName.trim()) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Nom requis',
+        code: 'VALIDATION_ERROR',
+        details: [{ field: 'lastName', message: 'Nom requis' }]
+      });
+    }
 
     // Vérifier si l'email existe déjà
     const [existingUsers] = await pool.query(
       'SELECT id FROM users WHERE email = ?',
-      [email]
+      [email.trim().toLowerCase()]
     );
 
     if (existingUsers.length > 0) {
-      return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Cet email est déjà utilisé',
+        code: 'DUPLICATE_EMAIL'
+      });
     }
 
     // Hasher le mot de passe
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Créer l'utilisateur
-    const [result] = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, phone, role) 
-       VALUES (?, ?, ?, ?, ?, 'client')`,
-      [email, passwordHash, firstName, lastName, phone]
-    );
+    // ✅ Normaliser le téléphone : null si vide/undefined, sinon trim()
+    const normalizedPhone = phone && phone.trim() ? phone.trim() : null;
+
+    // ✅ Générer un identifiant unique de 11 caractères pour le client
+    const clientIdentifier = await generateUniqueClientIdentifier(pool);
+
+    // ✅ Créer l'utilisateur avec rôle FORCÉ à 'client' et identifiant unique
+    // Gérer le cas où la colonne client_identifier n'existe pas encore
+    let result;
+    try {
+      [result] = await pool.query(
+        `INSERT INTO users (email, password_hash, first_name, last_name, client_identifier, phone, role, is_active) 
+         VALUES (?, ?, ?, ?, ?, ?, 'client', TRUE)`,
+        [
+          email.trim().toLowerCase(), 
+          passwordHash, 
+          firstName.trim(), 
+          lastName.trim(),
+          clientIdentifier, // ✅ Identifiant unique de 11 caractères
+          normalizedPhone
+        ]
+      );
+      logger.log('✅ Utilisateur créé avec identifiant client:', clientIdentifier);
+    } catch (error) {
+      if (error.code === 'ER_BAD_FIELD_ERROR' || error.sqlMessage?.includes('client_identifier')) {
+        // La colonne n'existe pas encore, créer sans l'identifiant
+        logger.warn('⚠️ Colonne client_identifier non disponible. Création sans identifiant. Exécutez la migration SQL.');
+        [result] = await pool.query(
+          `INSERT INTO users (email, password_hash, first_name, last_name, phone, role, is_active) 
+           VALUES (?, ?, ?, ?, ?, 'client', TRUE)`,
+          [
+            email.trim().toLowerCase(), 
+            passwordHash, 
+            firstName.trim(), 
+            lastName.trim(),
+            normalizedPhone
+          ]
+        );
+      } else {
+        throw error; // Relancer les autres erreurs
+      }
+    }
+
+    logger.log('✅ Utilisateur créé avec succès:', {
+      userId: result.insertId,
+      email: email.trim().toLowerCase(),
+      clientIdentifier: clientIdentifier,
+      role: 'client'
+    });
 
     res.status(201).json({
       success: true,
@@ -1060,10 +1274,451 @@ app.post('/api/auth/register', registerValidation, async (req, res) => {
       userId: result.insertId
     });
   } catch (error) {
-    console.error('Erreur register:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    logger.error('❌ Erreur register:', error);
+    
+    // Gestion spécifique des erreurs MySQL
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Cet email est déjà utilisé',
+        code: 'DUPLICATE_EMAIL'
+      });
+    }
+
+    res.status(500).json({ 
+      success: false,
+      error: 'Erreur serveur lors de la création du compte',
+      code: 'SERVER_ERROR'
+    });
   }
 });
+
+// ================================================================
+// ROUTES KIOSK (Bornes tactiles)
+// ================================================================
+
+// Authentification kiosk (token long durée)
+// POST /api/kiosk/login
+// Body: { kioskId, kioskSecret }
+app.post('/api/kiosk/login', authRateLimit, asyncHandler(async (req, res) => {
+  try {
+    logger.log('🔐 KIOSK LOGIN - Tentative d\'authentification');
+    const { kioskId, kioskSecret } = req.body;
+
+    if (!kioskId || !kioskSecret) {
+      return res.status(400).json({ error: 'kioskId et kioskSecret requis' });
+    }
+
+    // Vérifier les identifiants kiosk (peut être stocké en dur ou en base)
+    // Pour l'instant, on vérifie dans la table users avec role='kiosk'
+    const [kiosks] = await pool.query(
+      'SELECT * FROM users WHERE email = ? AND role = ? AND is_active = TRUE',
+      [kioskId, 'kiosk']
+    );
+
+    if (kiosks.length === 0) {
+      logger.security('Kiosk login failed - Kiosk not found', { kioskId, ip: req.ip });
+      return res.status(401).json({ error: 'Identifiants kiosk invalides' });
+    }
+
+    const kiosk = kiosks[0];
+
+    // Vérifier le secret (peut être un hash ou une valeur en dur)
+    // Pour l'instant, on compare directement (à améliorer avec bcrypt en production)
+    const isValid = await bcrypt.compare(kioskSecret, kiosk.password_hash);
+
+    if (!isValid) {
+      logger.security('Kiosk login failed - Invalid secret', { kioskId, ip: req.ip });
+      return res.status(401).json({ error: 'Identifiants kiosk invalides' });
+    }
+
+    logger.info('Kiosk login successful', { kioskId: kiosk.id });
+
+    // Créer un token long durée (30 jours pour les bornes)
+    const kioskToken = jwt.sign(
+      { id: kiosk.id, email: kiosk.email, role: 'kiosk', type: 'kiosk' },
+      config.jwt.secret,
+      { expiresIn: '30d' } // Token long durée pour les bornes
+    );
+
+    // Stocker dans un cookie HTTP-only
+    res.cookie('kiosk_token', kioskToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 jours
+    });
+
+    res.json({
+      success: true,
+      token: kioskToken,
+      kiosk: {
+        id: kiosk.id,
+        email: kiosk.email
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Kiosk login error:', error);
+    throw error;
+  }
+}));
+
+// Récupérer les catégories (optimisé pour kiosk)
+// GET /api/kiosk/categories
+// ✅ IMPORTANT: Récupère toutes les catégories actives depuis la BDD
+app.get('/api/kiosk/categories', asyncHandler(async (req, res) => {
+  try {
+    // ✅ Récupérer toutes les catégories actives depuis MySQL
+    const [categories] = await pool.query(
+      'SELECT * FROM categories WHERE is_active = TRUE ORDER BY display_order ASC, name ASC'
+    );
+    
+    logger.log(`✅ Kiosk - ${categories.length} catégories récupérées depuis la BDD`);
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    logger.error('❌ Kiosk getCategories error:', error);
+    throw error;
+  }
+}));
+
+// Récupérer les produits (optimisé pour kiosk)
+// GET /api/kiosk/products?categoryId=X
+// ✅ IMPORTANT: Récupère TOUS les produits disponibles depuis la BDD (sans filtre stock)
+app.get('/api/kiosk/products', asyncHandler(async (req, res) => {
+  try {
+    const { categoryId } = req.query;
+    
+    // ✅ Récupérer TOUS les produits disponibles (is_available = TRUE)
+    // Pas de filtre sur stock car certains produits peuvent avoir stock = 0 ou NULL
+    // Inclure les informations de catégorie pour un affichage complet
+    let query = `
+      SELECT 
+        p.*,
+        c.name as category_name,
+        c.slug as category_slug,
+        c.icon as category_icon
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.is_available = TRUE
+    `;
+    const params = [];
+
+    // Filtrer par catégorie si fournie
+    if (categoryId) {
+      query += ' AND p.category_id = ?';
+      params.push(categoryId);
+    }
+
+    // Trier par ordre d'affichage de catégorie puis par nom
+    query += ' ORDER BY c.display_order ASC, p.name ASC';
+
+    logger.log(`📦 Kiosk - Récupération produits${categoryId ? ` (catégorie: ${categoryId})` : ' (tous)'}`);
+    const [products] = await pool.query(query, params);
+    
+    logger.log(`✅ Kiosk - ${products.length} produits récupérés depuis la BDD`);
+    res.json({ success: true, data: products });
+  } catch (error) {
+    logger.error('❌ Kiosk getProducts error:', error);
+    throw error;
+  }
+}));
+
+// Créer une commande depuis la borne
+// POST /api/kiosk/orders
+// Pas de fidélité, pas de compte client
+app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+
+    logger.log('📝 KIOSK - CRÉATION DE COMMANDE');
+    logger.log('   Kiosk ID:', req.user.id);
+
+    const { orderType, items, paymentMethod, notes, tableNumber, promoCode: promoCodeInput, subtotal: subtotalFromClient, discountAmount: discountAmountFromClient } = req.body;
+    
+    // Validation
+    if (!items || items.length === 0) {
+      throw new Error('Le panier est vide');
+    }
+    
+    if (!orderType) {
+      throw new Error('Type de commande manquant');
+    }
+
+    if (!paymentMethod) {
+      throw new Error('Méthode de paiement manquante');
+    }
+
+    // Générer le numéro de commande
+    const [lastOrder] = await connection.query(
+      'SELECT order_number FROM orders ORDER BY id DESC LIMIT 1'
+    );
+    
+    let orderNumber = 'CMD-0001';
+    if (lastOrder.length > 0 && lastOrder[0].order_number) {
+      const lastNum = parseInt(lastOrder[0].order_number.replace('CMD-', ''));
+      orderNumber = `CMD-${String(lastNum + 1).padStart(4, '0')}`;
+    }
+
+    // Calculer le sous-total
+    let subtotal = 0;
+    for (const item of items) {
+      const [product] = await connection.query('SELECT price FROM products WHERE id = ?', [item.productId]);
+      if (product.length === 0) {
+        throw new Error(`Produit ${item.productId} introuvable`);
+      }
+      subtotal += product[0].price * item.quantity;
+    }
+
+    // Utiliser le sous-total du client si fourni (plus précis avec les prix du panier)
+    if (subtotalFromClient && subtotalFromClient > 0) {
+      subtotal = parseFloat(subtotalFromClient);
+    }
+
+    // Appliquer le code promo si fourni
+    let discountAmount = 0;
+    let promoCodeId = null;
+    let promoCode = promoCodeInput ? promoCodeInput.toUpperCase() : null;
+
+    if (promoCode) {
+      // Valider le code promo
+      const [promoCodes] = await connection.query(
+        `SELECT * FROM promo_codes 
+         WHERE code = ? AND is_active = TRUE 
+         AND (valid_until IS NULL OR valid_until > NOW())
+         AND (max_uses IS NULL OR uses_count < max_uses)
+         AND ? >= min_order_amount`,
+        [promoCode, subtotal]
+      );
+
+      if (promoCodes.length > 0) {
+        const promo = promoCodes[0];
+        promoCodeId = promo.id;
+
+        if (promo.discount_type === 'percentage') {
+          discountAmount = (subtotal * parseFloat(promo.discount_value)) / 100;
+        } else {
+          discountAmount = parseFloat(promo.discount_value);
+        }
+
+        // Utiliser le montant de réduction du client si fourni (plus précis)
+        if (discountAmountFromClient && discountAmountFromClient > 0) {
+          discountAmount = parseFloat(discountAmountFromClient);
+        }
+      } else {
+        // Code promo invalide, ignorer
+        logger.warn(`⚠️ KIOSK - Code promo invalide: ${promoCode}`);
+        promoCode = null;
+        discountAmount = 0;
+      }
+    }
+
+    // Calculer les totaux avec réduction
+    const baseTaxableHT = subtotal - discountAmount;
+    const taxAmount = baseTaxableHT * 0.1; // TVA 10%
+    const totalAmount = baseTaxableHT + taxAmount;
+
+    // Créer la commande (user_id NULL pour kiosk)
+    const [orderResult] = await connection.query(
+      `INSERT INTO orders (
+        user_id, order_number, order_type, status, 
+        subtotal, discount_amount, tax_amount, total_amount,
+        promo_code_id, payment_method, payment_status, notes, table_number
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      [
+        null, // user_id NULL pour kiosk
+        orderNumber,
+        orderType,
+        subtotal,
+        discountAmount,
+        taxAmount,
+        totalAmount,
+        promoCodeId,
+        paymentMethod,
+        notes || `Commande depuis borne kiosk${promoCode ? ` - Code promo: ${promoCode}` : ''}`,
+        tableNumber || null
+      ]
+    );
+
+    const orderId = orderResult.insertId;
+
+    // Ajouter les items
+    for (const item of items) {
+      const [product] = await connection.query('SELECT * FROM products WHERE id = ?', [item.productId]);
+      if (product.length === 0) continue;
+
+      await connection.query(
+        `INSERT INTO order_items (order_id, product_id, quantity, price, notes)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          item.productId,
+          item.quantity,
+          product[0].price,
+          item.notes || null
+        ]
+      );
+    }
+
+    await connection.commit();
+
+    logger.log('✅ KIOSK - Commande créée:', orderNumber);
+
+    res.json({
+      success: true,
+      data: {
+        id: orderId,
+        orderNumber,
+        totalAmount
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('❌ Kiosk createOrder error:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+// Valider un code promo pour kiosk
+// POST /api/kiosk/promo-codes/validate
+app.post('/api/kiosk/promo-codes/validate', asyncHandler(async (req, res) => {
+  try {
+    const { code, subtotal } = req.body;
+
+    if (!code || !code.trim()) {
+      return res.json({
+        success: false,
+        error: 'Code promo requis'
+      });
+    }
+
+    const promoCode = code.toUpperCase().trim();
+    const orderSubtotal = parseFloat(subtotal) || 0;
+
+    // Rechercher le code promo
+    const [promoCodes] = await pool.query(
+      `SELECT * FROM promo_codes 
+       WHERE code = ? AND is_active = TRUE 
+       AND (valid_until IS NULL OR valid_until > NOW())
+       AND (max_uses IS NULL OR uses_count < max_uses)
+       AND ? >= min_order_amount`,
+      [promoCode, orderSubtotal]
+    );
+
+    if (promoCodes.length === 0) {
+      return res.json({
+        success: false,
+        error: 'Code promo invalide ou expiré'
+      });
+    }
+
+    const promo = promoCodes[0];
+    let discountAmount = 0;
+
+    if (promo.discount_type === 'percentage') {
+      discountAmount = (orderSubtotal * parseFloat(promo.discount_value)) / 100;
+    } else {
+      discountAmount = parseFloat(promo.discount_value);
+    }
+
+    logger.log(`✅ KIOSK - Code promo validé: ${promoCode} (-${discountAmount.toFixed(2)} €)`);
+
+    res.json({
+      success: true,
+      data: {
+        code: promo.code,
+        description: promo.description,
+        discount_type: promo.discount_type,
+        discount_value: promo.discount_value,
+        discount_amount: discountAmount
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Kiosk validatePromoCode error:', error);
+    throw error;
+  }
+}));
+
+// Imprimer un ticket de commande
+// POST /api/kiosk/orders/:orderNumber/print
+app.post('/api/kiosk/orders/:orderNumber/print', asyncHandler(async (req, res) => {
+  try {
+    const { orderNumber } = req.params;
+
+    // Récupérer la commande
+    const [orders] = await pool.query(
+      `SELECT o.*, 
+              GROUP_CONCAT(
+                CONCAT(oi.quantity, 'x ', p.name, ' - ', oi.price, '€') 
+                SEPARATOR '\\n'
+              ) as items_summary
+       FROM orders o
+       LEFT JOIN order_items oi ON o.id = oi.order_id
+       LEFT JOIN products p ON oi.product_id = p.id
+       WHERE o.order_number = ?
+       GROUP BY o.id`,
+      [orderNumber]
+    );
+
+    if (orders.length === 0) {
+      return res.json({
+        success: false,
+        error: 'Commande introuvable'
+      });
+    }
+
+    const order = orders[0];
+
+    // TODO: Intégrer avec une imprimante de tickets réelle
+    // Pour l'instant, on simule l'impression
+    logger.log(`🖨️ KIOSK - Impression ticket pour commande: ${orderNumber}`);
+    logger.log(`   Total: ${order.total_amount} €`);
+    logger.log(`   Items: ${order.items_summary || 'Aucun'}`);
+
+    // Ici, vous pouvez intégrer avec une imprimante :
+    // - Imprimante USB (node-printer)
+    // - Imprimante réseau (socket)
+    // - API d'impression cloud
+    // - Génération PDF et impression
+
+    res.json({
+      success: true,
+      message: 'Ticket imprimé avec succès',
+      data: {
+        orderNumber: order.order_number,
+        totalAmount: order.total_amount,
+        printedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Kiosk printOrderTicket error:', error);
+    throw error;
+  }
+}));
+
+// Récupérer le statut d'une commande
+// GET /api/kiosk/orders/:orderNumber
+app.get('/api/kiosk/orders/:orderNumber', asyncHandler(async (req, res) => {
+  try {
+    const { orderNumber } = req.params;
+    const [orders] = await pool.query(
+      'SELECT * FROM orders WHERE order_number = ?',
+      [orderNumber]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ error: 'Commande non trouvée' });
+    }
+
+    res.json({ success: true, data: orders[0] });
+  } catch (error) {
+    logger.error('❌ Kiosk getOrderStatus error:', error);
+    throw error;
+  }
+}));
 
 // ================================================================
 // ROUTES COMMANDES (Client)
@@ -1078,44 +1733,44 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
 
     // ✅ SÉCURITÉ: Logs minimaux en production
     if (process.env.NODE_ENV === 'development') {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📝 CRÉATION DE COMMANDE');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('👤 User ID:', req.user.id);
-      console.log('👤 Role:', req.user.role);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('📝 CRÉATION DE COMMANDE');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('👤 User ID:', req.user.id);
+      logger.log('👤 Role:', req.user.role);
       // ✅ SÉCURITÉ: Ne jamais logger l'email en production
-      console.log('👤 Email:', req.user.email);
-      console.log('👤 Is Guest:', req.user.isGuest || false);
-      console.log('👤 Guest Name:', req.user.guestName || 'N/A');
-      console.log('📦 Body complet:', JSON.stringify(req.body, null, 2));
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('👤 Email:', req.user.email);
+      logger.log('👤 Is Guest:', req.user.isGuest || false);
+      logger.log('👤 Guest Name:', req.user.guestName || 'N/A');
+      logger.log('📦 Body complet:', JSON.stringify(req.body, null, 2));
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } else {
-      console.log('📝 CRÉATION DE COMMANDE - User ID:', req.user.id, 'Role:', req.user.role);
+      logger.log('📝 CRÉATION DE COMMANDE - User ID:', req.user.id, 'Role:', req.user.role);
     }
 
     const { orderType, items, promoCode: promoCodeInput, loyaltyReward, paymentMethod, notes, tableNumber } = req.body;
     
     // Validation des données
-    console.log('🔍 Validation...');
-    console.log('   - orderType:', orderType);
-    console.log('   - items:', items);
-    console.log('   - items.length:', items?.length);
-    console.log('   - paymentMethod:', paymentMethod);
+    logger.log('🔍 Validation...');
+    logger.log('   - orderType:', orderType);
+    logger.log('   - items:', items);
+    logger.log('   - items.length:', items?.length);
+    logger.log('   - paymentMethod:', paymentMethod);
     
     if (!items || items.length === 0) {
-      console.error('❌ VALIDATION ÉCHOUÉE: Panier vide');
+      logger.error('❌ VALIDATION ÉCHOUÉE: Panier vide');
       throw new Error('Le panier est vide');
     }
     
     if (!orderType) {
-      console.error('❌ VALIDATION ÉCHOUÉE: Type de commande manquant');
+      logger.error('❌ VALIDATION ÉCHOUÉE: Type de commande manquant');
       throw new Error('Type de commande manquant');
     }
     
     // Validation du type de commande (doit correspondre à l'ENUM MySQL)
     const validOrderTypes = ['dine-in', 'takeaway', 'delivery'];
     if (!validOrderTypes.includes(orderType)) {
-      console.error('❌ VALIDATION ÉCHOUÉE: Type de commande invalide:', orderType);
+      logger.error('❌ VALIDATION ÉCHOUÉE: Type de commande invalide:', orderType);
       throw new Error(`Type de commande invalide. Valeurs acceptées: ${validOrderTypes.join(', ')}`);
     }
     
@@ -1123,27 +1778,27 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     const validPaymentMethods = ['cash', 'card', 'stripe', 'paypal'];
     const finalPaymentMethod = paymentMethod || 'cash';
     if (!validPaymentMethods.includes(finalPaymentMethod)) {
-      console.error('❌ VALIDATION ÉCHOUÉE: Méthode de paiement invalide:', finalPaymentMethod);
+      logger.error('❌ VALIDATION ÉCHOUÉE: Méthode de paiement invalide:', finalPaymentMethod);
       throw new Error(`Méthode de paiement invalide. Valeurs acceptées: ${validPaymentMethods.join(', ')}`);
     }
     
-    console.log('✅ Validation réussie');
+    logger.log('✅ Validation réussie');
 
     // Générer un numéro de commande unique au format CMD-XXXX
     // IMPORTANT: Utiliser UNIQUEMENT la fonction generateOrderNumber()
     // NE JAMAIS utiliser l'ancien format ORD-YYYY-XXXXXXXXXX
-    console.log('🔢 Appel de generateOrderNumber()...');
+    logger.log('🔢 Appel de generateOrderNumber()...');
     const orderNumber = await generateOrderNumber(connection);
     
     // Vérification stricte du format (format séquentiel CMD-XXXX)
     if (!orderNumber || !orderNumber.match(/^CMD-\d{4}$/)) {
-      console.error('❌❌❌ ERREUR CRITIQUE: Format de numéro invalide généré!');
-      console.error('   Numéro reçu:', orderNumber);
-      console.error('   Type:', typeof orderNumber);
+      logger.error('❌❌❌ ERREUR CRITIQUE: Format de numéro invalide généré!');
+      logger.error('   Numéro reçu:', orderNumber);
+      logger.error('   Type:', typeof orderNumber);
       throw new Error(`Format de numéro de commande invalide. Attendu: CMD-XXXX (ex: CMD-0001), Reçu: ${orderNumber}`);
     }
     
-    console.log('✅✅✅ Numéro de commande validé:', orderNumber);
+    logger.log('✅✅✅ Numéro de commande validé:', orderNumber);
 
     // Calculer le sous-total
     let subtotal = 0;
@@ -1249,51 +1904,51 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     // et qu'il respecte le format séquentiel CMD-XXXX
     const isNewFormat = typeof orderNumber === 'string' && /^CMD-\d{4}$/.test(orderNumber);
     if (!orderNumber || orderNumber.startsWith('ORD-') || !isNewFormat) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌❌❌ ERREUR CRITIQUE: Format de numéro invalide!');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('   Numéro reçu:', orderNumber);
-      console.error('   Type:', typeof orderNumber);
-      console.error('   Format attendu: CMD-XXXX (ex: CMD-0001, CMD-0002)');
-      console.error('   Format reçu:', orderNumber?.startsWith('ORD-') ? 'ORD-YYYY-... (OBSOLÈTE)' : orderNumber || 'Format invalide');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌❌❌ ERREUR CRITIQUE: Format de numéro invalide!');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('   Numéro reçu:', orderNumber);
+      logger.error('   Type:', typeof orderNumber);
+      logger.error('   Format attendu: CMD-XXXX (ex: CMD-0001, CMD-0002)');
+      logger.error('   Format reçu:', orderNumber?.startsWith('ORD-') ? 'ORD-YYYY-... (OBSOLÈTE)' : orderNumber || 'Format invalide');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       await connection.rollback();
       throw new Error(`Format de numéro de commande invalide. Attendu: CMD-XXXX (ex: CMD-0001), Reçu: ${orderNumber}. L'ancien format ORD- est obsolète.`);
     }
 
     // ⚠️ LOG AVANT INSERTION MYSQL
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('💾 INSERTION DANS MYSQL');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📌 order_type     :', orderType, `(type: ${typeof orderType})`);
-    console.log('📌 payment_method :', finalPaymentMethod, `(type: ${typeof finalPaymentMethod})`);
-    console.log('📌 payment_status :', paymentStatus);
-    console.log('📌 order_number   :', orderNumber, '(format: CMD-XXXX ✅)');
-    console.log('📌 user_id        :', req.user.id);
-    console.log('📌 table_number   :', tableNumber);
-    console.log('📌 subtotal       :', subtotal);
-    console.log('📌 total_amount   :', totalAmount);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('💾 INSERTION DANS MYSQL');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('📌 order_type     :', orderType, `(type: ${typeof orderType})`);
+    logger.log('📌 payment_method :', finalPaymentMethod, `(type: ${typeof finalPaymentMethod})`);
+    logger.log('📌 payment_status :', paymentStatus);
+    logger.log('📌 order_number   :', orderNumber, '(format: CMD-XXXX ✅)');
+    logger.log('📌 user_id        :', req.user.id);
+    logger.log('📌 table_number   :', tableNumber);
+    logger.log('📌 subtotal       :', subtotal);
+    logger.log('📌 total_amount   :', totalAmount);
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Protection ULTIME : Vérifier une dernière fois avant insertion SQL
     // Cette vérification est critique car elle empêche l'insertion de formats invalides
     // ✅ FORMAT SÉQUENTIEL: CMD-XXXX (aligné avec generateOrderNumber)
     const isNewFormatUltime = typeof orderNumber === 'string' && /^CMD-\d{4}$/.test(orderNumber);
     if (!orderNumber || !isNewFormatUltime) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('🚨🚨🚨 PROTECTION ULTIME ACTIVÉE 🚨🚨🚨');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ BLOCAGE avant insertion SQL');
-      console.error('   Numéro reçu:', orderNumber);
-      console.error('   Format attendu: CMD-XXXX (ex: CMD-0001)');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('🚨🚨🚨 PROTECTION ULTIME ACTIVÉE 🚨🚨🚨');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌ BLOCAGE avant insertion SQL');
+      logger.error('   Numéro reçu:', orderNumber);
+      logger.error('   Format attendu: CMD-XXXX (ex: CMD-0001)');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       await connection.rollback();
       throw new Error(`BLOCAGE: Format de numéro invalide détecté avant insertion. Attendu: CMD-XXXX (ex: CMD-0001), Reçu: ${orderNumber}`);
     }
 
     // Créer la commande
-    console.log('💾 Insertion dans MySQL avec order_number:', orderNumber);
-    console.log('✅ Format validé avant insertion: CMD-XXXX');
+    logger.log('💾 Insertion dans MySQL avec order_number:', orderNumber);
+    logger.log('✅ Format validé avant insertion: CMD-XXXX');
     
     // Stocker la récompense de fidélité dans la commande (JSON dans notes ou colonne dédiée)
     // On stocke dans notes avec un préfixe spécial pour pouvoir le récupérer
@@ -1326,13 +1981,13 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     
     const insertedNumber = verifyInsert.length > 0 ? verifyInsert[0].order_number : null;
     if (insertedNumber && !/^CMD-\d{4}$/.test(insertedNumber)) {
-      console.error('❌❌❌ ERREUR POST-INSERTION: Le numéro inséré ne correspond pas au format!');
-      console.error('   Numéro dans la base:', insertedNumber);
+      logger.error('❌❌❌ ERREUR POST-INSERTION: Le numéro inséré ne correspond pas au format!');
+      logger.error('   Numéro dans la base:', insertedNumber);
       await connection.rollback();
       throw new Error(`Erreur: Le numéro inséré (${insertedNumber}) ne correspond pas au format CMD-XXXX (ex: CMD-0001)`);
     }
     
-    console.log('✅ Vérification post-insertion réussie:', verifyInsert[0].order_number);
+    logger.log('✅ Vérification post-insertion réussie:', verifyInsert[0].order_number);
 
     const orderId = orderResult.insertId;
 
@@ -1391,7 +2046,7 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
             ]
           );
           
-          console.log(`✅ Points déduits lors de la création: ${pointsToDeduct} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
+          logger.log(`✅ Points déduits lors de la création: ${pointsToDeduct} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
         } else {
           // Si les points ne sont plus suffisants, annuler la transaction
           await connection.rollback();
@@ -1443,7 +2098,7 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
               ]
             );
 
-            console.log(`✅ Points ajoutés lors de la création: ${pointsToAdd} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
+            logger.log(`✅ Points ajoutés lors de la création: ${pointsToAdd} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
           }
         }
       }
@@ -1451,12 +2106,15 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
 
     await connection.commit();
 
-    console.log('✅✅✅ COMMANDE CRÉÉE AVEC SUCCÈS ! ✅✅✅');
-    console.log('   - Order ID:', orderId);
-    console.log('   - Order Number:', orderNumber);
-    console.log('   - Total Amount:', totalAmount);
-    console.log('   - Payment Status:', paymentStatus);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // ✅ OPTIMISATION: Invalider le cache des commandes
+    cache.invalidateOnModify.orders();
+
+    logger.log('✅✅✅ COMMANDE CRÉÉE AVEC SUCCÈS ! ✅✅✅');
+    logger.log('   - Order ID:', orderId);
+    logger.log('   - Order Number:', orderNumber);
+    logger.log('   - Total Amount:', totalAmount);
+    logger.log('   - Payment Status:', paymentStatus);
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Récupérer la commande complète pour l'événement WebSocket
     try {
@@ -1485,10 +2143,10 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       if (newOrder.length > 0) {
         emitOrderUpdate('order:created', newOrder[0]);
         emitOrderUpdate('orders:refresh', {});
-        console.log('📡 Événement WebSocket émis: order:created');
+        logger.log('📡 Événement WebSocket émis: order:created');
       }
     } catch (wsError) {
-      console.error('⚠️ Erreur lors de l\'émission WebSocket (non bloquant):', wsError.message);
+      logger.error('⚠️ Erreur lors de l\'émission WebSocket (non bloquant):', wsError.message);
     }
 
     res.status(201).json({
@@ -1520,16 +2178,55 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    console.log('📊 GET /api/profile - Récupération profil user:', userId);
+    logger.log('📊 GET /api/profile - Récupération profil user:', userId);
     
     // Récupérer les données utilisateur
-    const [users] = await pool.query(
-      'SELECT id, email, first_name, last_name, phone, role, loyalty_points, created_at FROM users WHERE id = ?',
+    // ✅ Utiliser SELECT * pour éviter l'erreur si la colonne client_identifier n'existe pas encore
+    let [users] = await pool.query(
+      'SELECT * FROM users WHERE id = ?',
       [userId]
     );
     
+    // ✅ Générer un identifiant client s'il n'existe pas (pour les anciens clients)
+    // Vérifier d'abord si la colonne existe en gérant l'erreur
+    if (users.length > 0 && users[0].role === 'client') {
+      const hasIdentifier = users[0].client_identifier !== undefined && users[0].client_identifier !== null;
+      
+      if (!hasIdentifier) {
+        try {
+          // Générer l'identifiant client pour les clients existants qui n'en ont pas
+          const clientIdentifier = await generateUniqueClientIdentifier(pool);
+          await pool.query(
+            'UPDATE users SET client_identifier = ? WHERE id = ?',
+            [clientIdentifier, users[0].id]
+          );
+          users[0].client_identifier = clientIdentifier;
+          logger.log('✅ Identifiant client généré pour un client existant:', clientIdentifier);
+        } catch (error) {
+          if (error.code === 'ER_BAD_FIELD_ERROR' || error.sqlMessage?.includes('client_identifier')) {
+            // La colonne n'existe pas encore, ne rien faire pour l'instant
+            logger.warn('⚠️ Colonne client_identifier non disponible. Exécutez la migration SQL: database/migrations/sql/add-client-identifier.sql');
+            users[0].client_identifier = null;
+          } else if (error.code === 'ER_DUP_ENTRY') {
+            // L'identifiant existe déjà (cas rare), récupérer celui existant
+            const [existing] = await pool.query(
+              'SELECT client_identifier FROM users WHERE id = ?',
+              [users[0].id]
+            );
+            if (existing.length > 0) {
+              users[0].client_identifier = existing[0].client_identifier;
+              logger.log('✅ Identifiant client récupéré:', existing[0].client_identifier);
+            }
+          } else {
+            logger.error('⚠️ Erreur lors de la génération de l\'identifiant client:', error);
+            users[0].client_identifier = null;
+          }
+        }
+      }
+    }
+    
     if (users.length === 0) {
-      console.warn('⚠️ GET /api/profile - Utilisateur introuvable:', userId);
+      logger.warn('⚠️ GET /api/profile - Utilisateur introuvable:', userId);
       return res.status(404).json({
         success: false,
         error: 'Utilisateur introuvable'
@@ -1541,7 +2238,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
     // S'assurer que loyalty_points est bien un nombre (peut être NULL dans la BDD)
     const loyaltyPoints = Math.max(0, parseInt(user.loyalty_points) || 0);
     
-    console.log('✅ GET /api/profile - Profil récupéré:', {
+    logger.log('✅ GET /api/profile - Profil récupéré:', {
       id: user.id,
       email: user.email,
       loyalty_points: loyaltyPoints,
@@ -1556,6 +2253,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         name: `${user.first_name} ${user.last_name}`,
         first_name: user.first_name,
         last_name: user.last_name,
+        client_identifier: user.client_identifier || null, // ✅ Identifiant unique du client
         phone: user.phone,
         role: user.role,
         points: loyaltyPoints,
@@ -1564,9 +2262,9 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Erreur récupération profil:', error);
-    console.error('   Message:', error.message);
-    console.error('   Stack:', error.stack);
+    logger.error('❌ Erreur récupération profil:', error);
+    logger.error('   Message:', error.message);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la récupération du profil'
@@ -1581,7 +2279,7 @@ app.get('/api/profile/stats', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    console.log('📊 GET /api/profile/stats - Statistiques client:', userId);
+    logger.log('📊 GET /api/profile/stats - Statistiques client:', userId);
     
     // Récupérer les statistiques des commandes du client
     const [stats] = await pool.query(`
@@ -1615,16 +2313,16 @@ app.get('/api/profile/stats', authenticateToken, async (req, res) => {
     statistics.completed_orders = parseInt(statistics.completed_orders) || 0;
     statistics.average_order_value = parseFloat(statistics.average_order_value) || 0;
     
-    console.log('✅ GET /api/profile/stats - Statistiques récupérées:', statistics);
+    logger.log('✅ GET /api/profile/stats - Statistiques récupérées:', statistics);
     
     res.json({
       success: true,
       stats: statistics
     });
   } catch (error) {
-    console.error('❌ Erreur récupération statistiques:', error);
-    console.error('   Message:', error.message);
-    console.error('   Stack:', error.stack);
+    logger.error('❌ Erreur récupération statistiques:', error);
+    logger.error('   Message:', error.message);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la récupération des statistiques',
@@ -1650,10 +2348,10 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
     const { first_name, last_name, phone, email } = req.body;
     
     // Logs simplifiés pour éviter la surcharge
-    console.log('📝 PUT /api/profile - User ID:', userId);
-    console.log('   - first_name:', first_name);
-    console.log('   - last_name:', last_name);
-    console.log('   - phone:', phone);
+    logger.log('📝 PUT /api/profile - User ID:', userId);
+    logger.log('   - first_name:', first_name);
+    logger.log('   - last_name:', last_name);
+    logger.log('   - phone:', phone);
     
     // Vérifier si l'email est déjà utilisé par un autre utilisateur
     if (email) {
@@ -1677,7 +2375,7 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
     // Vérifier et traiter first_name
     if (first_name !== undefined) {
       if (first_name === null || String(first_name).trim().length === 0) {
-        console.log('   ❌ first_name est vide ou null');
+        logger.log('   ❌ first_name est vide ou null');
         return res.status(400).json({
           success: false,
           error: 'Le prénom est obligatoire et ne peut pas être vide'
@@ -1686,13 +2384,13 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       const valueToSet = String(first_name).trim();
       updates.push('first_name = ?');
       values.push(valueToSet);
-      console.log('   ✅ first_name à mettre à jour:', valueToSet);
+      logger.log('   ✅ first_name à mettre à jour:', valueToSet);
     }
     
     // Vérifier et traiter last_name
     if (last_name !== undefined) {
       if (last_name === null || String(last_name).trim().length === 0) {
-        console.log('   ❌ last_name est vide ou null');
+        logger.log('   ❌ last_name est vide ou null');
         return res.status(400).json({
           success: false,
           error: 'Le nom est obligatoire et ne peut pas être vide'
@@ -1701,14 +2399,14 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       const valueToSet = String(last_name).trim();
       updates.push('last_name = ?');
       values.push(valueToSet);
-      console.log('   ✅ last_name à mettre à jour:', valueToSet);
+      logger.log('   ✅ last_name à mettre à jour:', valueToSet);
     }
     if (phone !== undefined) {
       updates.push('phone = ?');
       values.push(phone || null); // Convertir chaîne vide en null pour la BDD
-      console.log('   ✅ phone à mettre à jour:', phone || '(null)');
+      logger.log('   ✅ phone à mettre à jour:', phone || '(null)');
     } else {
-      console.log('   ⚠️ phone est undefined, ignoré');
+      logger.log('   ⚠️ phone est undefined, ignoré');
     }
     if (email !== undefined) {
       updates.push('email = ?');
@@ -1719,17 +2417,17 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       }
     } else {
       if (process.env.NODE_ENV === 'development') {
-        console.log('   ⚠️ email est undefined, ignoré');
+        logger.log('   ⚠️ email est undefined, ignoré');
       }
     }
     
     if (process.env.NODE_ENV === 'development') {
-      console.log('   📋 Updates à exécuter:', updates);
-      console.log('   📋 Values:', values);
+      logger.log('   📋 Updates à exécuter:', updates);
+      logger.log('   📋 Values:', values);
     }
     
     if (updates.length === 0) {
-      console.warn('⚠️ Aucune donnée à mettre à jour');
+      logger.warn('⚠️ Aucune donnée à mettre à jour');
       return res.status(400).json({
         success: false,
         error: 'Aucune donnée à mettre à jour'
@@ -1742,11 +2440,11 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
     // ✅ SÉCURITÉ: Ne jamais logger le SQL complet en production
     if (process.env.NODE_ENV === 'development') {
       const sqlQuery = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-      console.log('   🔄 Exécution UPDATE:');
-      console.log('   - SQL:', sqlQuery);
-      console.log('   - Updates:', updates);
-      console.log('   - Values (ordre):', values);
-      console.log('   - Mapping:', updates.map((update, idx) => `${update} = ${JSON.stringify(values[idx])}`).join(', '));
+      logger.log('   🔄 Exécution UPDATE:');
+      logger.log('   - SQL:', sqlQuery);
+      logger.log('   - Updates:', updates);
+      logger.log('   - Values (ordre):', values);
+      logger.log('   - Mapping:', updates.map((update, idx) => `${update} = ${JSON.stringify(values[idx])}`).join(', '));
     }
     
     try {
@@ -1755,14 +2453,14 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
         values
       );
       
-      console.log('   ✅ UPDATE exécuté');
-      console.log('   - affectedRows:', updateResult.affectedRows);
-      console.log('   - changedRows:', updateResult.changedRows);
-      console.log('   - warningCount:', updateResult.warningCount);
+      logger.log('   ✅ UPDATE exécuté');
+      logger.log('   - affectedRows:', updateResult.affectedRows);
+      logger.log('   - changedRows:', updateResult.changedRows);
+      logger.log('   - warningCount:', updateResult.warningCount);
       
       // Vérifier si la mise à jour a réellement affecté des lignes
       if (updateResult.affectedRows === 0) {
-        console.warn('   ⚠️ Aucune ligne affectée par l\'UPDATE');
+        logger.warn('   ⚠️ Aucune ligne affectée par l\'UPDATE');
         // Ne pas retourner d'erreur, peut-être que les valeurs sont identiques
       }
       
@@ -1773,7 +2471,7 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       );
       
       if (users.length === 0) {
-        console.error('   ❌ Utilisateur introuvable après UPDATE');
+        logger.error('   ❌ Utilisateur introuvable après UPDATE');
         return res.status(404).json({
           success: false,
           error: 'Utilisateur introuvable après la mise à jour'
@@ -1783,23 +2481,23 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       const updatedUser = users[0];
       // ✅ SÉCURITÉ: Ne jamais logger l'email en production
       if (process.env.NODE_ENV === 'development') {
-        console.log('   📊 Données récupérées après UPDATE:');
-        console.log('   - first_name:', updatedUser.first_name);
-        console.log('   - last_name:', updatedUser.last_name);
-        console.log('   - phone:', updatedUser.phone);
-        console.log('   - email:', updatedUser.email);
+        logger.log('   📊 Données récupérées après UPDATE:');
+        logger.log('   - first_name:', updatedUser.first_name);
+        logger.log('   - last_name:', updatedUser.last_name);
+        logger.log('   - phone:', updatedUser.phone);
+        logger.log('   - email:', updatedUser.email);
       }
     } catch (sqlError) {
       // ✅ SÉCURITÉ: Masquer les détails SQL en production
       if (process.env.NODE_ENV === 'development') {
-        console.error('   ❌ Erreur SQL lors de l\'UPDATE:');
-        console.error('   - Code:', sqlError.code);
-        console.error('   - Message:', sqlError.message);
-        console.error('   - SQL State:', sqlError.sqlState);
-        console.error('   - SQL:', sqlError.sql);
+        logger.error('   ❌ Erreur SQL lors de l\'UPDATE:');
+        logger.error('   - Code:', sqlError.code);
+        logger.error('   - Message:', sqlError.message);
+        logger.error('   - SQL State:', sqlError.sqlState);
+        logger.error('   - SQL:', sqlError.sql);
       } else {
-        console.error('   ❌ Erreur SQL lors de l\'UPDATE');
-        console.error('   - Code:', sqlError.code);
+        logger.error('   ❌ Erreur SQL lors de l\'UPDATE');
+        logger.error('   - Code:', sqlError.code);
         // ✅ SÉCURITÉ: Ne jamais logger le SQL complet en production
       }
       throw sqlError; // Re-lancer l'erreur pour qu'elle soit capturée par le catch global
@@ -1820,7 +2518,7 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
     
     const updatedUser = users[0];
     
-    console.log('✅ Profil mis à jour avec succès');
+    logger.log('✅ Profil mis à jour avec succès');
     
     // S'assurer que loyalty_points est bien un nombre
     const loyaltyPoints = Math.max(0, parseInt(updatedUser.loyalty_points) || 0);
@@ -1838,8 +2536,8 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       createdAt: updatedUser.created_at
     };
     
-    console.log('✅ Profil mis à jour avec succès');
-    console.log('   - User retourné:', responseUser);
+    logger.log('✅ Profil mis à jour avec succès');
+    logger.log('   - User retourné:', responseUser);
     
     res.json({
       success: true,
@@ -1847,13 +2545,64 @@ app.put('/api/profile', authenticateToken, csrfProtection, validateProfile, asyn
       user: responseUser
     });
   } catch (error) {
-    console.error('❌ Erreur mise à jour profil:', error);
+    logger.error('❌ Erreur mise à jour profil:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la mise à jour du profil'
     });
   }
 });
+
+// Désactiver le compte du client (suppression logique)
+app.post('/api/profile/deactivate', authenticateToken, csrfProtection, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    logger.log('🗑️ POST /api/profile/deactivate - Désactivation compte user:', userId);
+    
+    // Vérifier que l'utilisateur existe
+    const [users] = await pool.query(
+      'SELECT id, role, is_active FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Utilisateur introuvable'
+      });
+    }
+    
+    const user = users[0];
+    
+    // Empêcher la désactivation des comptes admin
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Les comptes administrateur ne peuvent pas être désactivés via cette interface'
+      });
+    }
+    
+    // Désactiver le compte (mettre is_active = 0)
+    await pool.query(
+      'UPDATE users SET is_active = 0 WHERE id = ?',
+      [userId]
+    );
+    
+    logger.log('✅ Compte désactivé avec succès:', userId);
+    
+    res.json({
+      success: true,
+      message: 'Votre compte a été désactivé avec succès'
+    });
+  } catch (error) {
+    logger.error('❌ Erreur désactivation compte:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erreur lors de la désactivation du compte'
+    });
+  }
+}));
 
 // Déduire des points de fidélité
 app.post('/api/loyalty/deduct', authenticateToken, async (req, res) => {
@@ -1896,7 +2645,7 @@ app.post('/api/loyalty/deduct', authenticateToken, async (req, res) => {
     
     // Vérification supplémentaire : s'assurer que le nouveau solde n'est pas négatif
     if (newBalance < 0) {
-      console.warn(`⚠️ Tentative de déduction qui rendrait le solde négatif. Points actuels: ${currentPoints}, Points à déduire: ${points}`);
+      logger.warn(`⚠️ Tentative de déduction qui rendrait le solde négatif. Points actuels: ${currentPoints}, Points à déduire: ${points}`);
       return res.status(400).json({
         success: false,
         error: 'Impossible de déduire les points : le solde serait négatif'
@@ -1916,7 +2665,7 @@ app.post('/api/loyalty/deduct', authenticateToken, async (req, res) => {
     );
     
     if (verifyUpdate.length > 0 && verifyUpdate[0].loyalty_points < 0) {
-      console.error(`❌ ERREUR CRITIQUE: Les points sont négatifs après la mise à jour! User ID: ${userId}, Points: ${verifyUpdate[0].loyalty_points}`);
+      logger.error(`❌ ERREUR CRITIQUE: Les points sont négatifs après la mise à jour! User ID: ${userId}, Points: ${verifyUpdate[0].loyalty_points}`);
       // Corriger immédiatement
       await pool.query(
         'UPDATE users SET loyalty_points = 0 WHERE id = ?',
@@ -1939,7 +2688,7 @@ app.post('/api/loyalty/deduct', authenticateToken, async (req, res) => {
       [userId, -points, description || `Déduction de ${points} points`, finalBalance]
     );
     
-    console.log(`✅ Points déduits: ${points} pour l'utilisateur ${userId}. Nouveau solde: ${finalBalance}`);
+    logger.log(`✅ Points déduits: ${points} pour l'utilisateur ${userId}. Nouveau solde: ${finalBalance}`);
     
     res.json({
       success: true,
@@ -1948,7 +2697,7 @@ app.post('/api/loyalty/deduct', authenticateToken, async (req, res) => {
       pointsDeducted: points
     });
   } catch (error) {
-    console.error('❌ Erreur déduction points:', error);
+    logger.error('❌ Erreur déduction points:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la déduction des points'
@@ -1999,7 +2748,7 @@ app.post('/api/loyalty/restore', authenticateToken, async (req, res) => {
       [userId, points, description || `Restauration de ${points} points (annulation récompense)`, newBalance]
     );
     
-    console.log(`✅ Points restaurés: ${points} pour l'utilisateur ${userId}. Nouveau solde: ${newBalance}`);
+    logger.log(`✅ Points restaurés: ${points} pour l'utilisateur ${userId}. Nouveau solde: ${newBalance}`);
     
     res.json({
       success: true,
@@ -2008,7 +2757,7 @@ app.post('/api/loyalty/restore', authenticateToken, async (req, res) => {
       pointsRestored: points
     });
   } catch (error) {
-    console.error('❌ Erreur restauration points:', error);
+    logger.error('❌ Erreur restauration points:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la restauration des points'
@@ -2021,21 +2770,21 @@ app.get('/api/orders', devBypass(authenticateToken), async (req, res) => {
   try {
     // ✅ SÉCURITÉ: Logs minimaux en production
     if (process.env.NODE_ENV === 'development') {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 GET /api/orders - Récupération commandes');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('👤 User ID:', req.user.id);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('📋 GET /api/orders - Récupération commandes');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('👤 User ID:', req.user.id);
       // ✅ SÉCURITÉ: Ne jamais logger l'email en production
-      console.log('👤 User Email:', req.user.email);
-      console.log('👤 User Role:', req.user.role);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('👤 User Email:', req.user.email);
+      logger.log('👤 User Role:', req.user.role);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } else {
-      console.log('📋 GET /api/orders - User ID:', req.user.id, 'Role:', req.user.role);
+      logger.log('📋 GET /api/orders - User ID:', req.user.id, 'Role:', req.user.role);
     }
     
     const userId = parseInt(req.user.id);
     if (isNaN(userId)) {
-      console.error('❌ ERREUR: user.id n\'est pas un nombre valide:', req.user.id);
+      logger.error('❌ ERREUR: user.id n\'est pas un nombre valide:', req.user.id);
       return res.status(400).json({ error: 'Identifiant utilisateur invalide' });
     }
     
@@ -2064,7 +2813,7 @@ app.get('/api/orders', devBypass(authenticateToken), async (req, res) => {
         try {
           items = JSON.parse(items);
         } catch (e) {
-          console.warn(`⚠️ Erreur parsing items pour commande ${order.id}:`, e);
+          logger.warn(`⚠️ Erreur parsing items pour commande ${order.id}:`, e);
           items = [];
         }
       }
@@ -2077,22 +2826,22 @@ app.get('/api/orders', devBypass(authenticateToken), async (req, res) => {
       };
     });
 
-    console.log('✅ Commandes trouvées:', cleanedOrders.length);
+    logger.log('✅ Commandes trouvées:', cleanedOrders.length);
     if (cleanedOrders.length > 0) {
-      console.log('   - Exemples:');
+      logger.log('   - Exemples:');
       cleanedOrders.slice(0, 3).forEach((order, idx) => {
-        console.log(`     ${idx + 1}. ${order.order_number} - ${order.total_amount}€ - ${order.status}`);
+        logger.log(`     ${idx + 1}. ${order.order_number} - ${order.total_amount}€ - ${order.status}`);
       });
     }
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     res.json({ success: true, data: cleanedOrders });
   } catch (error) {
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌ Erreur GET /api/orders');
-    console.error('   Message:', error.message);
-    console.error('   Stack:', error.stack);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('❌ Erreur GET /api/orders');
+    logger.error('   Message:', error.message);
+    logger.error('   Stack:', error.stack);
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2165,7 +2914,7 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, csrfProtection, va
       userId: result.insertId
     });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2210,7 +2959,7 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, csrfProtection,
 
     res.json({ success: true, message: 'Utilisateur modifié' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2229,7 +2978,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, csrfProtecti
 
     res.json({ success: true, message: 'Utilisateur supprimé' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2238,7 +2987,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, csrfProtecti
 app.get('/api/admin/users/:id/orders', authenticateToken, requireAdmin, validateId, async (req, res) => {
   try {
     const { id } = req.params;
-    console.log('🔵 Requête GET /api/admin/users/:id/orders - ID:', id);
+    logger.log('🔵 Requête GET /api/admin/users/:id/orders - ID:', id);
     
     // Requête SQL simple et directe (comme pour /api/admin/users)
     const [orders] = await pool.query(
@@ -2268,7 +3017,7 @@ app.get('/api/admin/users/:id/orders', authenticateToken, requireAdmin, validate
         try {
           items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
         } catch (e) {
-          console.error('Erreur parsing items pour commande', order.id, ':', e);
+          logger.error('Erreur parsing items pour commande', order.id, ':', e);
           items = [];
         }
       }
@@ -2278,12 +3027,12 @@ app.get('/api/admin/users/:id/orders', authenticateToken, requireAdmin, validate
       };
     });
 
-    console.log(`✅ ${ordersWithItems.length} commandes trouvées pour l'utilisateur ${id}`);
+    logger.log(`✅ ${ordersWithItems.length} commandes trouvées pour l'utilisateur ${id}`);
     
     // Même format de réponse que /api/admin/users
     res.json({ success: true, data: ordersWithItems });
   } catch (error) {
-    console.error('❌ Erreur dans /api/admin/users/:id/orders:', error);
+    logger.error('❌ Erreur dans /api/admin/users/:id/orders:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2293,19 +3042,19 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
     const { id } = req.params;
     // ✅ SÉCURITÉ: Logs minimaux en production
     if (process.env.NODE_ENV === 'development') {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🔵 Requête GET /api/admin/users/:id/details');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📋 ID utilisateur:', id);
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('🔵 Requête GET /api/admin/users/:id/details');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('📋 ID utilisateur:', id);
       // ✅ SÉCURITÉ: Ne jamais logger l'email en production
-      console.log('👤 Utilisateur authentifié:', req.user?.email || req.user?.id);
+      logger.log('👤 Utilisateur authentifié:', req.user?.email || req.user?.id);
     } else {
-      console.log('🔵 GET /api/admin/users/:id/details - ID:', id, 'Admin ID:', req.user?.id);
+      logger.log('🔵 GET /api/admin/users/:id/details - ID:', id, 'Admin ID:', req.user?.id);
     }
 
     // Vérifier que l'ID est valide
     if (!id || isNaN(parseInt(id))) {
-      console.error('❌ ID utilisateur invalide:', id);
+      logger.error('❌ ID utilisateur invalide:', id);
       return res.status(400).json({ 
         success: false, 
         error: 'ID utilisateur invalide' 
@@ -2313,7 +3062,7 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
     }
 
     // Informations de base de l'utilisateur (utiliser pool.query directement comme les autres endpoints)
-    console.log('📊 Récupération des informations utilisateur...');
+    logger.log('📊 Récupération des informations utilisateur...');
     const [users] = await pool.query(`
       SELECT id, email, first_name, last_name, phone, role, 
              loyalty_points, is_active, email_verified, 
@@ -2323,7 +3072,7 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
     `, [id]);
 
     if (users.length === 0) {
-      console.log('❌ Utilisateur non trouvé:', id);
+      logger.log('❌ Utilisateur non trouvé:', id);
       return res.status(404).json({ 
         success: false, 
         error: 'Utilisateur non trouvé' 
@@ -2333,13 +3082,13 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
     const user = users[0];
     // ✅ SÉCURITÉ: Ne jamais logger l'email en production
     if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Utilisateur trouvé:', user.email, `(ID: ${user.id})`);
+      logger.log('✅ Utilisateur trouvé:', user.email, `(ID: ${user.id})`);
     } else {
-      console.log('✅ Utilisateur trouvé - ID:', user.id);
+      logger.log('✅ Utilisateur trouvé - ID:', user.id);
     }
 
     // Historique des commandes avec leurs items (une seule requête optimisée)
-    console.log('📦 Récupération des commandes avec leurs items...');
+    logger.log('📦 Récupération des commandes avec leurs items...');
     let ordersWithItems = [];
     try {
       // Requête optimisée : récupère les commandes ET leurs items en une seule fois
@@ -2395,7 +3144,7 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
           try {
             items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
           } catch (e) {
-            console.error(`❌ Erreur parsing items pour commande ${order.id}:`, e.message);
+            logger.error(`❌ Erreur parsing items pour commande ${order.id}:`, e.message);
             items = [];
           }
         }
@@ -2405,25 +3154,25 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
         };
       });
       
-      console.log(`✅ ${ordersWithItems.length} commande(s) trouvée(s) pour l'utilisateur ${id}`);
-      console.log(`✅ Total items récupérés: ${ordersWithItems.reduce((sum, o) => sum + (o.items?.length || 0), 0)}`);
+      logger.log(`✅ ${ordersWithItems.length} commande(s) trouvée(s) pour l'utilisateur ${id}`);
+      logger.log(`✅ Total items récupérés: ${ordersWithItems.reduce((sum, o) => sum + (o.items?.length || 0), 0)}`);
     } catch (ordersError) {
       // ✅ SÉCURITÉ: Masquer les détails SQL en production
       if (process.env.NODE_ENV === 'development') {
-        console.error('❌ Erreur lors de la récupération des commandes:');
-        console.error('   Message:', ordersError.message);
-        console.error('   Code:', ordersError.code);
-        console.error('   SQL State:', ordersError.sqlState);
-        console.error('   Stack:', ordersError.stack);
+        logger.error('❌ Erreur lors de la récupération des commandes:');
+        logger.error('   Message:', ordersError.message);
+        logger.error('   Code:', ordersError.code);
+        logger.error('   SQL State:', ordersError.sqlState);
+        logger.error('   Stack:', ordersError.stack);
       } else {
-        console.error('❌ Erreur lors de la récupération des commandes');
-        console.error('   Code:', ordersError.code);
+        logger.error('❌ Erreur lors de la récupération des commandes');
+        logger.error('   Code:', ordersError.code);
       }
       ordersWithItems = [];
     }
 
     // Historique de fidélité
-    console.log('🎁 Récupération de l\'historique de fidélité...');
+    logger.log('🎁 Récupération de l\'historique de fidélité...');
     let loyaltyHistory = [];
     try {
       const [loyaltyResult] = await pool.query(`
@@ -2439,23 +3188,23 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
         LIMIT 50
       `, [id]);
       loyaltyHistory = loyaltyResult || [];
-      console.log(`✅ ${loyaltyHistory.length} transaction(s) de fidélité trouvée(s)`);
+      logger.log(`✅ ${loyaltyHistory.length} transaction(s) de fidélité trouvée(s)`);
     } catch (loyaltyError) {
       // ✅ SÉCURITÉ: Masquer les détails SQL en production
       if (process.env.NODE_ENV === 'development') {
-        console.error('❌ Erreur historique fidélité:');
-        console.error('   Message:', loyaltyError.message);
-        console.error('   Code:', loyaltyError.code);
-        console.error('   SQL State:', loyaltyError.sqlState);
+        logger.error('❌ Erreur historique fidélité:');
+        logger.error('   Message:', loyaltyError.message);
+        logger.error('   Code:', loyaltyError.code);
+        logger.error('   SQL State:', loyaltyError.sqlState);
       } else {
-        console.error('❌ Erreur historique fidélité');
-        console.error('   Code:', loyaltyError.code);
+        logger.error('❌ Erreur historique fidélité');
+        logger.error('   Code:', loyaltyError.code);
       }
       loyaltyHistory = [];
     }
 
     // Statistiques
-    console.log('📈 Calcul des statistiques...');
+    logger.log('📈 Calcul des statistiques...');
     let statsData = {
       total_orders: 0,
       total_spent: 0,
@@ -2481,17 +3230,17 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
           last_order_date: stats[0].last_order_date || null
         };
       }
-      console.log('✅ Statistiques calculées:', JSON.stringify(statsData, null, 2));
+      logger.log('✅ Statistiques calculées:', JSON.stringify(statsData, null, 2));
     } catch (statsError) {
       // ✅ SÉCURITÉ: Masquer les détails SQL en production
       if (process.env.NODE_ENV === 'development') {
-        console.error('❌ Erreur statistiques:');
-        console.error('   Message:', statsError.message);
-        console.error('   Code:', statsError.code);
-        console.error('   SQL State:', statsError.sqlState);
+        logger.error('❌ Erreur statistiques:');
+        logger.error('   Message:', statsError.message);
+        logger.error('   Code:', statsError.code);
+        logger.error('   SQL State:', statsError.sqlState);
       } else {
-        console.error('❌ Erreur statistiques');
-        console.error('   Code:', statsError.code);
+        logger.error('❌ Erreur statistiques');
+        logger.error('   Code:', statsError.code);
       }
     }
 
@@ -2515,53 +3264,53 @@ app.get('/api/admin/users/:id/details', authenticateToken, requireAdmin, validat
       stats: statsData
     };
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ Données préparées avec succès:');
-    console.log('   Utilisateur:', responseData.user.email);
-    console.log('   Commandes:', responseData.orders.length);
-    console.log('   Transactions fidélité:', responseData.loyaltyHistory.length);
-    console.log('   Statistiques:', JSON.stringify(responseData.stats, null, 2));
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('✅ Données préparées avec succès:');
+    logger.log('   Utilisateur:', responseData.user.email);
+    logger.log('   Commandes:', responseData.orders.length);
+    logger.log('   Transactions fidélité:', responseData.loyaltyHistory.length);
+    logger.log('   Statistiques:', JSON.stringify(responseData.stats, null, 2));
     
     // Vérifier les premières commandes
     if (responseData.orders.length > 0) {
-      console.log('\n📋 Exemple de commande (première):');
+      logger.log('\n📋 Exemple de commande (première):');
       const firstOrder = responseData.orders[0];
-      console.log('   ID:', firstOrder.id);
-      console.log('   Numéro:', firstOrder.order_number);
-      console.log('   Montant:', firstOrder.total_amount);
-      console.log('   Items:', firstOrder.items?.length || 0);
+      logger.log('   ID:', firstOrder.id);
+      logger.log('   Numéro:', firstOrder.order_number);
+      logger.log('   Montant:', firstOrder.total_amount);
+      logger.log('   Items:', firstOrder.items?.length || 0);
       if (firstOrder.items && firstOrder.items.length > 0) {
-        console.log('   Premier item:', JSON.stringify(firstOrder.items[0], null, 2));
+        logger.log('   Premier item:', JSON.stringify(firstOrder.items[0], null, 2));
       }
     } else {
-      console.log('\n⚠️ AUCUNE COMMANDE TROUVÉE pour cet utilisateur !');
-      console.log('   Vérifiez que user_id dans orders correspond bien à l\'ID utilisateur');
+      logger.log('\n⚠️ AUCUNE COMMANDE TROUVÉE pour cet utilisateur !');
+      logger.log('   Vérifiez que user_id dans orders correspond bien à l\'ID utilisateur');
     }
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Retourner la réponse
-    console.log('📤 Envoi de la réponse au client...');
+    logger.log('📤 Envoi de la réponse au client...');
     const jsonResponse = { 
       success: true, 
       data: responseData 
     };
-    console.log('📦 Taille de la réponse:', JSON.stringify(jsonResponse).length, 'caractères');
+    logger.log('📦 Taille de la réponse:', JSON.stringify(jsonResponse).length, 'caractères');
     res.json(jsonResponse);
-    console.log('✅ Réponse envoyée avec succès');
+    logger.log('✅ Réponse envoyée avec succès');
   } catch (error) {
     // ✅ SÉCURITÉ: Masquer les détails SQL en production
     if (process.env.NODE_ENV === 'development') {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ ERREUR dans /api/admin/users/:id/details');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('Message:', error.message);
-      console.error('Code:', error.code);
-      console.error('SQL State:', error.sqlState);
-      console.error('Stack:', error.stack);
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌ ERREUR dans /api/admin/users/:id/details');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('Message:', error.message);
+      logger.error('Code:', error.code);
+      logger.error('SQL State:', error.sqlState);
+      logger.error('Stack:', error.stack);
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } else {
-      console.error('❌ ERREUR dans /api/admin/users/:id/details');
-      console.error('Code:', error.code);
+      logger.error('❌ ERREUR dans /api/admin/users/:id/details');
+      logger.error('Code:', error.code);
     }
     
     res.status(500).json({ 
@@ -2612,7 +3361,7 @@ app.post('/api/admin/users/:id/adjust-points', authenticateToken, requireAdmin, 
       newPoints
     });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2627,7 +3376,7 @@ app.get('/api/admin/categories', authenticateToken, requireAdmin, async (req, re
     const [categories] = await pool.query('SELECT * FROM categories ORDER BY display_order');
     res.json({ success: true, data: categories });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2769,8 +3518,8 @@ app.put('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtecti
       stock, isAvailable, isFeatured, calories, preparationTime, allergens
     } = req.body;
 
-    console.log('📝 Modification produit ID:', id);
-    console.log('   Données reçues:', { categoryId, name, price, stock, isAvailable, isFeatured });
+    logger.log('📝 Modification produit ID:', id);
+    logger.log('   Données reçues:', { categoryId, name, price, stock, isAvailable, isFeatured });
 
     // Convertir allergens en JSON si c'est un array
     const allergensJson = Array.isArray(allergens) ? JSON.stringify(allergens) : allergens;
@@ -2795,7 +3544,7 @@ app.put('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtecti
       id
     ];
 
-    console.log('   Paramètres SQL:', params);
+    logger.log('   Paramètres SQL:', params);
 
     const [result] = await pool.query(
       `UPDATE products SET 
@@ -2820,9 +3569,14 @@ app.put('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtecti
 
     res.json({ success: true, message: 'Produit modifié', affectedRows: result.affectedRows });
   } catch (error) {
-    console.error('❌ Erreur modification produit:', error.message);
-    console.error('   Stack:', error.stack);
-    res.status(500).json({ error: 'Erreur serveur', details: error.message });
+    logger.error('❌ Erreur modification produit:', error.message);
+    logger.error('   Stack:', error.stack);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      error: 'Erreur serveur',
+      ...(isProd ? {} : { details: error.message })
+    });
   }
 });
 
@@ -2877,7 +3631,7 @@ app.get('/api/admin/promo-codes', authenticateToken, requireAdmin, async (req, r
     const [codes] = await pool.query('SELECT * FROM promo_codes ORDER BY created_at DESC');
     res.json({ success: true, data: codes });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2904,7 +3658,7 @@ app.post('/api/admin/promo-codes', authenticateToken, requireAdmin, csrfProtecti
       promoCodeId: result.insertId
     });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2935,7 +3689,7 @@ app.put('/api/admin/promo-codes/:id', authenticateToken, requireAdmin, csrfProte
 
     res.json({ success: true, message: 'Code promo modifié' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2947,7 +3701,7 @@ app.delete('/api/admin/promo-codes/:id', authenticateToken, requireAdmin, csrfPr
     await pool.query('DELETE FROM promo_codes WHERE id = ?', [id]);
     res.json({ success: true, message: 'Code promo supprimé' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2964,7 +3718,7 @@ app.get('/api/admin/loyalty-rewards', authenticateToken, requireAdmin, async (re
     );
     res.json({ success: true, data: rewards });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -2977,7 +3731,7 @@ app.get('/api/loyalty-rewards', async (req, res) => {
     );
     res.json({ success: true, data: rewards });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3005,7 +3759,7 @@ app.post('/api/admin/loyalty-rewards', authenticateToken, requireAdmin, csrfProt
       rewardId: result.insertId
     });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3037,7 +3791,7 @@ app.put('/api/admin/loyalty-rewards/:id', authenticateToken, requireAdmin, csrfP
 
     res.json({ success: true, message: 'Récompense modifiée' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3049,7 +3803,7 @@ app.delete('/api/admin/loyalty-rewards/:id', authenticateToken, requireAdmin, cs
     await pool.query('DELETE FROM loyalty_rewards WHERE id = ?', [id]);
     res.json({ success: true, message: 'Récompense supprimée' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3061,7 +3815,7 @@ app.delete('/api/admin/loyalty-rewards/:id', authenticateToken, requireAdmin, cs
 // Vérification connexion DB et comptages basiques
 app.get('/api/health/db', async (req, res) => {
   try {
-    console.log('🔌 GET /api/health/db - Vérification connexion MySQL et comptages');
+    logger.log('🔌 GET /api/health/db - Vérification connexion MySQL et comptages');
     const [ping] = await pool.query('SELECT 1 AS ok');
     const [[ordersCountRow]] = await pool.query('SELECT COUNT(*) AS ordersCount FROM orders');
     const [[itemsCountRow]] = await pool.query('SELECT COUNT(*) AS itemsCount FROM order_items');
@@ -3077,14 +3831,19 @@ app.get('/api/health/db', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ /api/health/db - Erreur:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    logger.error('❌ /api/health/db - Erreur:', error.message);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      success: false, 
+      error: isProd ? 'Erreur de base de données' : error.message 
+    });
   }
 });
 // Endpoint léger: résumé des dernières commandes (sans agrégations lourdes)
 app.get('/api/admin/orders/summary', devBypass(authenticateToken), devBypass(requireManager), async (req, res) => {
   try {
-    console.log('📦 GET /api/admin/orders/summary - Début');
+    logger.log('📦 GET /api/admin/orders/summary - Début');
     const [rows] = await pool.query(`
       SELECT 
         o.id,
@@ -3101,42 +3860,16 @@ app.get('/api/admin/orders/summary', devBypass(authenticateToken), devBypass(req
       ORDER BY o.created_at DESC
       LIMIT 50
     `);
-    console.log('✅ /summary - Nombre de lignes:', rows.length);
+    logger.log('✅ /summary - Nombre de lignes:', rows.length);
     res.json({ success: true, data: rows || [] });
   } catch (error) {
-    console.error('❌ GET /api/admin/orders/summary - Erreur:', error.message);
+    logger.error('❌ GET /api/admin/orders/summary - Erreur:', error.message);
     res.status(500).json({ success: false, error: 'Erreur serveur (summary)' });
   }
 });
 
-// Endpoint DEV ouvert (sans auth) pour diagnostic rapide
-if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/admin/orders/dev-open', async (req, res) => {
-    try {
-      console.log('🛠️ GET /api/admin/orders/dev-open - DEV ONLY');
-      const [rows] = await pool.query(`
-        SELECT 
-          o.id,
-          o.order_number,
-          o.status,
-          o.total_amount,
-          o.created_at,
-          o.order_type,
-          COALESCE(u.first_name, '') as first_name,
-          COALESCE(u.last_name, '') as last_name,
-          COALESCE(u.email, '') as email
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        ORDER BY o.created_at DESC
-        LIMIT 50
-      `);
-      res.json({ success: true, data: rows || [] });
-    } catch (error) {
-      console.error('❌ GET /api/admin/orders/dev-open - Erreur:', error.message);
-      res.status(500).json({ success: false, error: 'Erreur serveur (dev-open)' });
-    }
-  });
-}
+// ✅ SÉCURITÉ: Endpoint de diagnostic supprimé pour éviter l'exposition de données sensibles
+// Si un endpoint de diagnostic est nécessaire, utiliser l'endpoint authentifié /api/admin/orders
 
 // ✅ SÉCURITÉ: Pagination implémentée
 // Liste toutes les commandes
@@ -3241,7 +3974,7 @@ app.get('/api/admin/orders', devBypass(authenticateToken), devBypass(requireMana
             items = [order.items];
           }
         } catch (e) {
-          console.error(`⚠️ Erreur parsing items pour commande ${order.id}:`, e.message);
+          logger.error(`⚠️ Erreur parsing items pour commande ${order.id}:`, e.message);
           items = [];
         }
       }
@@ -3263,7 +3996,7 @@ app.get('/api/admin/orders', devBypass(authenticateToken), devBypass(requireMana
             payments = [];
           }
         } catch (e) {
-          console.error(`⚠️ Erreur parsing payments pour commande ${order.id}:`, e.message);
+          logger.error(`⚠️ Erreur parsing payments pour commande ${order.id}:`, e.message);
           payments = [];
         }
       }
@@ -3336,7 +4069,7 @@ app.get('/api/admin/orders/:id', devBypass(authenticateToken), devBypass(require
       }
     });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3367,7 +4100,7 @@ app.put('/api/admin/orders/:id/status', authenticateToken, requireManager, csrfP
     // Si on passe de "pending" à "preparing", enregistrer le temps de prise en charge
     if (oldStatus === 'pending' && newStatus === 'preparing') {
       updateQuery += ', taken_at = NOW()';
-      console.log(`📌 Commande ${id}: Prise en charge - taken_at enregistré`);
+      logger.log(`📌 Commande ${id}: Prise en charge - taken_at enregistré`);
     }
 
     // Si on passe de "preparing" à "served" ou "ready" à "served", enregistrer le temps de fin de préparation
@@ -3375,16 +4108,19 @@ app.put('/api/admin/orders/:id/status', authenticateToken, requireManager, csrfP
       // Si taken_at n'est pas encore défini, le définir maintenant (cas où on passe directement de pending à served)
       if (!currentOrder[0].taken_at && oldStatus !== 'ready') {
         updateQuery += ', taken_at = NOW()';
-        console.log(`📌 Commande ${id}: Prise en charge tardive - taken_at enregistré`);
+        logger.log(`📌 Commande ${id}: Prise en charge tardive - taken_at enregistré`);
       }
       updateQuery += ', prepared_at = NOW()';
-      console.log(`📌 Commande ${id}: Préparation terminée - prepared_at enregistré`);
+      logger.log(`📌 Commande ${id}: Préparation terminée - prepared_at enregistré`);
     }
 
     updateQuery += ' WHERE id = ?';
     updateParams.push(id);
 
     await pool.query(updateQuery, updateParams);
+
+    // ✅ OPTIMISATION: Invalider le cache des commandes
+    cache.invalidateOnModify.orders();
 
     // Créer une notification pour le client
     const [order] = await pool.query('SELECT user_id FROM orders WHERE id = ?', [id]);
@@ -3406,7 +4142,7 @@ app.put('/api/admin/orders/:id/status', authenticateToken, requireManager, csrfP
 
     res.json({ success: true, message: 'Statut mis à jour' });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3504,7 +4240,7 @@ app.put('/api/admin/orders/:id/payment-status', authenticateToken, requireManage
           try {
             loyaltyRewardData = JSON.parse(rewardJson);
           } catch (e) {
-            console.error('❌ Erreur parsing loyaltyRewardData:', e);
+            logger.error('❌ Erreur parsing loyaltyRewardData:', e);
           }
         }
       }
@@ -3557,7 +4293,7 @@ app.put('/api/admin/orders/:id/payment-status', authenticateToken, requireManage
                 ]
               );
               
-              console.log(`✅ Points déduits pour récompense: ${pointsToDeduct} pour l'utilisateur ${userId} (commande ${order.id}). Nouveau solde: ${newBalance}`);
+              logger.log(`✅ Points déduits pour récompense: ${pointsToDeduct} pour l'utilisateur ${userId} (commande ${order.id}). Nouveau solde: ${newBalance}`);
               
               // Marquer la récompense comme utilisée dans localStorage via l'API
               // On stocke cette information dans la base pour la synchroniser
@@ -3609,11 +4345,11 @@ app.put('/api/admin/orders/:id/payment-status', authenticateToken, requireManage
               ]
             );
 
-            console.log(`✅ Points ajoutés: ${pointsToAdd} pour l'utilisateur ${userId} (commande ${order.id}). Nouveau solde: ${newBalance}`);
+            logger.log(`✅ Points ajoutés: ${pointsToAdd} pour l'utilisateur ${userId} (commande ${order.id}). Nouveau solde: ${newBalance}`);
           }
         }
       } else {
-        console.log(`ℹ️ Points déjà ajoutés pour la commande ${order.id}`);
+        logger.log(`ℹ️ Points déjà ajoutés pour la commande ${order.id}`);
       }
     }
 
@@ -3623,13 +4359,22 @@ app.put('/api/admin/orders/:id/payment-status', authenticateToken, requireManage
     );
     const updatedOrder = updatedRows[0];
 
+    // ✅ OPTIMISATION: Invalider le cache des commandes
+    cache.invalidateOnModify.orders();
+
     emitOrderUpdate('order:payment_updated', { orderId: updatedOrder.id, payment_status: updatedOrder.payment_status });
     emitOrderUpdate('orders:refresh', {});
 
     res.json({ success: true, message: 'Statut de paiement mis à jour', data: updatedOrder });
   } catch (error) {
-    console.error('❌ Erreur mise à jour statut paiement:', error);
-    res.status(500).json({ success: false, error: 'Erreur serveur', details: error.message });
+    logger.error('❌ Erreur mise à jour statut paiement:', error);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur serveur',
+      ...(isProd ? {} : { details: error.message })
+    });
   }
 });
 app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireManager, csrfProtection, validateId, async (req, res) => {
@@ -3784,9 +4529,9 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
     // Vérifier que les paiements correspondent au total recalculé (après calcul des détails)
     const tolerance = 0.01; // Tolérance de 1 centime pour les arrondis
     if (Math.abs(amountPaid - totalAmount) > tolerance && amountPaid > 0) {
-      console.error('❌ ERREUR SÉCURITÉ: Montant de paiement ne correspond pas au total');
-      console.error('   - Total recalculé:', totalAmount);
-      console.error('   - Total payé:', amountPaid);
+      logger.error('❌ ERREUR SÉCURITÉ: Montant de paiement ne correspond pas au total');
+      logger.error('   - Total recalculé:', totalAmount);
+      logger.error('   - Total payé:', amountPaid);
       await connection.rollback();
       return res.status(400).json({
         error: 'Montant de paiement invalide',
@@ -3921,11 +4666,11 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
               ]
             );
 
-            console.log(`✅ Points ajoutés via workflow: ${pointsToAdd} pour l'utilisateur ${userId} (commande ${orderId}). Nouveau solde: ${newBalance}`);
+            logger.log(`✅ Points ajoutés via workflow: ${pointsToAdd} pour l'utilisateur ${userId} (commande ${orderId}). Nouveau solde: ${newBalance}`);
           }
         }
       } else {
-        console.log(`ℹ️ Points déjà ajoutés pour la commande ${orderId}`);
+        logger.log(`ℹ️ Points déjà ajoutés pour la commande ${orderId}`);
       }
     }
 
@@ -4000,11 +4745,17 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
       try {
         await connection.rollback();
       } catch (rollbackError) {
-        console.error('❌ Erreur rollback workflow paiement:', rollbackError);
+        logger.error('❌ Erreur rollback workflow paiement:', rollbackError);
       }
     }
-    console.error('❌ Erreur workflow paiement:', error);
-    res.status(500).json({ success: false, error: 'Erreur serveur lors du workflow paiement', details: error.message });
+    logger.error('❌ Erreur workflow paiement:', error);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur serveur lors du workflow paiement',
+      ...(isProd ? {} : { details: error.message })
+    });
   } finally {
     if (connection) {
       connection.release();
@@ -4022,7 +4773,7 @@ app.get('/api/admin/settings', authenticateToken, requireAdmin, async (req, res)
     const [settings] = await pool.query('SELECT * FROM app_settings ORDER BY setting_key');
     res.json({ success: true, data: settings });
   } catch (error) {
-    console.error('Erreur récupération settings:', error);
+    logger.error('Erreur récupération settings:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4049,13 +4800,13 @@ app.get('/api/settings/:key', async (req, res) => {
       try {
         value = JSON.parse(value);
       } catch (e) {
-        console.error('Erreur parse JSON:', e);
+        logger.error('Erreur parse JSON:', e);
       }
     }
     
     res.json({ success: true, data: { key: setting.setting_key, value, type: setting.setting_type } });
   } catch (error) {
-    console.error('Erreur récupération setting:', error);
+    logger.error('Erreur récupération setting:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4066,10 +4817,10 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
     const { key } = req.params;
     const { value, setting_type } = req.body;
 
-    console.log('🔧 PUT /api/admin/settings/:key');
-    console.log('   Key:', key);
-    console.log('   Value reçue:', value, '(type:', typeof value, ')');
-    console.log('   Setting type:', setting_type);
+    logger.log('🔧 PUT /api/admin/settings/:key');
+    logger.log('   Key:', key);
+    logger.log('   Value reçue:', value, '(type:', typeof value, ')');
+    logger.log('   Setting type:', setting_type);
 
     // Convertir la valeur en string si nécessaire
     let stringValue = value;
@@ -4094,11 +4845,11 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
       [stringValue, finalType, key]
     );
 
-    console.log('   Rows affected:', result.affectedRows);
+    logger.log('   Rows affected:', result.affectedRows);
 
     // Si la clé n'existe pas encore, l'insérer (UPSERT simplifié)
     if (result.affectedRows === 0) {
-      console.log('   ⚠️ Clé inexistante, insertion...');
+      logger.log('   ⚠️ Clé inexistante, insertion...');
       await pool.query(
         'INSERT INTO app_settings (setting_key, setting_value, setting_type) VALUES (?, ?, ?)',
         [key, stringValue, finalType]
@@ -4111,9 +4862,9 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
       [key]
     );
     
-    console.log('   Nouvelle valeur en BDD:', rows[0]?.setting_value);
-    console.log('   Type en BDD:', rows[0]?.setting_type);
-    console.log('   ✅ Paramètre modifié avec succès');
+    logger.log('   Nouvelle valeur en BDD:', rows[0]?.setting_value);
+    logger.log('   Type en BDD:', rows[0]?.setting_type);
+    logger.log('   ✅ Paramètre modifié avec succès');
 
     res.json({ 
       success: true, 
@@ -4122,7 +4873,7 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
       type: rows[0]?.setting_type
     });
   } catch (error) {
-    console.error('❌ Erreur UPDATE setting:', error);
+    logger.error('❌ Erreur UPDATE setting:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4239,7 +4990,7 @@ app.get('/api/restaurant-info', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ GET /api/restaurant-info:', error);
+    logger.error('❌ GET /api/restaurant-info:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
@@ -4254,7 +5005,7 @@ app.put('/api/restaurant-info/hours', authenticateToken, requireAdmin, async (re
     await upsertSetting(pool, 'opening_hours', JSON.stringify(hours));
     res.json({ success: true, message: 'Horaires mis à jour' });
   } catch (error) {
-    console.error('❌ PUT /api/restaurant-info/hours:', error);
+    logger.error('❌ PUT /api/restaurant-info/hours:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
@@ -4272,7 +5023,7 @@ app.put('/api/restaurant-info/address', authenticateToken, requireAdmin, async (
     ]);
     res.json({ success: true, message: 'Adresse mise à jour' });
   } catch (error) {
-    console.error('❌ PUT /api/restaurant-info/address:', error);
+    logger.error('❌ PUT /api/restaurant-info/address:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
@@ -4291,7 +5042,7 @@ app.put('/api/restaurant-info/contact', authenticateToken, requireAdmin, async (
     ]);
     res.json({ success: true, message: 'Contacts mis à jour' });
   } catch (error) {
-    console.error('❌ PUT /api/restaurant-info/contact:', error);
+    logger.error('❌ PUT /api/restaurant-info/contact:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
@@ -4302,7 +5053,7 @@ app.put('/api/restaurant-info/contact', authenticateToken, requireAdmin, async (
 
 app.get('/api/admin/dashboard', authenticateToken, requireManager, async (req, res) => {
   try {
-    console.log('📊 GET /api/admin/dashboard - Statistiques complètes');
+    logger.log('📊 GET /api/admin/dashboard - Statistiques complètes');
     
     const [stats] = await pool.query(`
       SELECT 
@@ -4343,10 +5094,10 @@ app.get('/api/admin/dashboard', authenticateToken, requireManager, async (req, r
         (SELECT COALESCE(AVG(items_count), 0) FROM (SELECT COUNT(oi.id) as items_count FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status != 'cancelled' GROUP BY o.id) as subq) as average_items_per_order
     `);
     
-    console.log('✅ Statistiques dashboard calculées:', stats[0]);
+    logger.log('✅ Statistiques dashboard calculées:', stats[0]);
     res.json({ success: true, data: stats[0] });
   } catch (error) {
-    console.error('❌ Erreur dashboard:', error);
+    logger.error('❌ Erreur dashboard:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4360,7 +5111,7 @@ app.get('/api/admin/analytics/sales', authenticateToken, requireManager, async (
   try {
     const { period = '7days' } = req.query;
     
-    console.log('📈 GET /api/admin/analytics/sales - Période:', period);
+    logger.log('📈 GET /api/admin/analytics/sales - Période:', period);
     
     let dateCondition = 'DATE(created_at) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)';
     let intervalDays = 7;
@@ -4389,10 +5140,10 @@ app.get('/api/admin/analytics/sales', authenticateToken, requireManager, async (
       ORDER BY date DESC
     `);
     
-    console.log(`✅ ${sales.length} jours de données retournés`);
+    logger.log(`✅ ${sales.length} jours de données retournés`);
     res.json({ success: true, data: sales });
   } catch (error) {
-    console.error('❌ Erreur analytics/sales:', error);
+    logger.error('❌ Erreur analytics/sales:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4401,7 +5152,7 @@ app.get('/api/admin/analytics/top-products', authenticateToken, requireManager, 
   try {
     const { limit = 10 } = req.query;
     
-    console.log('🏆 GET /api/admin/analytics/top-products - Limit:', limit);
+    logger.log('🏆 GET /api/admin/analytics/top-products - Limit:', limit);
     
     const [products] = await pool.query(`
       SELECT 
@@ -4424,10 +5175,10 @@ app.get('/api/admin/analytics/top-products', authenticateToken, requireManager, 
       LIMIT ?
     `, [parseInt(limit)]);
     
-    console.log(`✅ ${products.length} produits top retournés`);
+    logger.log(`✅ ${products.length} produits top retournés`);
     res.json({ success: true, data: products });
   } catch (error) {
-    console.error('❌ Erreur top-products:', error);
+    logger.error('❌ Erreur top-products:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4451,7 +5202,7 @@ app.get('/api/admin/analytics/revenue-by-category', authenticateToken, requireAd
     
     res.json({ success: true, data: revenues });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4463,9 +5214,9 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
   try {
     const { startDate, endDate, compareStartDate, compareEndDate } = req.query;
     
-    console.log('📊 GET /api/admin/analytics/revenue-comparison');
-    console.log('   Période actuelle:', startDate, '→', endDate);
-    console.log('   Période comparaison:', compareStartDate, '→', compareEndDate);
+    logger.log('📊 GET /api/admin/analytics/revenue-comparison');
+    logger.log('   Période actuelle:', startDate, '→', endDate);
+    logger.log('   Période comparaison:', compareStartDate, '→', compareEndDate);
     
     // Statistiques période actuelle (TOUTES les commandes sauf annulées)
     const [currentStats] = await pool.query(`
@@ -4492,7 +5243,7 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
     const end = new Date(endDate);
     const isSingleDay = start.toDateString() === end.toDateString();
     
-    console.log('   Mode:', isSingleDay ? 'HEURE PAR HEURE' : 'JOUR PAR JOUR');
+    logger.log('   Mode:', isSingleDay ? 'HEURE PAR HEURE' : 'JOUR PAR JOUR');
     
     let dailyStats;
     
@@ -4552,12 +5303,12 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
     const totalHT = revenueCurrent / 1.1;
     const totalTVA = revenueCurrent - totalHT;
     
-    console.log('✅ Statistiques calculées:');
-    console.log('   CA actuel:', revenueCurrent.toFixed(2), '€');
-    console.log('   CA précédent:', revenuePrevious.toFixed(2), '€');
-    console.log('   Croissance CA:', revenueGrowth.toFixed(2), '%');
-    console.log('   Croissance commandes:', ordersGrowth.toFixed(2), '%');
-    console.log('   Croissance panier moyen:', avgOrderGrowth.toFixed(2), '%');
+    logger.log('✅ Statistiques calculées:');
+    logger.log('   CA actuel:', revenueCurrent.toFixed(2), '€');
+    logger.log('   CA précédent:', revenuePrevious.toFixed(2), '€');
+    logger.log('   Croissance CA:', revenueGrowth.toFixed(2), '%');
+    logger.log('   Croissance commandes:', ordersGrowth.toFixed(2), '%');
+    logger.log('   Croissance panier moyen:', avgOrderGrowth.toFixed(2), '%');
     
     res.json({
       success: true,
@@ -4583,7 +5334,7 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
       }
     });
   } catch (error) {
-    console.error('❌ Erreur revenue-comparison:', error);
+    logger.error('❌ Erreur revenue-comparison:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur serveur',
@@ -4612,7 +5363,7 @@ app.get('/api/manager/today-orders', authenticateToken, async (req, res) => {
     
     res.json({ success: true, data: orders });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4639,7 +5390,7 @@ app.get('/api/manager/today-stats', authenticateToken, async (req, res) => {
     
     res.json({ success: true, data: stats[0] });
   } catch (error) {
-    console.error('Erreur:', error);
+    logger.error('Erreur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4657,7 +5408,7 @@ app.post('/api/admin/products/upload-image', authenticateToken, requireAdmin, cs
 
     const imageUrl = `/uploads/products/${req.file.filename}`;
     
-    console.log('📸 Image uploadée:', imageUrl);
+    logger.log('📸 Image uploadée:', imageUrl);
     
     res.json({
       success: true,
@@ -4665,8 +5416,12 @@ app.post('/api/admin/products/upload-image', authenticateToken, requireAdmin, cs
       imageUrl: imageUrl
     });
   } catch (error) {
-    console.error('❌ Erreur upload image:', error);
-    res.status(500).json({ error: error.message || 'Erreur lors de l\'upload' });
+    logger.error('❌ Erreur upload image:', error);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      error: isProd ? 'Erreur lors de l\'upload' : (error.message || 'Erreur lors de l\'upload')
+    });
   }
 });
 
@@ -4689,7 +5444,7 @@ app.delete('/api/admin/products/:id/image', authenticateToken, requireAdmin, csr
       const imagePath = path.join(__dirname, '../public', imageUrl);
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);
-        console.log('🗑️ Image supprimée:', imagePath);
+        logger.log('🗑️ Image supprimée:', imagePath);
       }
     }
     
@@ -4701,7 +5456,7 @@ app.delete('/api/admin/products/:id/image', authenticateToken, requireAdmin, csr
       message: 'Image supprimée avec succès'
     });
   } catch (error) {
-    console.error('❌ Erreur suppression image:', error);
+    logger.error('❌ Erreur suppression image:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4715,7 +5470,7 @@ app.get('/api/stats/revenue', authenticateToken, requireManager, async (req, res
   try {
     const { start, end, period = 'daily' } = req.query;
     
-    console.log('💰 GET /api/stats/revenue - Période:', start, 'à', end);
+    logger.log('💰 GET /api/stats/revenue - Période:', start, 'à', end);
     
     if (!start || !end) {
       return res.status(400).json({ error: 'Dates de début et fin requises' });
@@ -4806,8 +5561,8 @@ app.get('/api/stats/revenue', authenticateToken, requireManager, async (req, res
       periodStats = revenueStats;
     }
     
-    console.log(`✅ ${revenueStats.length} jours de statistiques retournés`);
-    console.log('💰 Totaux période:', totals[0]);
+    logger.log(`✅ ${revenueStats.length} jours de statistiques retournés`);
+    logger.log('💰 Totaux période:', totals[0]);
     
     res.json({ 
       success: true, 
@@ -4820,7 +5575,7 @@ app.get('/api/stats/revenue', authenticateToken, requireManager, async (req, res
       }
     });
   } catch (error) {
-    console.error('❌ Erreur stats/revenue:', error);
+    logger.error('❌ Erreur stats/revenue:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4828,7 +5583,7 @@ app.get('/api/stats/revenue', authenticateToken, requireManager, async (req, res
 // Statistiques rapides (aujourd'hui, semaine, mois)
 app.get('/api/stats/revenue/quick', authenticateToken, requireManager, async (req, res) => {
   try {
-    console.log('⚡ GET /api/stats/revenue/quick - Statistiques rapides');
+    logger.log('⚡ GET /api/stats/revenue/quick - Statistiques rapides');
     
     const [quickStats] = await pool.query(`
       SELECT 
@@ -4856,7 +5611,7 @@ app.get('/api/stats/revenue/quick', authenticateToken, requireManager, async (re
       ? ((stats.today_revenue - stats.yesterday_revenue) / stats.yesterday_revenue) * 100 
       : 0;
     
-    console.log('⚡ Statistiques rapides calculées:', stats);
+    logger.log('⚡ Statistiques rapides calculées:', stats);
     
     res.json({ 
       success: true, 
@@ -4881,7 +5636,7 @@ app.get('/api/stats/revenue/quick', authenticateToken, requireManager, async (re
       }
     });
   } catch (error) {
-    console.error('❌ Erreur stats/revenue/quick:', error);
+    logger.error('❌ Erreur stats/revenue/quick:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4918,7 +5673,7 @@ app.get('/api/dashboard/top-products', authenticateToken, async (req, res) => {
     
     res.json({ success: true, data: products });
   } catch (error) {
-    console.error('❌ Erreur top produits:', error);
+    logger.error('❌ Erreur top produits:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4943,7 +5698,7 @@ app.get('/api/dashboard/peak-hours', authenticateToken, async (req, res) => {
     
     res.json({ success: true, data: hours });
   } catch (error) {
-    console.error('❌ Erreur heures de pointe:', error);
+    logger.error('❌ Erreur heures de pointe:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4974,7 +5729,7 @@ app.get('/api/dashboard/category-distribution', authenticateToken, async (req, r
     
     res.json({ success: true, data: categories });
   } catch (error) {
-    console.error('❌ Erreur répartition catégories:', error);
+    logger.error('❌ Erreur répartition catégories:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -5003,7 +5758,7 @@ app.get('/api/dashboard/stock-alerts', authenticateToken, async (req, res) => {
     
     res.json({ success: true, data: products });
   } catch (error) {
-    console.error('❌ Erreur alertes stock:', error);
+    logger.error('❌ Erreur alertes stock:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -5018,7 +5773,7 @@ app.get('/api/dashboard/daily-stats', authenticateToken, async (req, res) => {
     const end = new Date(endDate);
     const isSingleDay = start.toDateString() === end.toDateString();
     
-    console.log(`📊 Stats détaillées: ${startDate} à ${endDate} (${isSingleDay ? 'HEURE PAR HEURE' : 'JOUR PAR JOUR'})`);
+    logger.log(`📊 Stats détaillées: ${startDate} à ${endDate} (${isSingleDay ? 'HEURE PAR HEURE' : 'JOUR PAR JOUR'})`);
     
     let stats;
     
@@ -5040,7 +5795,7 @@ app.get('/api/dashboard/daily-stats', authenticateToken, async (req, res) => {
         ORDER BY hour ASC
       `, [startDate]);
       
-      console.log(`✅ ${stats.length} heures avec activité`);
+      logger.log(`✅ ${stats.length} heures avec activité`);
     } else {
       // Plusieurs jours : retourner les stats JOUR PAR JOUR
       [stats] = await pool.query(`
@@ -5058,7 +5813,7 @@ app.get('/api/dashboard/daily-stats', authenticateToken, async (req, res) => {
         ORDER BY date ASC
       `, [startDate, endDate]);
       
-      console.log(`✅ ${stats.length} jours avec activité`);
+      logger.log(`✅ ${stats.length} jours avec activité`);
     }
     
     res.json({ 
@@ -5067,7 +5822,7 @@ app.get('/api/dashboard/daily-stats', authenticateToken, async (req, res) => {
       isSingleDay: isSingleDay
     });
   } catch (error) {
-    console.error('❌ Erreur stats quotidiennes:', error);
+    logger.error('❌ Erreur stats quotidiennes:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -5097,7 +5852,7 @@ app.get('/api/dashboard/complete', authenticateToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Erreur dashboard complet:', error);
+    logger.error('❌ Erreur dashboard complet:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -5118,7 +5873,7 @@ app.get('/api/home/stats', async (req, res) => {
       );
       
       // 2. Produits les plus populaires (top 10 pour le tableau)
-      console.log('🔍 Récupération des top products...');
+      logger.log('🔍 Récupération des top products...');
       
       // Récupérer TOUS les produits avec leurs stats de vente
       const [allProductsWithStats] = await connection.query(`
@@ -5141,9 +5896,9 @@ app.get('/api/home/stats', async (req, res) => {
       
       const topProducts = allProductsWithStats;
       
-      console.log('📊 Top Products récupérés:', topProducts.length);
+      logger.log('📊 Top Products récupérés:', topProducts.length);
       topProducts.forEach((p, idx) => {
-        console.log(`  ${idx + 1}. ${p.name}: ${p.total_sold} vendus, ${p.order_count} commandes`);
+        logger.log(`  ${idx + 1}. ${p.name}: ${p.total_sold} vendus, ${p.order_count} commandes`);
       });
       
       // 3. Codes promo actifs
@@ -5174,7 +5929,7 @@ app.get('/api/home/stats', async (req, res) => {
         LIMIT 3
       `);
       
-      console.log('📤 Envoi de la réponse avec', topProducts.length, 'produits');
+      logger.log('📤 Envoi de la réponse avec', topProducts.length, 'produits');
       
       res.json({
         success: true,
@@ -5190,7 +5945,7 @@ app.get('/api/home/stats', async (req, res) => {
               orderCount: parseInt(p.order_count) || 0,
               totalSold: parseInt(p.total_sold) || 0
             };
-            console.log(`  ✓ ${mapped.name}: ${mapped.totalSold} vendus`);
+            logger.log(`  ✓ ${mapped.name}: ${mapped.totalSold} vendus`);
             return mapped;
           }),
           activePromos: activePromos.map(promo => ({
@@ -5211,7 +5966,7 @@ app.get('/api/home/stats', async (req, res) => {
       connection.release();
     }
   } catch (error) {
-    console.error('❌ Erreur stats home:', error);
+    logger.error('❌ Erreur stats home:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des statistiques' 
@@ -5243,7 +5998,7 @@ app.get('/api/home/news', async (req, res) => {
       connection.release();
     }
   } catch (error) {
-    console.error('❌ Erreur récupération actualités:', error);
+    logger.error('❌ Erreur récupération actualités:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la récupération des actualités'
@@ -5277,7 +6032,7 @@ app.post('/api/admin/news', authenticateToken, requireManager, async (req, res) 
     });
   } catch (error) {
     await connection.rollback();
-    console.error('❌ Erreur création actualité:', error);
+    logger.error('❌ Erreur création actualité:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la création de l\'actualité'
@@ -5291,9 +6046,9 @@ app.post('/api/admin/news', authenticateToken, requireManager, async (req, res) 
 app.put('/api/admin/news/:id', authenticateToken, requireManager, csrfProtection, validateId, async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    console.log('📝 PUT /api/admin/news/:id - Début');
-    console.log('  - ID paramètre:', req.params.id);
-    console.log('  - Body reçu:', JSON.stringify(req.body, null, 2));
+    logger.log('📝 PUT /api/admin/news/:id - Début');
+    logger.log('  - ID paramètre:', req.params.id);
+    logger.log('  - Body reçu:', JSON.stringify(req.body, null, 2));
     
     await connection.beginTransaction();
     
@@ -5335,8 +6090,8 @@ app.put('/api/admin/news/:id', authenticateToken, requireManager, csrfProtection
     
     values.push(id);
     
-    console.log('📝 Requête SQL:', `UPDATE news SET ${updateFields.join(', ')} WHERE id = ?`);
-    console.log('📝 Valeurs:', values);
+    logger.log('📝 Requête SQL:', `UPDATE news SET ${updateFields.join(', ')} WHERE id = ?`);
+    logger.log('📝 Valeurs:', values);
     
     await connection.query(`
       UPDATE news
@@ -5346,7 +6101,7 @@ app.put('/api/admin/news/:id', authenticateToken, requireManager, csrfProtection
     
     await connection.commit();
     
-    console.log('✅ Actualité modifiée avec succès');
+    logger.log('✅ Actualité modifiée avec succès');
     
     res.json({
       success: true,
@@ -5354,12 +6109,12 @@ app.put('/api/admin/news/:id', authenticateToken, requireManager, csrfProtection
     });
   } catch (error) {
     await connection.rollback();
-    console.error('❌ Erreur modification actualité:', error);
-    console.error('  - Message:', error.message);
-    console.error('  - Code:', error.code);
-    console.error('  - Stack:', error.stack);
-    console.error('  - Données reçues:', req.body);
-    console.error('  - ID:', req.params.id);
+    logger.error('❌ Erreur modification actualité:', error);
+    logger.error('  - Message:', error.message);
+    logger.error('  - Code:', error.code);
+    logger.error('  - Stack:', error.stack);
+    logger.error('  - Données reçues:', req.body);
+    logger.error('  - ID:', req.params.id);
     res.status(500).json({
       success: false,
       error: error.message || 'Erreur lors de la modification de l\'actualité',
@@ -5383,7 +6138,7 @@ app.delete('/api/admin/news/:id', authenticateToken, requireManager, csrfProtect
       message: 'Actualité supprimée avec succès'
     });
   } catch (error) {
-    console.error('❌ Erreur suppression actualité:', error);
+    logger.error('❌ Erreur suppression actualité:', error);
     res.status(500).json({
       success: false,
       error: 'Erreur lors de la suppression de l\'actualité'
@@ -5406,7 +6161,7 @@ app.get('/api/admin/news/test', authenticateToken, requireManager, (req, res) =>
 
 // GET - Récupérer tous les articles d'inventaire (matières premières)
 app.get('/api/inventory', authenticateToken, async (req, res) => {
-  console.log('📦 GET /api/inventory - Récupération inventaire (matières premières)');
+  logger.log('📦 GET /api/inventory - Récupération inventaire (matières premières)');
   try {
     const [inventory] = await pool.query(`
       SELECT 
@@ -5430,13 +6185,13 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
       ORDER BY i.name ASC
     `);
     
-    console.log(`✅ ${inventory.length} matières premières récupérées`);
+    logger.log(`✅ ${inventory.length} matières premières récupérées`);
     res.json({ 
       success: true, 
       data: inventory 
     });
   } catch (error) {
-    console.error('❌ Erreur récupération inventaire:', error);
+    logger.error('❌ Erreur récupération inventaire:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de l\'inventaire' 
@@ -5446,7 +6201,7 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
 
 // POST - Ajouter un ingrédient (matière première)
 app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => {
-  console.log('📦 POST /api/inventory - Ajout ingrédient (matière première)');
+  logger.log('📦 POST /api/inventory - Ajout ingrédient (matière première)');
   const { name, category, quantity, price, minQuantity, unit, supplier, description } = req.body;
   
   try {
@@ -5461,7 +6216,7 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
     // Valider la catégorie d'inventaire
     const validInventoryCategories = ['Surgelé', 'Frais', 'Autres'];
     if (!validInventoryCategories.includes(category)) {
-      console.error('❌ Catégorie d\'inventaire non valide:', category);
+      logger.error('❌ Catégorie d\'inventaire non valide:', category);
       return res.status(400).json({ 
         success: false, 
         error: `Catégorie "${category}" non valide. Catégories valides: ${validInventoryCategories.join(', ')}` 
@@ -5484,15 +6239,15 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
       counter++;
     }
     
-    console.log('   Nom:', name);
-    console.log('   Slug généré:', slug);
-    console.log('   Catégorie inventaire:', category);
-    console.log('   Unité:', unit || 'kg');
+    logger.log('   Nom:', name);
+    logger.log('   Slug généré:', slug);
+    logger.log('   Catégorie inventaire:', category);
+    logger.log('   Unité:', unit || 'kg');
     
     // Calculer automatiquement le statut en fonction de la quantité
     const qty = quantity || 0;
     const isAvailable = qty > 0 ? 1 : 0;
-    console.log('   Quantité:', qty, '→ Statut:', isAvailable ? 'disponible' : 'rupture');
+    logger.log('   Quantité:', qty, '→ Statut:', isAvailable ? 'disponible' : 'rupture');
     
     const [result] = await pool.query(
       `INSERT INTO ingredients (
@@ -5523,13 +6278,13 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
       ]
     );
     
-    console.log('✅ Ingrédient ajouté, ID:', result.insertId);
+    logger.log('✅ Ingrédient ajouté, ID:', result.insertId);
     res.json({ 
       success: true, 
       message: 'Ingrédient ajouté avec succès' 
     });
   } catch (error) {
-    console.error('❌ Erreur ajout ingrédient:', error);
+    logger.error('❌ Erreur ajout ingrédient:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de l\'ajout de l\'ingrédient' 
@@ -5539,7 +6294,7 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
 
 // PUT - Modifier un ingrédient (matière première)
 app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, validateId, async (req, res) => {
-  console.log('📦 PUT /api/inventory/:id - Modification ingrédient');
+  logger.log('📦 PUT /api/inventory/:id - Modification ingrédient');
   const { id } = req.params;
   const { name, category, quantity, price, minQuantity, unit, supplier, description } = req.body;
   
@@ -5560,7 +6315,7 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
 
     // Si c'est juste une mise à jour de quantité (depuis les boutons +/-)
     if (quantity !== undefined && !name && !category) {
-      console.log(`📦 MAJ quantité uniquement: ${currentIngredient.name} → ${quantity}`);
+      logger.log(`📦 MAJ quantité uniquement: ${currentIngredient.name} → ${quantity}`);
       
       // Calculer le statut automatiquement en fonction de la quantité
       const isAvailable = quantity > 0 ? 1 : 0;
@@ -5572,7 +6327,7 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
         [quantity, isAvailable, id]
       );
       
-      console.log(`✅ Quantité mise à jour, ID: ${id}, Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
+      logger.log(`✅ Quantité mise à jour, ID: ${id}, Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
       return res.json({ 
         success: true, 
         message: 'Quantité mise à jour avec succès' 
@@ -5615,7 +6370,7 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
     // Calculer automatiquement le statut en fonction de la quantité
     const qty = quantity || 0;
     const isAvailable = qty > 0 ? 1 : 0;
-    console.log(`   Quantité: ${qty} → Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
+    logger.log(`   Quantité: ${qty} → Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
     
     await pool.query(
       `UPDATE ingredients 
@@ -5625,13 +6380,13 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
       [name, slug, category, qty, unit || 'kg', price || 0, minQuantity || 0, supplier || '', description || '', isAvailable, id]
     );
     
-    console.log('✅ Ingrédient modifié, ID:', id);
+    logger.log('✅ Ingrédient modifié, ID:', id);
     res.json({ 
       success: true, 
       message: 'Ingrédient modifié avec succès' 
     });
   } catch (error) {
-    console.error('❌ Erreur modification ingrédient:', error);
+    logger.error('❌ Erreur modification ingrédient:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la modification de l\'ingrédient' 
@@ -5641,7 +6396,7 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
 
 // DELETE - Supprimer un ingrédient (soft delete)
 app.delete('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, validateId, async (req, res) => {
-  console.log('📦 DELETE /api/inventory/:id - Suppression ingrédient');
+  logger.log('📦 DELETE /api/inventory/:id - Suppression ingrédient');
   const { id } = req.params;
   
   try {
@@ -5657,13 +6412,13 @@ app.delete('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection
     // Soft delete
     await pool.query('UPDATE ingredients SET deleted_at = NOW() WHERE id = ?', [id]);
     
-    console.log('✅ Ingrédient supprimé (soft delete), ID:', id);
+    logger.log('✅ Ingrédient supprimé (soft delete), ID:', id);
     res.json({ 
       success: true, 
       message: 'Ingrédient supprimé avec succès' 
     });
   } catch (error) {
-    console.error('❌ Erreur suppression ingrédient:', error);
+    logger.error('❌ Erreur suppression ingrédient:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la suppression de l\'ingrédient' 
@@ -5706,7 +6461,7 @@ app.get('/api/products/categories', asyncHandler(async (req, res) => {
 
 // GET - Récupérer la liste de courses
 app.get('/api/shopping-list', authenticateToken, async (req, res) => {
-  console.log('🛒 GET /api/shopping-list - Récupération liste de courses');
+  logger.log('🛒 GET /api/shopping-list - Récupération liste de courses');
   try {
     const { status } = req.query;
     let query = `
@@ -5746,13 +6501,13 @@ app.get('/api/shopping-list', authenticateToken, async (req, res) => {
     
     const [items] = await pool.query(query, params);
     
-    console.log(`✅ ${items.length} articles dans la liste de courses`);
+    logger.log(`✅ ${items.length} articles dans la liste de courses`);
     res.json({ 
       success: true, 
       data: items 
     });
   } catch (error) {
-    console.error('❌ Erreur récupération liste de courses:', error);
+    logger.error('❌ Erreur récupération liste de courses:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de la liste de courses' 
@@ -5762,7 +6517,7 @@ app.get('/api/shopping-list', authenticateToken, async (req, res) => {
 
 // POST - Ajouter un produit à la liste de courses
 app.post('/api/shopping-list/add', authenticateToken, async (req, res) => {
-  console.log('🛒 POST /api/shopping-list/add - Ajout à la liste');
+  logger.log('🛒 POST /api/shopping-list/add - Ajout à la liste');
   const { ingredient_id, quantity_needed, notes, priority = 'medium' } = req.body;
   
   try {
@@ -5799,7 +6554,7 @@ app.post('/api/shopping-list/add', authenticateToken, async (req, res) => {
         'UPDATE shopping_list SET quantity_needed = quantity_needed + ?, updated_at = NOW() WHERE id = ?',
         [quantity_needed, existing[0].id]
       );
-      console.log('✅ Quantité mise à jour pour ingrédient existant, ID:', existing[0].id);
+      logger.log('✅ Quantité mise à jour pour ingrédient existant, ID:', existing[0].id);
       return res.json({ 
         success: true, 
         message: 'Quantité mise à jour dans la liste',
@@ -5815,14 +6570,14 @@ app.post('/api/shopping-list/add', authenticateToken, async (req, res) => {
       [ingredient_id, quantity_needed, ingredient[0].unit || null, notes || null, priority]
     );
     
-    console.log('✅ Produit ajouté à la liste de courses, ID:', result.insertId);
+    logger.log('✅ Produit ajouté à la liste de courses, ID:', result.insertId);
     res.json({ 
       success: true, 
       message: 'Produit ajouté à la liste de courses',
       data: { id: result.insertId }
     });
   } catch (error) {
-    console.error('❌ Erreur ajout à la liste:', error);
+    logger.error('❌ Erreur ajout à la liste:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de l\'ajout à la liste de courses' 
@@ -5831,7 +6586,7 @@ app.post('/api/shopping-list/add', authenticateToken, async (req, res) => {
 });
 // POST - Ajouter automatiquement les produits sous stock_min
 app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req, res) => {
-  console.log('🛒 POST /api/shopping-list/auto-add-low-stock - Ajout automatique');
+  logger.log('🛒 POST /api/shopping-list/auto-add-low-stock - Ajout automatique');
   try {
     // Trouver tous les ingrédients en rupture ou en stock bas
     // - Produits en rupture (quantity = 0)
@@ -5921,7 +6676,7 @@ app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req,
       message += ` (${stockBasCount} en stock bas)`;
     }
     
-    console.log(`✅ ${addedCount} produits ajoutés automatiquement (${ruptureCount} rupture, ${stockBasCount} stock bas)`);
+    logger.log(`✅ ${addedCount} produits ajoutés automatiquement (${ruptureCount} rupture, ${stockBasCount} stock bas)`);
     res.json({ 
       success: true, 
       message: message,
@@ -5929,7 +6684,7 @@ app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req,
       data: addedItems
     });
   } catch (error) {
-    console.error('❌ Erreur ajout automatique:', error);
+    logger.error('❌ Erreur ajout automatique:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de l\'ajout automatique' 
@@ -5939,7 +6694,7 @@ app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req,
 
 // PUT - Mettre à jour un item de la liste
 app.put('/api/shopping-list/:id', authenticateToken, csrfProtection, validateId, async (req, res) => {
-  console.log('🛒 PUT /api/shopping-list/:id - Mise à jour item');
+  logger.log('🛒 PUT /api/shopping-list/:id - Mise à jour item');
   const { id } = req.params;
   const { quantity_needed, notes, priority, status } = req.body;
   
@@ -5991,13 +6746,13 @@ app.put('/api/shopping-list/:id', authenticateToken, csrfProtection, validateId,
       params
     );
     
-    console.log('✅ Item mis à jour, ID:', id);
+    logger.log('✅ Item mis à jour, ID:', id);
     res.json({ 
       success: true, 
       message: 'Item mis à jour avec succès' 
     });
   } catch (error) {
-    console.error('❌ Erreur mise à jour item:', error);
+    logger.error('❌ Erreur mise à jour item:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la mise à jour' 
@@ -6007,7 +6762,7 @@ app.put('/api/shopping-list/:id', authenticateToken, csrfProtection, validateId,
 
 // DELETE - Supprimer un item de la liste
 app.delete('/api/shopping-list/:id', authenticateToken, csrfProtection, validateId, async (req, res) => {
-  console.log('🛒 DELETE /api/shopping-list/:id - Suppression item');
+  logger.log('🛒 DELETE /api/shopping-list/:id - Suppression item');
   const { id } = req.params;
   
   try {
@@ -6025,13 +6780,13 @@ app.delete('/api/shopping-list/:id', authenticateToken, csrfProtection, validate
     
     await pool.query('DELETE FROM shopping_list WHERE id = ?', [id]);
     
-    console.log('✅ Item supprimé, ID:', id);
+    logger.log('✅ Item supprimé, ID:', id);
     res.json({ 
       success: true, 
       message: 'Item supprimé de la liste' 
     });
   } catch (error) {
-    console.error('❌ Erreur suppression item:', error);
+    logger.error('❌ Erreur suppression item:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la suppression' 
@@ -6041,7 +6796,7 @@ app.delete('/api/shopping-list/:id', authenticateToken, csrfProtection, validate
 
 // POST - Marquer comme commandé
 app.post('/api/shopping-list/:id/mark-ordered', authenticateToken, async (req, res) => {
-  console.log('🛒 POST /api/shopping-list/:id/mark-ordered');
+  logger.log('🛒 POST /api/shopping-list/:id/mark-ordered');
   const { id } = req.params;
   
   try {
@@ -6050,13 +6805,13 @@ app.post('/api/shopping-list/:id/mark-ordered', authenticateToken, async (req, r
       [id]
     );
     
-    console.log('✅ Item marqué comme commandé, ID:', id);
+    logger.log('✅ Item marqué comme commandé, ID:', id);
     res.json({ 
       success: true, 
       message: 'Item marqué comme commandé' 
     });
   } catch (error) {
-    console.error('❌ Erreur:', error);
+    logger.error('❌ Erreur:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la mise à jour' 
@@ -6066,7 +6821,7 @@ app.post('/api/shopping-list/:id/mark-ordered', authenticateToken, async (req, r
 
 // POST - Marquer comme reçu
 app.post('/api/shopping-list/:id/mark-received', authenticateToken, async (req, res) => {
-  console.log('🛒 POST /api/shopping-list/:id/mark-received');
+  logger.log('🛒 POST /api/shopping-list/:id/mark-received');
   const { id } = req.params;
   
   try {
@@ -6105,14 +6860,14 @@ app.post('/api/shopping-list/:id/mark-received', authenticateToken, async (req, 
       connection.release();
     }
     
-    console.log('✅ Item marqué comme reçu et stock mis à jour, ID:', id);
+    logger.log('✅ Item marqué comme reçu et stock mis à jour, ID:', id);
     res.json({ 
       success: true, 
       message: 'Item marqué comme reçu et stock mis à jour' 
     });
   } catch (error) {
     await pool.query('ROLLBACK');
-    console.error('❌ Erreur:', error);
+    logger.error('❌ Erreur:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de la mise à jour' 
@@ -6122,7 +6877,7 @@ app.post('/api/shopping-list/:id/mark-received', authenticateToken, async (req, 
 
 // GET - Export de la liste (CSV, TXT, JSON)
 app.get('/api/shopping-list/export', authenticateToken, async (req, res) => {
-  console.log('🛒 GET /api/shopping-list/export - Export liste');
+  logger.log('🛒 GET /api/shopping-list/export - Export liste');
   const { format = 'csv' } = req.query;
   
   try {
@@ -6185,7 +6940,7 @@ app.get('/api/shopping-list/export', authenticateToken, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('❌ Erreur export:', error);
+    logger.error('❌ Erreur export:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Erreur lors de l\'export' 
@@ -6201,9 +6956,9 @@ app.get('/api/shopping-list/export', authenticateToken, async (req, res) => {
 app.get('/api/admin/analytics/top-products-period', authenticateToken, async (req, res) => {
   const { startDate, endDate, limit = 8 } = req.query;
   
-  console.log('📊 GET /api/admin/analytics/top-products-period');
-  console.log('   Période:', startDate, '→', endDate);
-  console.log('   Limite:', limit);
+  logger.log('📊 GET /api/admin/analytics/top-products-period');
+  logger.log('   Période:', startDate, '→', endDate);
+  logger.log('   Limite:', limit);
   
   try {
     const [topProducts] = await pool.query(`
@@ -6227,7 +6982,7 @@ app.get('/api/admin/analytics/top-products-period', authenticateToken, async (re
       LIMIT ?
     `, [startDate, endDate, parseInt(limit)]);
     
-    console.log(`✅ ${topProducts.length} produits récupérés`);
+    logger.log(`✅ ${topProducts.length} produits récupérés`);
     
     res.json({
       success: true,
@@ -6241,7 +6996,7 @@ app.get('/api/admin/analytics/top-products-period', authenticateToken, async (re
       }))
     });
   } catch (error) {
-    console.error('❌ Erreur récupération top products:', error);
+    logger.error('❌ Erreur récupération top products:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des top produits' 
@@ -6253,8 +7008,8 @@ app.get('/api/admin/analytics/top-products-period', authenticateToken, async (re
 app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) => {
   const { startDate, endDate } = req.query;
   
-  console.log('📊 GET /api/admin/analytics/peak-hours');
-  console.log('   Période:', startDate, '→', endDate);
+  logger.log('📊 GET /api/admin/analytics/peak-hours');
+  logger.log('   Période:', startDate, '→', endDate);
   
   try {
     const [peakHours] = await pool.query(`
@@ -6282,14 +7037,14 @@ app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) =
       };
     });
     
-    console.log(`✅ Données heures de pointe récupérées (24h)`);
+    logger.log(`✅ Données heures de pointe récupérées (24h)`);
     
     res.json({
       success: true,
       data: allHours
     });
   } catch (error) {
-    console.error('❌ Erreur récupération heures de pointe:', error);
+    logger.error('❌ Erreur récupération heures de pointe:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des heures de pointe' 
@@ -6301,8 +7056,8 @@ app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) =
 app.get('/api/admin/analytics/category-distribution', authenticateToken, async (req, res) => {
   const { startDate, endDate } = req.query;
   
-  console.log('📊 GET /api/admin/analytics/category-distribution');
-  console.log('   Période:', startDate, '→', endDate);
+  logger.log('📊 GET /api/admin/analytics/category-distribution');
+  logger.log('   Période:', startDate, '→', endDate);
   
   try {
     const [categoryData] = await pool.query(`
@@ -6338,8 +7093,8 @@ app.get('/api/admin/analytics/category-distribution', authenticateToken, async (
       percentage: totalRevenue > 0 ? (parseFloat(cat.revenue_ttc) / totalRevenue * 100) : 0
     }));
     
-    console.log(`✅ ${result.length} catégories récupérées`);
-    console.log(`   Total CA: ${totalRevenue.toFixed(2)}€`);
+    logger.log(`✅ ${result.length} catégories récupérées`);
+    logger.log(`   Total CA: ${totalRevenue.toFixed(2)}€`);
     
     res.json({
       success: true,
@@ -6347,7 +7102,7 @@ app.get('/api/admin/analytics/category-distribution', authenticateToken, async (
       total_revenue: totalRevenue
     });
   } catch (error) {
-    console.error('❌ Erreur récupération répartition catégories:', error);
+    logger.error('❌ Erreur récupération répartition catégories:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de la répartition par catégorie' 
@@ -6359,8 +7114,8 @@ app.get('/api/admin/analytics/category-distribution', authenticateToken, async (
 app.get('/api/admin/analytics/orders-period', authenticateToken, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    console.log('📊 GET /api/admin/analytics/orders-period');
-    console.log('   Période:', startDate, '→', endDate);
+    logger.log('📊 GET /api/admin/analytics/orders-period');
+    logger.log('   Période:', startDate, '→', endDate);
 
     if (!startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'startDate et endDate requis (YYYY-MM-DD)' });
@@ -6389,14 +7144,20 @@ app.get('/api/admin/analytics/orders-period', authenticateToken, async (req, res
 
     res.json({ success: true, data: orders, count: orders.length });
   } catch (error) {
-    console.error('❌ Erreur orders-period:', error);
-    res.status(500).json({ success: false, error: 'Erreur serveur', details: error.message });
+    logger.error('❌ Erreur orders-period:', error);
+    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur serveur',
+      ...(isProd ? {} : { details: error.message })
+    });
   }
 });
 
 // ⚠️ PRODUITS EN STOCK CRITIQUE
 app.get('/api/admin/analytics/critical-stock', authenticateToken, async (req, res) => {
-  console.log('📊 GET /api/admin/analytics/critical-stock');
+  logger.log('📊 GET /api/admin/analytics/critical-stock');
   
   try {
     const [criticalProducts] = await pool.query(`
@@ -6432,7 +7193,7 @@ app.get('/api/admin/analytics/critical-stock', authenticateToken, async (req, re
         p.stock ASC
     `);
     
-    console.log(`✅ ${criticalProducts.length} produits en stock critique`);
+    logger.log(`✅ ${criticalProducts.length} produits en stock critique`);
     
     res.json({
       success: true,
@@ -6446,7 +7207,7 @@ app.get('/api/admin/analytics/critical-stock', authenticateToken, async (req, re
       total_low: criticalProducts.filter(p => p.status === 'low').length
     });
   } catch (error) {
-    console.error('❌ Erreur récupération stock critique:', error);
+    logger.error('❌ Erreur récupération stock critique:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des produits en stock critique' 
@@ -6457,25 +7218,25 @@ app.get('/api/admin/analytics/critical-stock', authenticateToken, async (req, re
 // ================================================================
 // ROUTE UPLOAD NEWS (définie juste avant le démarrage du serveur)
 // ================================================================
-console.log('📝 Enregistrement de la route /api/admin/news/upload-image...');
+logger.log('📝 Enregistrement de la route /api/admin/news/upload-image...');
 try {
   app.post('/api/admin/news/upload-image', authenticateToken, requireManager, csrfProtection, uploadNews.single('image'), validateNewsMagicBytes, async (req, res) => {
     try {
-      console.log('📸 Upload image actualité - Requête reçue');
+      logger.log('📸 Upload image actualité - Requête reçue');
       
       if (!req.file) {
-        console.error('❌ Aucun fichier reçu');
+        logger.error('❌ Aucun fichier reçu');
         return res.status(400).json({ success: false, error: 'Aucune image fournie' });
       }
 
-      console.log('  - File:', req.file.originalname);
-      console.log('  - User:', req.user ? `${req.user.role} (ID: ${req.user.id})` : 'Non authentifié');
+      logger.log('  - File:', req.file.originalname);
+      logger.log('  - User:', req.user ? `${req.user.role} (ID: ${req.user.id})` : 'Non authentifié');
 
       // S'assurer que le dossier existe
       const newsUploadsDir = path.join(__dirname, '../public/uploads/news');
       if (!fs.existsSync(newsUploadsDir)) {
         fs.mkdirSync(newsUploadsDir, { recursive: true });
-        console.log('📁 Dossier news créé:', newsUploadsDir);
+        logger.log('📁 Dossier news créé:', newsUploadsDir);
       }
 
       const imageUrl = `/uploads/news/${req.file.filename}`;
@@ -6486,9 +7247,9 @@ try {
         throw new Error(`Fichier non trouvé après upload: ${fullPath}`);
       }
       
-      console.log('✅ Image actualité uploadée:', imageUrl);
-      console.log('  - Chemin complet:', fullPath);
-      console.log('  - Taille:', req.file.size, 'bytes');
+      logger.log('✅ Image actualité uploadée:', imageUrl);
+      logger.log('  - Chemin complet:', fullPath);
+      logger.log('  - Taille:', req.file.size, 'bytes');
       
       res.json({
         success: true,
@@ -6496,8 +7257,8 @@ try {
         imageUrl: imageUrl
       });
     } catch (error) {
-      console.error('❌ Erreur upload image actualité:', error);
-      console.error('  - Stack:', error.stack);
+      logger.error('❌ Erreur upload image actualité:', error);
+      logger.error('  - Stack:', error.stack);
       res.status(500).json({ 
         success: false,
         error: error.message || 'Erreur lors de l\'upload',
@@ -6505,9 +7266,9 @@ try {
       });
     }
   });
-  console.log('✅ Route /api/admin/news/upload-image enregistrée');
+  logger.log('✅ Route /api/admin/news/upload-image enregistrée');
 } catch (error) {
-  console.error('❌ ERREUR lors de l\'enregistrement de la route:', error);
+  logger.error('❌ ERREUR lors de l\'enregistrement de la route:', error);
 }
 
 // ================================================================
@@ -6515,7 +7276,7 @@ try {
 // ================================================================
 
 // Vérifier que la route upload-image est bien enregistrée
-console.log('🔍 Vérification des routes news...');
+logger.log('🔍 Vérification des routes news...');
 const routes = [];
 app._router?.stack?.forEach((middleware) => {
   if (middleware.route) {
@@ -6523,16 +7284,16 @@ app._router?.stack?.forEach((middleware) => {
     const path = middleware.route.path;
     routes.push({ method: methods, path });
     if (path.includes('/news/upload-image')) {
-      console.log(`  ✅ Route trouvée: ${methods} ${path}`);
+      logger.log(`  ✅ Route trouvée: ${methods} ${path}`);
     }
   }
 });
 
 if (!routes.some(r => r.path === '/api/admin/news/upload-image')) {
-  console.error('  ❌ ERREUR: Route /api/admin/news/upload-image non trouvée !');
-  console.error('  Routes news trouvées:');
+  logger.error('  ❌ ERREUR: Route /api/admin/news/upload-image non trouvée !');
+  logger.error('  Routes news trouvées:');
   routes.filter(r => r.path.includes('/news')).forEach(r => {
-    console.error(`    ${r.method} ${r.path}`);
+    logger.error(`    ${r.method} ${r.path}`);
   });
 }
 
@@ -6540,65 +7301,72 @@ if (!routes.some(r => r.path === '/api/admin/news/upload-image')) {
 // WEBSOCKET - Gestion des connexions et événements
 // ================================================================
 io.on('connection', (socket) => {
-  console.log(`[WebSocket] Client connecté: ${socket.id}`);
+  logger.log(`[WebSocket] Client connecté: ${socket.id}`);
 
   socket.on('disconnect', () => {
-    console.log(`[WebSocket] Client déconnecté: ${socket.id}`);
+    logger.log(`[WebSocket] Client déconnecté: ${socket.id}`);
   });
 });
 
 // Fonction helper pour émettre des événements WebSocket
 const emitOrderUpdate = (event, data) => {
   io.emit(event, data);
-  console.log(`[WebSocket] Événement émis: ${event}`);
+  logger.log(`[WebSocket] Événement émis: ${event}`);
 };
 
 // Exporter pour utilisation dans les routes
 app.emitOrderUpdate = emitOrderUpdate;
 
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log('');
-  console.log('========================================');
-  console.log(`🌸 Blossom Café - API Admin`);
-  console.log('========================================');
-  console.log(`✅ Serveur démarré sur http://0.0.0.0:${PORT}`);
-  console.log(`✅ Accessible via http://localhost:${PORT}`);
-  console.log(`✅ Accessible via http://127.0.0.1:${PORT}`);
-  console.log(`📊 Base de données: ${config.database.database}`);
-  console.log(`🔌 MySQL: ${config.database.host}:${config.database.port}`);
-  console.log(`🔐 CORS: Activé pour toutes les origines localhost`);
-  console.log(`⚡ WebSocket: Activé pour mises à jour temps réel`);
-  console.log('');
-  console.log('🔐 Routes Admin (requiert authentification):');
-  console.log('  GET/POST/PUT/DELETE /api/admin/users');
-  console.log('  GET/POST/PUT/DELETE /api/admin/categories');
-  console.log('  GET/POST/PUT/DELETE /api/admin/products');
-  console.log('  GET/POST/PUT/DELETE /api/admin/promo-codes');
-  console.log('  GET                 /api/admin/orders');
-  console.log('  GET                 /api/admin/orders/:id');
-  console.log('  PUT                 /api/admin/orders/:id/status');
-  console.log('  GET/PUT             /api/admin/settings');
-  console.log('  GET                 /api/admin/dashboard');
-  console.log('  GET                 /api/admin/analytics/sales');
-  console.log('  GET                 /api/admin/analytics/top-products');
-  console.log('  GET                 /api/admin/analytics/revenue-by-category');
-  console.log('  GET                 /api/stats/revenue');
-  console.log('  GET                 /api/stats/revenue/quick');
-  console.log('');
-  console.log('👔 Routes Manager:');
-  console.log('  GET                 /api/manager/today-orders');
-  console.log('  GET                 /api/manager/today-stats');
-  console.log('');
-  console.log('🔓 Routes publiques:');
-  console.log('  POST                /api/auth/login');
-  console.log('  POST                /api/auth/register');
-  console.log('');
-  console.log('🎁 Routes Fidélité:');
-  console.log('  POST                /api/loyalty/deduct');
-  console.log('');
-  console.log('Appuyez sur Ctrl+C pour arrêter');
-  console.log('========================================');
-  console.log('');
+  logger.log('');
+  logger.log('========================================');
+  logger.log(`🌸 Blossom Café - API Admin`);
+  logger.log('========================================');
+  logger.log(`✅ Serveur démarré sur http://0.0.0.0:${PORT}`);
+  logger.log(`✅ Accessible via http://localhost:${PORT}`);
+  logger.log(`✅ Accessible via http://127.0.0.1:${PORT}`);
+  logger.log(`📊 Base de données: ${config.database.database}`);
+  logger.log(`🔌 MySQL: ${config.database.host}:${config.database.port}`);
+  logger.log(`🔐 CORS: Activé pour toutes les origines localhost`);
+  logger.log(`⚡ WebSocket: Activé pour mises à jour temps réel`);
+  logger.log('');
+  logger.log('🔐 Routes Admin (requiert authentification):');
+  logger.log('  GET/POST/PUT/DELETE /api/admin/users');
+  logger.log('  GET/POST/PUT/DELETE /api/admin/categories');
+  logger.log('  GET/POST/PUT/DELETE /api/admin/products');
+  logger.log('  GET/POST/PUT/DELETE /api/admin/promo-codes');
+  logger.log('  GET                 /api/admin/orders');
+  logger.log('  GET                 /api/admin/orders/:id');
+  logger.log('  PUT                 /api/admin/orders/:id/status');
+  logger.log('  GET/PUT             /api/admin/settings');
+  logger.log('  GET                 /api/admin/dashboard');
+  logger.log('  GET                 /api/admin/analytics/sales');
+  logger.log('  GET                 /api/admin/analytics/top-products');
+  logger.log('  GET                 /api/admin/analytics/revenue-by-category');
+  logger.log('  GET                 /api/stats/revenue');
+  logger.log('  GET                 /api/stats/revenue/quick');
+  logger.log('');
+  logger.log('👔 Routes Manager:');
+  logger.log('  GET                 /api/manager/today-orders');
+  logger.log('  GET                 /api/manager/today-stats');
+  logger.log('');
+  logger.log('🖥️  Routes Kiosk (bornes tactiles):');
+  logger.log('  POST                /api/kiosk/login');
+  logger.log('  GET                 /api/kiosk/categories');
+  logger.log('  GET                 /api/kiosk/products');
+  logger.log('  POST                /api/kiosk/orders');
+  logger.log('  GET                 /api/kiosk/orders/:orderNumber');
+  logger.log('');
+  logger.log('🔓 Routes publiques:');
+  logger.log('  POST                /api/auth/login');
+  logger.log('  POST                /api/auth/register');
+  logger.log('');
+  logger.log('🎁 Routes Fidélité:');
+  logger.log('  POST                /api/loyalty/deduct');
+  logger.log('');
+  logger.log('Appuyez sur Ctrl+C pour arrêter');
+  logger.log('========================================');
+  logger.log('');
 });
 
 // ✅ SÉCURITÉ: Middleware pour les routes non trouvées (404)
@@ -6613,7 +7381,7 @@ process.on('unhandledRejection', (err) => {
   logger.error(err, { type: 'unhandledRejection' });
   // En production, on peut vouloir redémarrer le serveur
   if (isProd) {
-    console.error('❌ Unhandled Rejection détecté, arrêt du serveur...');
+    logger.error('❌ Unhandled Rejection détecté, arrêt du serveur...');
     process.exit(1);
   }
 });
@@ -6621,6 +7389,6 @@ process.on('unhandledRejection', (err) => {
 process.on('uncaughtException', (err) => {
   logger.error(err, { type: 'uncaughtException' });
   // Les exceptions non capturées sont critiques, arrêter le serveur
-  console.error('❌ Uncaught Exception détectée, arrêt du serveur...');
+  logger.error('❌ Uncaught Exception détectée, arrêt du serveur...');
   process.exit(1);
 });

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Edit, Plus, Trash2, X, Save, Calendar } from 'lucide-react';
 import Button from '../common/Button';
 import ImageUploadNews from './ImageUploadNews';
+import logger from '../../utils/logger';
 
 /**
  * Composant pour gérer les actualités - Système inline sans modal
@@ -102,11 +103,11 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
       const newsData = editingNewsId ? { ...formData, id: editingNewsId } : formData;
       // S'assurer que is_new est bien inclus (boolean)
       newsData.is_new = formData.is_new === true || formData.is_new === 1 || formData.is_new === 'true';
-      console.log('💾 Données à sauvegarder:', newsData);
+      logger.log('💾 Données à sauvegarder:', newsData);
       await onSave(newsData);
       handleCancel();
     } catch (error) {
-      console.error('❌ Erreur handleSave:', error);
+      logger.error('❌ Erreur handleSave:', error);
       throw error;
     }
   };

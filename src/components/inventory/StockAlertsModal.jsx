@@ -40,7 +40,7 @@ const StockAlertsModal = ({ isOpen, onClose, items }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pt-20 md:pt-24 lg:pt-28">
           {/* Overlay */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -55,7 +55,7 @@ const StockAlertsModal = ({ isOpen, onClose, items }) => {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[calc(100vh-5rem-2rem)] md:max-h-[calc(100vh-6rem-2rem)] lg:max-h-[calc(100vh-7rem-2rem)] overflow-hidden flex flex-col"
           >
             {/* Header */}
             <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-red-600 text-white p-6 rounded-t-2xl flex items-center justify-between">

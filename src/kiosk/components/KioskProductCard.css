@@ -1,0 +1,147 @@
+/* Style classique noir & blanc avec touches colorées */
+
+.kiosk-product-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid #e4e4e4;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 360px;
+}
+
+.kiosk-product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.15);
+}
+
+.kiosk-product-card__image-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #f3f3f3;
+}
+
+.kiosk-product-card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s ease;
+  filter: saturate(1.05);
+}
+
+.kiosk-product-card:hover .kiosk-product-card__image {
+  transform: scale(1.03);
+}
+
+.kiosk-product-card__emoji {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 140px;
+  color: #a0a0a0;
+  opacity: 0.4;
+}
+
+.kiosk-product-card__badge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.kiosk-product-card__info {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kiosk-product-card__name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f0f0f;
+  margin: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kiosk-product-card__description {
+  font-size: 14px;
+  color: #5c5c5c;
+  margin: 0;
+  line-height: 1.5;
+  min-height: 42px;
+}
+
+.kiosk-product-card__footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid #ededed;
+  padding-top: 14px;
+}
+
+.kiosk-product-card__price {
+  font-size: 24px;
+  font-weight: 800;
+  color: #111111;
+}
+
+.kiosk-product-card__add-button {
+  border: 1px solid #111111;
+  border-radius: 999px;
+  padding: 10px 22px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.kiosk-product-card__add-button:hover {
+  transform: translateY(-2px);
+  background: #2a2a2a;
+}
+
+.kiosk-product-card__add-button:active {
+  transform: scale(0.95);
+  animation: addToCartPulse 0.3s ease;
+}
+
+@keyframes addToCartPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.4);
+  }
+  100% {
+    transform: scale(0.95);
+  }
+}
+
+.kiosk-product-card:nth-child(1) { animation-delay: 0.05s; }
+.kiosk-product-card:nth-child(2) { animation-delay: 0.1s; }
+.kiosk-product-card:nth-child(3) { animation-delay: 0.15s; }
+.kiosk-product-card:nth-child(4) { animation-delay: 0.2s; }
+.kiosk-product-card:nth-child(5) { animation-delay: 0.25s; }
+.kiosk-product-card:nth-child(6) { animation-delay: 0.3s; }
+

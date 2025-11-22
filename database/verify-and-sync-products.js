@@ -9,16 +9,17 @@ const mysql = require('mysql2/promise');
 // Utiliser la configuration centralisée depuis config.js
 require('dotenv').config();
 const configModule = require('./config');
+const logger = require('./utils/logger');
 const config = configModule.database;
 
 async function verifyAndSyncProducts() {
   let connection;
   
   try {
-    console.log('🔍 Vérification et synchronisation des produits...\n');
+    logger.log('🔍 Vérification et synchronisation des produits...\n');
     
     connection = await mysql.createConnection(config);
-    console.log('✅ Connexion à la base de données établie\n');
+    logger.log('✅ Connexion à la base de données établie\n');
     
     // 1. Récupérer tous les produits de la BDD
     const [dbProducts] = await connection.query(`
@@ -41,21 +42,21 @@ async function verifyAndSyncProducts() {
       ORDER BY p.name
     `);
     
-    console.log(`📊 Produits dans la BDD: ${dbProducts.length}`);
+    logger.log(`📊 Produits dans la BDD: ${dbProducts.length}`);
     
     // 2. Afficher tous les produits de la BDD
-    console.log('\n📦 Produits enregistrés dans la base de données:');
-    console.log('='.repeat(80));
+    logger.log('\n📦 Produits enregistrés dans la base de données:');
+    logger.log('='.repeat(80));
     dbProducts.forEach((product, index) => {
-      console.log(`${index + 1}. [ID: ${product.id}] ${product.name}`);
-      console.log(`   - Prix: ${product.price}€`);
-      console.log(`   - Catégorie: ${product.category_name || 'Non définie'} (ID: ${product.category_id})`);
-      console.log(`   - Disponible: ${product.is_available ? 'Oui' : 'Non'}`);
-      console.log(`   - Featured: ${product.is_featured ? 'Oui' : 'Non'}`);
+      logger.log(`${index + 1}. [ID: ${product.id}] ${product.name}`);
+      logger.log(`   - Prix: ${product.price}€`);
+      logger.log(`   - Catégorie: ${product.category_name || 'Non définie'} (ID: ${product.category_id})`);
+      logger.log(`   - Disponible: ${product.is_available ? 'Oui' : 'Non'}`);
+      logger.log(`   - Featured: ${product.is_featured ? 'Oui' : 'Non'}`);
       if (product.image_url) {
-        console.log(`   - Image: ${product.image_url}`);
+        logger.log(`   - Image: ${product.image_url}`);
       }
-      console.log('');
+      logger.log('');
     });
     
     // 3. Vérifier les catégories
@@ -65,9 +66,9 @@ async function verifyAndSyncProducts() {
       ORDER BY display_order
     `);
     
-    console.log(`\n📂 Catégories disponibles: ${categories.length}`);
+    logger.log(`\n📂 Catégories disponibles: ${categories.length}`);
     categories.forEach(cat => {
-      console.log(`   - [ID: ${cat.id}] ${cat.name} (${cat.slug}) - Ordre: ${cat.display_order} - ${cat.is_active ? 'Actif' : 'Inactif'}`);
+      logger.log(`   - [ID: ${cat.id}] ${cat.name} (${cat.slug}) - Ordre: ${cat.display_order} - ${cat.is_active ? 'Actif' : 'Inactif'}`);
     });
     
     // 4. Statistiques
@@ -81,12 +82,12 @@ async function verifyAndSyncProducts() {
       WHERE deleted_at IS NULL
     `);
     
-    console.log('\n📈 Statistiques:');
-    console.log('='.repeat(80));
-    console.log(`   Total produits: ${stats[0].total}`);
-    console.log(`   Disponibles: ${stats[0].available}`);
-    console.log(`   Indisponibles: ${stats[0].unavailable}`);
-    console.log(`   En vedette: ${stats[0].featured}`);
+    logger.log('\n📈 Statistiques:');
+    logger.log('='.repeat(80));
+    logger.log(`   Total produits: ${stats[0].total}`);
+    logger.log(`   Disponibles: ${stats[0].available}`);
+    logger.log(`   Indisponibles: ${stats[0].unavailable}`);
+    logger.log(`   En vedette: ${stats[0].featured}`);
     
     // 5. Vérifier les produits sans catégorie
     const [productsWithoutCategory] = await connection.query(`
@@ -96,9 +97,9 @@ async function verifyAndSyncProducts() {
     `);
     
     if (productsWithoutCategory.length > 0) {
-      console.log('\n⚠️  Produits sans catégorie:');
+      logger.log('\n⚠️  Produits sans catégorie:');
       productsWithoutCategory.forEach(p => {
-        console.log(`   - [ID: ${p.id}] ${p.name}`);
+        logger.log(`   - [ID: ${p.id}] ${p.name}`);
       });
     }
     
@@ -114,20 +115,20 @@ async function verifyAndSyncProducts() {
     `);
     
     if (productsWithInvalidCategory.length > 0) {
-      console.log('\n⚠️  Produits avec catégorie invalide:');
+      logger.log('\n⚠️  Produits avec catégorie invalide:');
       productsWithInvalidCategory.forEach(p => {
-        console.log(`   - [ID: ${p.id}] ${p.name} (catégorie ID: ${p.category_id} n'existe pas)`);
+        logger.log(`   - [ID: ${p.id}] ${p.name} (catégorie ID: ${p.category_id} n'existe pas)`);
       });
     }
     
-    console.log('\n✅ Vérification terminée');
-    console.log('\n💡 Tous les produits affichés dans "Gestion des produits" proviennent de la base de données MySQL.');
-    console.log('💡 Si vous voyez des produits qui ne sont pas dans cette liste, ils proviennent peut-être de données de secours (fallback).');
+    logger.log('\n✅ Vérification terminée');
+    logger.log('\n💡 Tous les produits affichés dans "Gestion des produits" proviennent de la base de données MySQL.');
+    logger.log('💡 Si vous voyez des produits qui ne sont pas dans cette liste, ils proviennent peut-être de données de secours (fallback).');
     
     await connection.end();
     
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
+    logger.error('❌ Erreur:', error.message);
     if (connection) {
       await connection.end();
     }

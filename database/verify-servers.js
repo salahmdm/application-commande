@@ -3,8 +3,9 @@
  */
 
 const http = require('http');
+const logger = require('./utils/logger');
 
-console.log('🔍 Vérification des serveurs...\n');
+logger.log('🔍 Vérification des serveurs...\n');
 
 const testServer = (name, port, path = '/') => {
   return new Promise((resolve) => {
@@ -43,40 +44,42 @@ async function verifyServers() {
     testServer('Frontend', 3000, '/')
   ]);
 
-  console.log('📊 Résultats:');
+  logger.log('📊 Résultats:');
   results.forEach(result => {
     if (result.ok) {
-      console.log(`✅ ${result.name}: Accessible sur port ${result.port} (Status: ${result.status})`);
+      logger.log(`✅ ${result.name}: Accessible sur port ${result.port} (Status: ${result.status})`);
       if (result.data) {
-        console.log(`   Réponse: ${JSON.stringify(result.data)}`);
+        logger.log(`   Réponse: ${JSON.stringify(result.data)}`);
       }
     } else {
-      console.log(`❌ ${result.name}: Non accessible sur port ${result.port}`);
+      logger.log(`❌ ${result.name}: Non accessible sur port ${result.port}`);
     }
   });
 
-  console.log('');
+  logger.log('');
 
   if (results.every(r => r.ok)) {
-    console.log('✅ TOUS LES SERVEURS SONT OPÉRATIONNELS !');
-    console.log('');
-    console.log('🌐 URLs:');
-    console.log('   - Frontend: http://localhost:3000');
-    console.log('   - Backend:  http://localhost:5000/api');
-    console.log('');
+    logger.log('✅ TOUS LES SERVEURS SONT OPÉRATIONNELS !');
+    logger.log('');
+    logger.log('🌐 URLs:');
+    logger.log('   - Frontend: http://localhost:3000');
+    logger.log('   - Backend:  http://localhost:5000/api');
+    logger.log('');
   } else {
-    console.log('⚠️ Certains serveurs ne sont pas encore accessibles');
-    console.log('');
-    console.log('💡 Pour démarrer les serveurs:');
-    console.log('   Depuis la racine du projet: npm run start');
-    console.log('');
+    logger.log('⚠️ Certains serveurs ne sont pas encore accessibles');
+    logger.log('');
+    logger.log('💡 Pour démarrer les serveurs:');
+    logger.log('   Depuis la racine du projet: npm run start');
+    logger.log('');
   }
 }
 
 verifyServers().catch(error => {
-  console.error('❌ Erreur lors de la vérification:', error);
+  logger.error('❌ Erreur lors de la vérification:', error);
   process.exit(1);
 });
+
+
 
 
 

@@ -45,8 +45,8 @@ const ProductModal = ({ product, isOpen, onClose, onAddToCart }) => {
   const ingredients = extractIngredients(product.allergens);
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl animate-scale-in">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 pt-20 md:pt-24 lg:pt-28 animate-fade-in">
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[calc(100vh-5rem-2rem)] md:max-h-[calc(100vh-6rem-2rem)] lg:max-h-[calc(100vh-7rem-2rem)] overflow-hidden shadow-2xl animate-scale-in">
         {/* Header */}
         <div className="relative bg-white p-6 border-b border-neutral-200">
           <button
@@ -79,7 +79,7 @@ const ProductModal = ({ product, isOpen, onClose, onAddToCart }) => {
         </div>
 
         {/* Body - Scrollable */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-280px)]">
+        <div className="p-6 overflow-y-auto max-h-[calc(100vh-5rem-18rem)] md:max-h-[calc(100vh-6rem-18rem)] lg:max-h-[calc(100vh-7rem-18rem)]">
           <div className="space-y-4">
             {/* Ingrédients - Section principale uniquement */}
             {ingredients.length > 0 ? (

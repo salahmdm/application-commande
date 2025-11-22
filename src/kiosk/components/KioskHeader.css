@@ -1,0 +1,75 @@
+/* Header catégorie style Burger King - Optimisé pour écran 27" */
+.kiosk-header {
+  height: 100px; /* Réduit pour écran 27" */
+  width: 100%;
+  background: linear-gradient(90deg, #F5A623 0%, #D62300 100%);
+  padding: 16px 24px; /* Réduit */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.kiosk-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0.1) 100%);
+  pointer-events: none;
+}
+
+.kiosk-header__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.kiosk-header__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  backdrop-filter: blur(10px);
+}
+
+.kiosk-header__badge-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.kiosk-header__badge-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: #FFE4B5;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kiosk-header__title {
+  font-size: 32px; /* Réduit pour écran 27" */
+  font-weight: 900;
+  color: #FFFFFF;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+  line-height: 1.2;
+  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.kiosk-header__subtitle {
+  font-size: 14px; /* Réduit */
+  font-weight: 600;
+  color: #FFE4B5;
+  margin: 6px 0 0 0;
+  text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.2);
+}
+

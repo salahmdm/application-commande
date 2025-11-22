@@ -1,11 +1,20 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react({
+    // ✅ JSX transform automatique - React n'a pas besoin d'être importé pour JSX
+    // Mais les hooks doivent toujours être importés depuis 'react'
+  })],
   server: {
+    host: '0.0.0.0', // ✅ Écouter sur toutes les interfaces (accessible via localhost)
     port: 3000,
+    strictPort: true,
     open: true,
     cors: true,
     hmr: {
@@ -31,11 +40,23 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src'
-    }
+      '@': path.resolve(__dirname, './src'),
+      // ✅ Forcer une seule instance de React
+      'react': path.resolve(__dirname, './node_modules/react'),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom')
+    },
+    dedupe: ['react', 'react-dom'] // ✅ Dédupliquer React
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'zustand', 'lucide-react']
+    include: ['react', 'react-dom', 'zustand', 'lucide-react'],
+    exclude: [], // ✅ Ne pas exclure React
+    force: true, // ✅ Forcer la re-optimisation
+    esbuildOptions: {
+      // ✅ Forcer React à être chargé en premier
+      define: {
+        global: 'globalThis'
+      }
+    }
   }
 });
 

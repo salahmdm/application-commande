@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import productService from '../services/productService';
-import { fallbackProducts, fallbackCategories } from '../utils/fallbackData';
+import logger from '../utils/logger';
 
 /**
  * Store des produits
- * Connecté à la base de données MySQL via API
- * Avec données de secours si l'API n'est pas accessible
+ * Connecté UNIQUEMENT à la base de données MySQL via API
+ * ❌ Aucune donnée de secours hardcodée - Utilise uniquement la base de données
  */
 const useProductStore = create((set, get) => ({
   products: [],
@@ -18,12 +18,12 @@ const useProductStore = create((set, get) => ({
   searchQuery: '',
   filters: {
     category: null,
-    priceRange: [0, 100],
+    priceRange: [0, 1000], // Plage de prix élargie pour inclure tous les produits
     sortBy: 'popular',
     onlyInStock: false,
   },
   
-  // Charger les produits depuis MySQL (avec fallback) - UNIFIÉ avec route admin
+  // Charger les produits depuis MySQL - UNIQUEMENT depuis la base de données
   fetchProducts: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -31,31 +31,12 @@ const useProductStore = create((set, get) => ({
       const response = await productService.getAllProductsAdmin();
       if (response.success && response.data) {
         set({ products: response.data, isLoading: false, usingFallback: false });
-        console.log('✅ Produits chargés depuis MySQL (route admin unifiée)');
-      }
-    } catch (error) {
-      console.warn('⚠️ API non accessible, utilisation données de secours');
-      // Utiliser les données de secours
-      set({ products: fallbackProducts, isLoading: false, usingFallback: true });
-    }
-  },
-  
-  // Charger TOUS les produits pour l'admin (actifs ET inactifs)
-  // IMPORTANT: Ne JAMAIS utiliser les données de secours pour l'admin
-  fetchAllProductsAdmin: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const response = await productService.getAllProductsAdmin();
-      if (response.success && response.data) {
-        set({ products: response.data, isLoading: false, usingFallback: false });
-        console.log('✅ TOUS les produits chargés (admin) depuis MySQL:', response.data.length);
-        return { success: true, data: response.data };
+        logger.log('✅ Produits chargés depuis MySQL (route admin unifiée)');
       } else {
         throw new Error('Réponse API invalide');
       }
     } catch (error) {
-      console.error('❌ Erreur chargement produits admin:', error);
-      // NE PAS utiliser les données de secours - afficher une erreur
+      logger.error('❌ Erreur chargement produits depuis la base de données:', error);
       set({ 
         products: [], 
         isLoading: false, 
@@ -66,38 +47,188 @@ const useProductStore = create((set, get) => ({
     }
   },
   
-  // Charger les catégories depuis MySQL (avec fallback)
+  // Charger les produits pour les clients authentifiés - Utilise toujours la route publique pour simplifier
+  fetchProductsForClient: async () => {
+    const state = get();
+    // Éviter les appels multiples simultanés
+    if (state.isLoading) {
+      logger.log('⏸️ fetchProductsForClient - Chargement déjà en cours, attente...');
+      // Attendre que le chargement en cours se termine
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          const currentState = get();
+          if (!currentState.isLoading) {
+            clearInterval(checkInterval);
+            resolve({ success: true, data: currentState.products });
+          }
+        }, 100);
+        // Timeout de sécurité après 5 secondes
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          resolve({ success: true, data: state.products || [] });
+        }, 5000);
+      });
+    }
+    
+    set({ isLoading: true, error: null });
+    try {
+      logger.log('🔄 fetchProductsForClient - Début du chargement...');
+      // Utiliser la route publique /products qui filtre déjà les produits disponibles
+      // C'est plus simple et évite les problèmes d'authentification
+      const response = await productService.getAllProducts();
+      logger.log('📦 fetchProductsForClient - Réponse reçue:', response);
+      logger.log('📦 fetchProductsForClient - Données reçues:', response?.data?.length || 0, 'produits');
+
+      if (response && response.success && response.data) {
+        const productsCount = response.data.length;
+        logger.log('✅ fetchProductsForClient - Produits chargés:', productsCount);
+        if (productsCount > 0) {
+          // ✅ SÉCURITÉ: Ne pas logger les IDs de produits (peuvent être sensibles)
+          logger.debug('📦 Premiers produits chargés (détails masqués)');
+        } else {
+          logger.warn('⚠️ fetchProductsForClient - Aucun produit trouvé dans la réponse');
+        }
+        set({ products: response.data, isLoading: false, usingFallback: false });
+        return { success: true, data: response.data };
+      } else {
+        logger.error('❌ fetchProductsForClient - Réponse API invalide:', response);
+        throw new Error('Réponse API invalide');
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement produits clients depuis la base de données:', error);
+      logger.error('   Message:', error.message);
+      logger.error('   Stack:', error.stack);
+      // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
+      set({ 
+        products: [], 
+        isLoading: false, 
+        usingFallback: false,
+        error: error.message || 'Impossible de charger les produits depuis la base de données'
+      });
+      throw error; // Propager l'erreur pour que l'UI puisse l'afficher
+    }
+  },
+  
+  // Charger les produits publics (pour les invités non authentifiés) - Route publique
+  fetchProductsPublic: async () => {
+    const state = get();
+    // Éviter les appels multiples simultanés
+    if (state.isLoading) {
+      logger.log('⏸️ fetchProductsPublic - Chargement déjà en cours, attente...');
+      // Attendre que le chargement en cours se termine
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          const currentState = get();
+          if (!currentState.isLoading) {
+            clearInterval(checkInterval);
+            resolve({ success: true, data: currentState.products });
+          }
+        }, 100);
+        // Timeout de sécurité après 5 secondes
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          resolve({ success: true, data: state.products || [] });
+        }, 5000);
+      });
+    }
+    
+    set({ isLoading: true, error: null });
+    try {
+      const response = await productService.getAllProducts();
+      if (response.success && response.data) {
+        set({ products: response.data, isLoading: false, usingFallback: false });
+        logger.log('✅ Produits publics chargés depuis MySQL:', response.data.length);
+        return { success: true, data: response.data };
+      } else {
+        throw new Error('Réponse API invalide');
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement produits publics depuis la base de données:', error);
+      // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
+      set({ 
+        products: [], 
+        isLoading: false, 
+        usingFallback: false,
+        error: error.message || 'Impossible de charger les produits depuis la base de données'
+      });
+      throw error; // Propager l'erreur pour que l'UI puisse l'afficher
+    }
+  },
+  
+  // Charger TOUS les produits pour l'admin (actifs ET inactifs)
+  // IMPORTANT: Ne JAMAIS utiliser les données de secours pour l'admin
+  fetchAllProductsAdmin: async () => {
+    const state = get();
+    // ✅ CORRECTION: Éviter les appels multiples simultanés (prévent les boucles infinies)
+    if (state.isLoading) {
+      logger.log('⏸️ fetchAllProductsAdmin - Chargement déjà en cours, retour des produits existants');
+      // Retourner les produits existants au lieu de relancer un appel (évite les boucles)
+      return { success: true, data: state.products || [] };
+    }
+    
+    set({ isLoading: true, error: null });
+    try {
+      const response = await productService.getAllProductsAdmin();
+      if (response.success && response.data) {
+        set({ products: response.data, isLoading: false, usingFallback: false });
+        logger.log('✅ TOUS les produits chargés (admin) depuis MySQL:', response.data.length);
+        return { success: true, data: response.data };
+      } else {
+        throw new Error('Réponse API invalide');
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement produits admin:', error);
+      // NE PAS utiliser les données de secours - afficher une erreur
+      const currentState = get();
+      set({ 
+        products: currentState.products || [], // ✅ Garder les produits existants en cas d'erreur
+        isLoading: false, 
+        usingFallback: false,
+        error: error.message || 'Impossible de charger les produits depuis la base de données'
+      });
+      throw error; // Propager l'erreur pour que l'UI puisse l'afficher
+    }
+  },
+  
+  // Charger les catégories depuis MySQL - UNIQUEMENT depuis la base de données
   fetchCategories: async () => {
+    set({ error: null });
     try {
       const response = await productService.getCategories();
       if (response.success && response.data) {
         set({ categories: response.data });
-        console.log('✅ Catégories chargées depuis MySQL');
+        logger.log('✅ Catégories chargées depuis MySQL');
+      } else {
+        throw new Error('Réponse API invalide');
       }
     } catch (error) {
-      console.warn('⚠️ API non accessible, utilisation catégories de secours');
-      // Utiliser les données de secours
-      set({ categories: fallbackCategories });
+      logger.error('❌ Erreur chargement catégories depuis la base de données:', error);
+      // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
+      set({ 
+        categories: [], 
+        error: error.message || 'Impossible de charger les catégories depuis la base de données'
+      });
+      throw error; // Propager l'erreur pour que l'UI puisse l'afficher
     }
   },
   
   // Ajouter un produit (Admin) - Sauvegarde dans MySQL
   addProduct: async (productData) => {
     try {
-      console.log('➕ Store - Ajout d\'un nouveau produit');
+      logger.log('➕ Store - Ajout d\'un nouveau produit');
       const response = await productService.createProduct(productData);
       
       if (response.success) {
-        console.log('✅ Store - Produit ajouté dans MySQL');
+        logger.log('✅ Store - Produit ajouté dans MySQL');
         
         // Recharger tous les produits depuis MySQL pour synchroniser
         await get().fetchProducts();
-        console.log('✅ Store - Produits rechargés depuis MySQL');
+        logger.log('✅ Store - Produits rechargés depuis MySQL');
         
         return response;
       }
     } catch (error) {
-      console.error('❌ Store - Erreur addProduct:', error);
+      logger.error('❌ Store - Erreur addProduct:', error);
       throw error;
     }
   },
@@ -105,20 +236,20 @@ const useProductStore = create((set, get) => ({
   // Mettre à jour un produit (Admin) - Sauvegarde dans MySQL
   updateProduct: async (id, updates) => {
     try {
-      console.log('🔄 Store - Mise à jour produit ID:', id);
+      logger.log('🔄 Store - Mise à jour produit ID:', id);
       const response = await productService.updateProduct(id, updates);
       
       if (response.success) {
-        console.log('✅ Store - Produit modifié dans MySQL');
+        logger.log('✅ Store - Produit modifié dans MySQL');
         
         // IMPORTANT: Recharger depuis MySQL pour avoir les données exactes
         await get().fetchProducts();
-        console.log('✅ Store - Produits rechargés depuis MySQL');
+        logger.log('✅ Store - Produits rechargés depuis MySQL');
         
         return response;
       }
     } catch (error) {
-      console.error('❌ Store - Erreur updateProduct:', error);
+      logger.error('❌ Store - Erreur updateProduct:', error);
       throw error;
     }
   },
@@ -126,20 +257,20 @@ const useProductStore = create((set, get) => ({
   // Supprimer un produit (Admin) - Supprime de MySQL
   deleteProduct: async (id) => {
     try {
-      console.log('🗑️ Store - Suppression produit ID:', id);
+      logger.log('🗑️ Store - Suppression produit ID:', id);
       const response = await productService.deleteProduct(id);
       
       if (response.success) {
-        console.log('✅ Store - Produit supprimé de MySQL');
+        logger.log('✅ Store - Produit supprimé de MySQL');
         
         // Recharger tous les produits depuis MySQL pour synchroniser
         await get().fetchProducts();
-        console.log('✅ Store - Produits rechargés depuis MySQL');
+        logger.log('✅ Store - Produits rechargés depuis MySQL');
         
         return response;
       }
     } catch (error) {
-      console.error('❌ Store - Erreur deleteProduct:', error);
+      logger.error('❌ Store - Erreur deleteProduct:', error);
       throw error;
     }
   },
@@ -164,50 +295,104 @@ const useProductStore = create((set, get) => ({
   
   getFilteredProducts: () => {
     const { products, searchQuery, filters } = get();
-    let filteredProducts = [...products];
     
-    // Recherche
-    if (searchQuery) {
-      filteredProducts = filteredProducts.filter(p => 
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
+    // Si aucun produit, retourner un tableau vide
+    if (!products || products.length === 0) {
+      logger.log('⚠️ getFilteredProducts - Aucun produit dans le store');
+      logger.log('   - products:', products);
+      logger.log('   - products.length:', products?.length);
+      return [];
     }
     
-    // Filtre par catégorie
+    let filteredProducts = [...products];
+    
+    logger.log('🔍 getFilteredProducts - Début filtrage:', {
+      totalProducts: products.length,
+      searchQuery: searchQuery || '(vide)',
+      filters,
+      priceRange: filters.priceRange,
+      sampleProducts: products.slice(0, 3).map(p => ({ id: p.id, name: p.name, price: p.price }))
+    });
+    
+    // Recherche
+    if (searchQuery && searchQuery.trim() !== '') {
+      const query = searchQuery.toLowerCase().trim();
+      filteredProducts = filteredProducts.filter(p => 
+        (p.name && p.name.toLowerCase().includes(query)) ||
+        (p.description && p.description.toLowerCase().includes(query))
+      );
+      logger.log('🔍 Après recherche:', filteredProducts.length, 'produits');
+    }
+    
+    // Filtre par catégorie (seulement si un filtre de catégorie est activé dans le store)
+    // Note: Le filtre de catégorie dans ProductsView est géré séparément via selectedCategory
     if (filters.category) {
       filteredProducts = filteredProducts.filter(p => 
         p.category_id === parseInt(filters.category) ||
-        (p.category_name && p.category_name.toLowerCase() === filters.category.toLowerCase())
+        p.category_id === filters.category ||
+        (p.category_name && p.category_name.toLowerCase() === String(filters.category).toLowerCase()) ||
+        (p.category_slug && p.category_slug === filters.category)
       );
+      logger.log('🔍 Après filtre catégorie:', filteredProducts.length, 'produits');
     }
     
-    // Filtre par prix
-    filteredProducts = filteredProducts.filter(p => 
-      p.price >= filters.priceRange[0] && p.price <= filters.priceRange[1]
-    );
+    // Filtre par prix (convertir en nombre si c'est une chaîne)
+    // Vérifier que la plage de prix est valide
+    const minPrice = parseFloat(filters.priceRange[0]) || 0;
+    const maxPrice = parseFloat(filters.priceRange[1]) || 1000;
     
-    // Filtre stock
+    filteredProducts = filteredProducts.filter(p => {
+      const price = parseFloat(p.price) || 0;
+      const inRange = price >= minPrice && price <= maxPrice;
+      if (!inRange) {
+        logger.log('⚠️ Produit exclu par prix:', p.name, 'prix:', price, 'plage:', [minPrice, maxPrice]);
+      }
+      return inRange;
+    });
+    logger.log('🔍 Après filtre prix:', filteredProducts.length, 'produits', '(plage:', [minPrice, maxPrice], ')');
+    
+    // Filtre stock (seulement si activé)
     if (filters.onlyInStock) {
-      filteredProducts = filteredProducts.filter(p => p.stock > 0);
+      filteredProducts = filteredProducts.filter(p => {
+        const stock = parseInt(p.stock) || 0;
+        return stock > 0;
+      });
+      logger.log('🔍 Après filtre stock:', filteredProducts.length, 'produits');
     }
     
     // Tri
     switch (filters.sortBy) {
       case 'price-asc':
-        filteredProducts.sort((a, b) => a.price - b.price);
+        filteredProducts.sort((a, b) => {
+          const priceA = parseFloat(a.price) || 0;
+          const priceB = parseFloat(b.price) || 0;
+          return priceA - priceB;
+        });
         break;
       case 'price-desc':
-        filteredProducts.sort((a, b) => b.price - a.price);
+        filteredProducts.sort((a, b) => {
+          const priceA = parseFloat(a.price) || 0;
+          const priceB = parseFloat(b.price) || 0;
+          return priceB - priceA;
+        });
         break;
       case 'name':
-        filteredProducts.sort((a, b) => a.name.localeCompare(b.name));
+        filteredProducts.sort((a, b) => {
+          const nameA = a.name || '';
+          const nameB = b.name || '';
+          return nameA.localeCompare(nameB);
+        });
         break;
       case 'popular':
       default:
-        filteredProducts.sort((a, b) => (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0));
+        filteredProducts.sort((a, b) => {
+          const featuredA = a.is_featured === true || a.is_featured === 1 || a.is_featured === '1' ? 1 : 0;
+          const featuredB = b.is_featured === true || b.is_featured === 1 || b.is_featured === '1' ? 1 : 0;
+          return featuredB - featuredA;
+        });
     }
     
+    logger.log('✅ getFilteredProducts - Résultat final:', filteredProducts.length, 'produits');
     return filteredProducts;
   },
   

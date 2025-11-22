@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const logger = require('./utils/logger');
 
 /**
  * Magic bytes (signatures de fichiers) pour les formats d'images supportés
@@ -124,7 +125,7 @@ const validateFileMagicBytes = (req, res, next) => {
     const mimetype = req.file.mimetype;
     const originalName = req.file.originalname;
 
-    console.log('🔍 Validation magic bytes:', {
+    logger.log('🔍 Validation magic bytes:', {
       filename: originalName,
       mimetype: mimetype,
       size: buffer.length,
@@ -132,7 +133,7 @@ const validateFileMagicBytes = (req, res, next) => {
     });
 
     if (!verifyMagicBytes(buffer, mimetype)) {
-      console.error('❌ Validation magic bytes échouée:', {
+      logger.error('❌ Validation magic bytes échouée:', {
         filename: originalName,
         mimetype: mimetype,
         expectedTypes: Object.keys(MAGIC_BYTES).join(', ')
@@ -155,10 +156,10 @@ const validateFileMagicBytes = (req, res, next) => {
       });
     }
 
-    console.log('✅ Validation magic bytes réussie pour:', originalName);
+    logger.log('✅ Validation magic bytes réussie pour:', originalName);
     next();
   } catch (error) {
-    console.error('❌ Erreur lors de la validation magic bytes:', error);
+    logger.error('❌ Erreur lors de la validation magic bytes:', error);
     // En cas d'erreur, supprimer le fichier et renvoyer une erreur
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

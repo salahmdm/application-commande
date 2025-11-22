@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * Utilitaires pour les notifications sonores
  */
@@ -32,7 +33,7 @@ class SoundNotificationManager {
         this.audioContextInitialized = true;
         return this.audioContext;
       } catch (error) {
-        console.warn('[SoundNotification] AudioContext non disponible:', error);
+        logger.warn('[SoundNotification] AudioContext non disponible:', error);
         return null;
       }
     }
@@ -65,7 +66,7 @@ class SoundNotificationManager {
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + duration / 1000);
     } catch (error) {
-      console.warn('[SoundNotification] Erreur lors de la lecture du son:', error);
+      logger.warn('[SoundNotification] Erreur lors de la lecture du son:', error);
     }
   }
 

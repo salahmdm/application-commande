@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import ENV from '../../config/env';
+import logger from '../../utils/logger';
 
 /**
  * Composant qui vérifie que le backend est accessible
@@ -14,27 +15,39 @@ const BackendCheck = ({ children }) => {
     let mounted = true;
     let attemptCount = 0;
     let isChecking = false; // Flag pour éviter les vérifications multiples
+    let timeoutId = null;
 
     const checkBackend = async () => {
       try {
-        console.log(`🔍 BackendCheck - Tentative ${attemptCount + 1}/${MAX_ATTEMPTS}`);
+        logger.log(`🔍 BackendCheck - Tentative ${attemptCount + 1}/${MAX_ATTEMPTS}`);
         
-        // Créer un timeout manuel pour éviter les blocages
+        // Créer un timeout manuel pour éviter les blocages (réduit à 3 secondes)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
         
-        const response = await fetch(ENV.BACKEND_URL, {
+        const response = await fetch(`${ENV.BACKEND_URL}/api/health`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // ✅ Inclure les cookies pour les requêtes cross-origin
           signal: controller.signal
         });
         
         clearTimeout(timeoutId);
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'OK') {
-            console.log('✅ BackendCheck - Backend accessible !');
+        // ✅ Accepter toute réponse HTTP 200 comme valide (simplifié)
+        if (response.ok || response.status === 200) {
+          try {
+            const data = await response.json();
+            // ✅ Accepter n'importe quelle réponse OK du backend
+            // Le backend renvoie soit { status: 'OK' } soit { status: 'ok' }
+            logger.log('✅ BackendCheck - Backend accessible ! Status:', response.status, 'Data:', data);
+            if (mounted) {
+              setChecking(false);
+            }
+            return true;
+          } catch (jsonError) {
+            // Si la réponse n'est pas du JSON valide mais le status est OK, considérer comme valide
+            logger.log('✅ BackendCheck - Backend accessible (réponse non-JSON mais status 200)');
             if (mounted) {
               setChecking(false);
             }
@@ -45,9 +58,9 @@ const BackendCheck = ({ children }) => {
       } catch (error) {
         // Ignorer les erreurs AbortError (timeout)
         if (error.name === 'AbortError') {
-          console.warn(`⚠️ BackendCheck - Timeout après 5s`);
+          logger.warn(`⚠️ BackendCheck - Timeout après 3s`);
         } else {
-          console.warn(`⚠️ BackendCheck - Tentative ${attemptCount + 1} échouée:`, error.message);
+          logger.warn(`⚠️ BackendCheck - Tentative ${attemptCount + 1} échouée:`, error.message);
         }
         return false;
       }
@@ -75,26 +88,37 @@ const BackendCheck = ({ children }) => {
         }
         
         if (attemptCount >= MAX_ATTEMPTS) {
-          console.warn('❌ BackendCheck - Backend non accessible après 3 tentatives');
-          console.warn('💡 Chargement de l\'app en mode dégradé...');
+          logger.warn('❌ BackendCheck - Backend non accessible après 3 tentatives');
+          logger.warn('💡 Chargement de l\'app en mode dégradé (l\'app fonctionnera mais certaines fonctionnalités peuvent être limitées)...');
           if (mounted) {
-            // Charger quand même après 3 tentatives
+            // ✅ Charger quand même après 3 tentatives pour permettre l'utilisation
             setChecking(false);
           }
           isChecking = false;
           break;
         }
         
-        // Attendre 1.5 secondes avant la prochaine tentative
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // Attendre 0.5 seconde avant la prochaine tentative (réduit pour accélérer)
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     };
+
+    // ✅ Timeout de sécurité : charger l'app après 5 secondes maximum même si le backend ne répond pas
+    timeoutId = setTimeout(() => {
+      if (mounted) {
+        logger.warn('⏱️ BackendCheck - Timeout de sécurité (5s) - Chargement forcé de l\'app');
+        setChecking(false);
+      }
+    }, 5000);
 
     tryConnect();
 
     return () => {
       mounted = false;
       isChecking = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
   }, []);
 
@@ -162,7 +186,7 @@ const BackendCheck = ({ children }) => {
   }
 
   // Backend prêt (ou chargement forcé après 3 tentatives)
-  console.log('✅ BackendCheck - Chargement de l\'application...');
+  logger.log('✅ BackendCheck - Chargement de l\'application...');
   return children;
 };
 

@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const logger = require('./utils/logger');
 
 /**
  * Classe de logging de sécurité
@@ -49,7 +50,7 @@ class SecurityLogger {
     try {
       fs.appendFileSync(filename, message + '\n');
     } catch (error) {
-      console.error('❌ Error writing to log file:', error);
+      logger.error('❌ Error writing to log file:', error);
     }
   }
 
@@ -71,7 +72,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage(level, message, metadata);
     
-    console.log(`🔐 ${level}: ${message} - User: ${userId || 'anonymous'} - IP: ${ip}`);
+    logger.log(`🔐 ${level}: ${message} - User: ${userId || 'anonymous'} - IP: ${ip}`);
     this.writeToFile(this.securityLogFile, logMessage);
 
     // Alerte pour les échecs d'authentification
@@ -96,7 +97,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage('INFO', message, metadata);
     
-    console.log(`🔍 ACCESS: ${action} - Resource: ${resource} - User: ${userId} - IP: ${ip}`);
+    logger.log(`🔍 ACCESS: ${action} - Resource: ${resource} - User: ${userId} - IP: ${ip}`);
     this.writeToFile(this.accessLogFile, logMessage);
   }
 
@@ -114,7 +115,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage('ERROR', message, metadata);
     
-    console.error(`🚨 SECURITY ERROR: ${error.message}`);
+    logger.error(`🚨 SECURITY ERROR: ${error.message}`);
     this.writeToFile(this.errorLogFile, logMessage);
     this.writeToFile(this.securityLogFile, logMessage);
   }
@@ -133,7 +134,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage('ALERT', message, alertMetadata);
     
-    console.warn(`🚨 SECURITY ALERT: ${alertType} - Severity: ${alertMetadata.severity}`);
+    logger.warn(`🚨 SECURITY ALERT: ${alertType} - Severity: ${alertMetadata.severity}`);
     this.writeToFile(this.securityLogFile, logMessage);
 
     // En production, envoyer une alerte externe
@@ -166,7 +167,7 @@ class SecurityLogger {
   sendExternalAlert(alertType, metadata) {
     // TODO: Implémenter l'envoi d'alertes externes
     // Exemples: webhook Slack, email, SMS, etc.
-    console.log(`📡 External alert would be sent for: ${alertType}`);
+    logger.log(`📡 External alert would be sent for: ${alertType}`);
   }
 
   /**
@@ -184,7 +185,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage('WARN', message, metadata);
     
-    console.warn(`⚠️ SUSPICIOUS: ${activity} - User: ${userId} - IP: ${ip}`);
+    logger.warn(`⚠️ SUSPICIOUS: ${activity} - User: ${userId} - IP: ${ip}`);
     this.writeToFile(this.securityLogFile, logMessage);
     
     this.logSecurityAlert('SUSPICIOUS_ACTIVITY', metadata);
@@ -207,7 +208,7 @@ class SecurityLogger {
 
     const logMessage = this.formatLogMessage('INFO', message, metadata);
     
-    console.log(`📝 DATA MODIFICATION: ${action} - Table: ${table} - Record: ${recordId} - User: ${userId}`);
+    logger.log(`📝 DATA MODIFICATION: ${action} - Table: ${table} - Record: ${recordId} - User: ${userId}`);
     this.writeToFile(this.securityLogFile, logMessage);
   }
 
@@ -260,7 +261,7 @@ class SecurityLogger {
       }
 
     } catch (error) {
-      console.error('❌ Error analyzing logs:', error);
+      logger.error('❌ Error analyzing logs:', error);
     }
   }
 
@@ -276,7 +277,7 @@ class SecurityLogger {
         const stats = fs.statSync(file);
         if (Date.now() - stats.mtime.getTime() > maxAge) {
           fs.unlinkSync(file);
-          console.log(`🗑️ Cleaned up old log file: ${file}`);
+          logger.log(`🗑️ Cleaned up old log file: ${file}`);
         }
       } catch (error) {
         // Fichier n'existe pas ou erreur de lecture

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import useAuthStore from '../store/authStore';
-import authService from '../services/authService';
+import authServiceFirebase from '../services/authServiceFirebase';
+import logger from '../utils/logger';
 
 /**
  * Hook personnalisé pour l'authentification
@@ -11,12 +12,12 @@ const useAuth = () => {
   
   const login = useCallback(async (email, password) => {
     try {
-      console.log('🔐 useAuth.login - Tentative de connexion:', email);
+      logger.log('🔐 useAuth.login - Tentative de connexion:', email);
       const result = await storeLogin(email, password);
-      console.log('✅ useAuth.login - Résultat:', result);
+      logger.log('✅ useAuth.login - Résultat:', result);
       return result;
     } catch (error) {
-      console.error('❌ useAuth.login - Erreur:', error);
+      logger.error('❌ useAuth.login - Erreur:', error);
       return { success: false, error: error.message || 'Erreur de connexion' };
     }
   }, [storeLogin]);
@@ -26,14 +27,14 @@ const useAuth = () => {
       const result = await storeRegister(userData);
       return result;
     } catch (error) {
-      console.error('Erreur register hook:', error);
+      logger.error('Erreur register hook:', error);
       return { success: false, error: error.message || 'Erreur d\'inscription' };
     }
   }, [storeRegister]);
   
   const logout = useCallback(async () => {
     try {
-      await authService.logout();
+      await authServiceFirebase.logout();
       storeLogout();
       return { success: true };
     } catch (error) {
@@ -43,12 +44,12 @@ const useAuth = () => {
   
   const loginAsGuest = useCallback(async (name) => {
     try {
-      console.log('🔐 useAuth.loginAsGuest - Nom invité:', name);
+      logger.log('🔐 useAuth.loginAsGuest - Nom invité:', name);
       const result = await storeLoginAsGuest(name);
-      console.log('✅ useAuth.loginAsGuest - Résultat:', result);
+      logger.log('✅ useAuth.loginAsGuest - Résultat:', result);
       return result;
     } catch (error) {
-      console.error('❌ useAuth.loginAsGuest - Erreur:', error);
+      logger.error('❌ useAuth.loginAsGuest - Erreur:', error);
       return { success: false, error: error.message || 'Erreur de connexion invité' };
     }
   }, [storeLoginAsGuest]);
@@ -59,14 +60,22 @@ const useAuth = () => {
         return { success: false, error: 'Utilisateur non connecté' };
       }
       
-      const result = await authService.updateProfile(user.id, updates);
-      if (result.data.user) {
-        updateProfile(updates);
-        return { success: true, user: result.data.user };
+      logger.log('🔄 useAuth.update - Mise à jour profil:', updates);
+      const result = await authServiceFirebase.updateProfile(user.uid || user.id, updates);
+      logger.log('📦 useAuth.update - Résultat:', result);
+      
+      if (result.success && result.user) {
+        // Mettre à jour le store avec les nouvelles données utilisateur complètes
+        // Le store Zustand avec persist mettra automatiquement à jour localStorage
+        logger.log('🔄 useAuth.update - Mise à jour du store avec:', result.user);
+        updateProfile(result.user);
+        logger.log('✅ useAuth.update - Profil mis à jour avec succès dans le store');
+        return { success: true, user: result.user };
       }
-      return { success: false, error: 'Échec de la mise à jour' };
+      return { success: false, error: result.error || 'Échec de la mise à jour' };
     } catch (error) {
-      return { success: false, error: error.message };
+      logger.error('❌ useAuth.update - Erreur:', error);
+      return { success: false, error: error.message || 'Erreur lors de la mise à jour' };
     }
   }, [user, updateProfile]);
   

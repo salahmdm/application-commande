@@ -9,6 +9,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const config = require('./config');
 const securityLogger = require('./security-logger');
+const logger = require('./utils/logger');
 
 /**
  * Vérifier si un fichier est une image valide
@@ -229,7 +230,7 @@ const validateUploadedFile = (req, res, next) => {
       try {
         fs.unlinkSync(req.file.path);
       } catch (unlinkError) {
-        console.error('Error deleting file:', unlinkError);
+        logger.error('Error deleting file:', unlinkError);
       }
     }
     
@@ -265,7 +266,7 @@ const cleanupTempFiles = (req, res, next) => {
           fs.unlinkSync(req.file.path);
         }
       } catch (error) {
-        console.error('Error cleaning up temp file:', error);
+        logger.error('Error cleaning up temp file:', error);
       }
     }
   });

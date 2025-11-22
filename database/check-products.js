@@ -1,23 +1,24 @@
 const mysql = require('mysql2/promise');
 const config = require('./config.js');
+const logger = require('./utils/logger');
 
 (async () => {
   try {
     const connection = await mysql.createConnection(config.database);
     
-    console.log('🔍 Vérification des produits dans la base de données...\n');
+    logger.log('🔍 Vérification des produits dans la base de données...\n');
     
     // Vérifier le nombre total de produits
     const [count] = await connection.query('SELECT COUNT(*) as total FROM products');
-    console.log(`📊 Total de produits: ${count[0].total}`);
+    logger.log(`📊 Total de produits: ${count[0].total}`);
     
     // Vérifier les produits disponibles
     const [available] = await connection.query('SELECT COUNT(*) as total FROM products WHERE is_available = TRUE');
-    console.log(`✅ Produits disponibles (is_available = TRUE): ${available[0].total}`);
+    logger.log(`✅ Produits disponibles (is_available = TRUE): ${available[0].total}`);
     
     // Vérifier les produits non disponibles
     const [unavailable] = await connection.query('SELECT COUNT(*) as total FROM products WHERE is_available = FALSE');
-    console.log(`❌ Produits non disponibles (is_available = FALSE): ${unavailable[0].total}`);
+    logger.log(`❌ Produits non disponibles (is_available = FALSE): ${unavailable[0].total}`);
     
     // Afficher les 10 premiers produits
     const [products] = await connection.query(`
@@ -29,15 +30,15 @@ const config = require('./config.js');
       LIMIT 10
     `);
     
-    console.log('\n📦 Liste des 10 premiers produits:');
+    logger.log('\n📦 Liste des 10 premiers produits:');
     products.forEach(p => {
-      console.log(`  - ID: ${p.id}, Nom: ${p.name}, Prix: ${p.price}€, Disponible: ${p.is_available_str} (${p.is_available})`);
+      logger.log(`  - ID: ${p.id}, Nom: ${p.name}, Prix: ${p.price}€, Disponible: ${p.is_available_str} (${p.is_available})`);
     });
     
     await connection.end();
-    console.log('\n✅ Vérification terminée');
+    logger.log('\n✅ Vérification terminée');
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
+    logger.error('❌ Erreur:', error.message);
     process.exit(1);
   }
 })();

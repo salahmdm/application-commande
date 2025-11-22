@@ -9,31 +9,20 @@ import {
   ShoppingBag,
   Clock,
   Utensils,
-  Coffee,
-  ChevronUp,
-  ChevronDown,
   ArrowUpRight,
   ArrowDownRight,
-  Percent,
   AlertTriangle,
   CheckCircle,
   Target,
   Award,
   Package,
   Trash2,
-  ThumbsUp,
-  Star,
-  CreditCard,
-  Truck,
   Repeat,
   Activity,
-  TrendingDown as TrendDown,
   Zap,
-  Eye,
   Heart
 } from 'lucide-react';
 import { 
-  AreaChart,
   Area,
   BarChart, 
   Bar, 
@@ -42,15 +31,11 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  LineChart,
   Line,
   PieChart,
   Pie,
   Cell,
-  Legend,
   ComposedChart,
-  RadialBarChart,
-  RadialBar,
   Radar,
   RadarChart,
   PolarGrid,
@@ -61,6 +46,7 @@ import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import dashboardService from '../../services/dashboardService';
 import { formatPrice } from '../../constants/pricing';
+import logger from '../../utils/logger';
 
 /**
  * Dashboard Chiffre d'Affaires + KPIs Ultra Amélioré
@@ -94,7 +80,7 @@ const AdminDashboard = () => {
         setRevenueData(sales.data);
       }
     } catch (error) {
-      console.error('❌ Erreur chargement:', error);
+      logger.error('❌ Erreur chargement:', error);
     } finally {
       setLoading(false);
     }
@@ -138,14 +124,10 @@ const AdminDashboard = () => {
 
   const tauxFidelite = 42;
   const csatScore = 4.3;
-  const npsScore = 65;
-  const noteGoogle = 4.5;
   const commandesEnLigne = 35;
 
   const tauxGaspillage = 5.2;
   const montantGaspillage = caTotal * (tauxGaspillage / 100);
-  const rotationInventaire = 12;
-  const coutEmballage = caTotal * 0.03;
 
   const croissanceCA = 12.5;
   const croissancePanierMoyen = -2.1;
@@ -183,12 +165,6 @@ const AdminDashboard = () => {
     { name: 'Boissons', value: caTotal * 0.25, color: '#10b981', pourcent: 25 },
     { name: 'Desserts', value: caTotal * 0.15, color: '#f59e0b', pourcent: 15 },
     { name: 'Divers', value: caTotal * 0.05, color: '#6366f1', pourcent: 5 }
-  ];
-
-  const caParCanal = [
-    { name: 'Sur place', value: caTotal * 0.50, pourcent: 50, color: '#3b82f6' },
-    { name: 'À emporter', value: caTotal * 0.30, pourcent: 30, color: '#10b981' },
-    { name: 'Livraison', value: caTotal * 0.20, pourcent: 20, color: '#f59e0b' }
   ];
 
   const performanceRadar = [
@@ -452,7 +428,7 @@ const AdminDashboard = () => {
               value={selectedMetric}
               onChange={(e) => setSelectedMetric(e.target.value)}
             >
-              <option value="ca">Chiffre d'affaires</option>
+              <option value="ca">Chiffre d&apos;affaires</option>
               <option value="tickets">Nombre tickets</option>
               <option value="marge">Marge brute</option>
             </select>
@@ -621,7 +597,7 @@ const AdminDashboard = () => {
           <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border-2 border-blue-200">
             <div className="flex items-center gap-2 mb-2">
               <Users className="w-5 h-5 text-blue-600" />
-              <p className="text-xs text-blue-700 font-sans font-semibold">Main d'œuvre</p>
+              <p className="text-xs text-blue-700 font-sans font-semibold">Main d&apos;œuvre</p>
             </div>
             <p className="text-2xl font-heading font-bold text-black">{formatPrice(coutMainOeuvre)}</p>
             <p className="text-sm text-blue-600 font-semibold mt-1">{mainOeuvrePourcent}% du CA</p>

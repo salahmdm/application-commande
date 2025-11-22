@@ -15,10 +15,38 @@ const Card = ({
 }) => {
   const paddings = {
     none: '',
-    sm: 'p-4',
-    md: 'p-6',
-    lg: 'p-8',
-    xl: 'p-10'
+    sm: 'p-3 sm:p-4',
+    md: 'p-4 sm:p-6 lg:p-7',
+    lg: 'p-4 sm:p-6 md:p-8 lg:p-9',
+    xl: 'p-5 sm:p-8 md:p-10 lg:p-12'
+  };
+  
+  // Support pour padding responsive (ex: "sm sm:md md:lg")
+  const getPaddingClasses = (padding) => {
+    if (!padding) return '';
+    
+    // Si le padding contient des espaces, c'est une chaîne responsive
+    if (padding.includes(' ')) {
+      // Parser la chaîne "sm sm:md md:lg" en classes Tailwind
+      return padding.split(' ').map(p => {
+        const parts = p.split(':');
+        if (parts.length === 1) {
+          // Classe de base (ex: "sm")
+          return paddings[parts[0]] || '';
+        } else if (parts.length === 2) {
+          // Classe responsive (ex: "sm:md")
+          const breakpoint = parts[0];
+          const size = parts[1];
+          const basePadding = paddings[size] || '';
+          // Remplacer p- par le breakpoint approprié
+          return basePadding.replace(/^p-/, `${breakpoint}:p-`);
+        }
+        return '';
+      }).filter(Boolean).join(' ');
+    }
+    
+    // Padding simple
+    return paddings[padding] || '';
   };
   
   const variants = {
@@ -39,9 +67,9 @@ const Card = ({
     <div
       onClick={onClick}
       className={`
-        rounded-2xl
+        rounded-xl sm:rounded-2xl
         ${variants[variant]}
-        ${paddings[padding]} 
+        ${getPaddingClasses(padding)} 
         ${hoverClass} 
         ${clickableClass} 
         ${className}

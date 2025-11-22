@@ -4,6 +4,7 @@
  */
 
 import { apiCall } from './api';
+import logger from '../utils/logger';
 
 /**
  * Classe de gestion sécurisée des tokens côté client
@@ -27,9 +28,9 @@ class SecureTokenManager {
       const expirationTime = Date.now() + (60 * 60 * 1000); // 1 heure
       sessionStorage.setItem('token_expires', expirationTime.toString());
       
-      console.log('✅ Token stored securely');
+      logger.log('✅ Token stored securely');
     } catch (error) {
-      console.error('❌ Error storing token:', error);
+      logger.error('❌ Error storing token:', error);
       throw new Error('Erreur lors du stockage du token');
     }
   }
@@ -54,7 +55,7 @@ class SecureTokenManager {
       
       return token;
     } catch (error) {
-      console.error('❌ Error retrieving token:', error);
+      logger.error('❌ Error retrieving token:', error);
       return null;
     }
   }
@@ -75,9 +76,9 @@ class SecureTokenManager {
       // Nettoyer les données sensibles avant stockage
       const sanitizedUser = this.sanitizeUserData(userData);
       sessionStorage.setItem(this.USER_KEY, JSON.stringify(sanitizedUser));
-      console.log('✅ User data stored securely');
+      logger.log('✅ User data stored securely');
     } catch (error) {
-      console.error('❌ Error storing user data:', error);
+      logger.error('❌ Error storing user data:', error);
       throw new Error('Erreur lors du stockage des données utilisateur');
     }
   }
@@ -90,7 +91,7 @@ class SecureTokenManager {
       const userStr = sessionStorage.getItem(this.USER_KEY);
       return userStr ? JSON.parse(userStr) : null;
     } catch (error) {
-      console.error('❌ Error retrieving user data:', error);
+      logger.error('❌ Error retrieving user data:', error);
       return null;
     }
   }
@@ -119,9 +120,9 @@ class SecureTokenManager {
       sessionStorage.removeItem(this.USER_KEY);
       sessionStorage.removeItem(this.REFRESH_KEY);
       sessionStorage.removeItem('token_expires');
-      console.log('✅ Tokens cleared securely');
+      logger.log('✅ Tokens cleared securely');
     } catch (error) {
-      console.error('❌ Error clearing tokens:', error);
+      logger.error('❌ Error clearing tokens:', error);
     }
   }
 
@@ -147,7 +148,7 @@ class SecureTokenManager {
 
       throw new Error('Token refresh failed');
     } catch (error) {
-      console.error('❌ Token refresh error:', error);
+      logger.error('❌ Token refresh error:', error);
       this.clearTokens();
       throw error;
     }
@@ -343,13 +344,13 @@ const secureAuthService = {
           sessionStorage.setItem('blossom_refresh_token', response.refreshToken);
         }
         
-        console.log('✅ Login successful and secure');
+        logger.log('✅ Login successful and secure');
         return response;
       }
       
       throw new Error('Échec de la connexion');
     } catch (error) {
-      console.error('❌ Login error:', error);
+      logger.error('❌ Login error:', error);
       throw error;
     }
   },
@@ -387,13 +388,13 @@ const secureAuthService = {
       });
       
       if (response.success) {
-        console.log('✅ Registration successful and secure');
+        logger.log('✅ Registration successful and secure');
         return response;
       }
       
       throw new Error('Échec de l\'inscription');
     } catch (error) {
-      console.error('❌ Registration error:', error);
+      logger.error('❌ Registration error:', error);
       throw error;
     }
   },
@@ -410,13 +411,13 @@ const secureAuthService = {
       try {
         await apiCall('/auth/logout', { method: 'POST' });
       } catch (error) {
-        console.warn('Server logout failed, but local cleanup completed');
+        logger.warn('Server logout failed, but local cleanup completed');
       }
       
-      console.log('✅ Logout successful and secure');
+      logger.log('✅ Logout successful and secure');
       return { success: true };
     } catch (error) {
-      console.error('❌ Logout error:', error);
+      logger.error('❌ Logout error:', error);
       // Effacer les tokens même en cas d'erreur
       tokenManager.clearTokens();
       return { success: true };
@@ -490,13 +491,13 @@ const secureAuthService = {
       if (response.success && response.user) {
         // Mettre à jour les données utilisateur localement
         tokenManager.setUserData(response.user);
-        console.log('✅ Profile updated securely');
+        logger.log('✅ Profile updated securely');
         return { success: true, user: response.user };
       }
       
       throw new Error('Échec de la mise à jour du profil');
     } catch (error) {
-      console.error('❌ Profile update error:', error);
+      logger.error('❌ Profile update error:', error);
       throw error;
     }
   }

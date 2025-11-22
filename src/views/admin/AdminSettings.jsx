@@ -1,36 +1,233 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, Save, RefreshCw, CheckCircle, XCircle, Server, Database, Globe, Activity, Plus, Edit2, Trash2, Grid3x3, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Settings, Save, RefreshCw, CheckCircle, XCircle, Server, Database, Globe, Activity, Plus, Trash2, Grid3x3, Eye, EyeOff, ChevronUp, ChevronDown, Gift, Building2, Bell, Ticket, CreditCard, Cpu, Zap, AlertCircle, Info } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import useNotifications from '../../hooks/useNotifications';
 import useProductStore from '../../store/productStore';
+import useProducts from '../../hooks/useProducts';
 import { apiCall } from '../../services/api';
+import adminService from '../../services/adminService';
 import ENV from '../../config/env';
+import { DEFAULT_BUSINESS_INFO, DEFAULT_TICKET_DISPLAY } from '../../services/businessInfoService';
+import { previewReceipt } from '../../services/receiptService';
+import logger from '../../utils/logger';
+
+const TICKET_DISPLAY_FIELDS = [
+  { key: 'ticket_show_name', displayKey: 'showName', label: 'Nom du commerce' },
+  { key: 'ticket_show_address', displayKey: 'showAddress', label: 'Adresse' },
+  { key: 'ticket_show_phone', displayKey: 'showPhone', label: 'Téléphone' },
+  { key: 'ticket_show_siret', displayKey: 'showSiret', label: 'SIRET' },
+  { key: 'ticket_show_vat', displayKey: 'showVat', label: 'Numéro de TVA' },
+  { key: 'ticket_show_customer_service', displayKey: 'showCustomerService', label: 'Service client' },
+  { key: 'ticket_show_email', displayKey: 'showEmail', label: 'Email' },
+  { key: 'ticket_show_website', displayKey: 'showWebsite', label: 'Site web' },
+  { key: 'ticket_show_legal_form', displayKey: 'showLegalForm', label: 'Forme juridique' },
+  { key: 'ticket_show_rcs', displayKey: 'showRcs', label: 'RCS' },
+  { key: 'ticket_show_payment_mention', displayKey: 'showPaymentMention', label: 'Mention fiscale / TVA' },
+  { key: 'ticket_show_legal_mentions', displayKey: 'showLegalMentions', label: 'Mentions légales' },
+  { key: 'ticket_show_return_policy', displayKey: 'showReturnPolicy', label: 'Conditions de retour' },
+  { key: 'ticket_show_food_info', displayKey: 'showFoodInfo', label: 'Infos denrées / sécurité' }
+];
+
+const FIELD_DISPLAY_MAPPING = {
+  business_name: 'ticket_show_name',
+  business_address: 'ticket_show_address',
+  business_phone: 'ticket_show_phone',
+  business_website: 'ticket_show_website',
+  business_customer_service: 'ticket_show_customer_service',
+  business_email: 'ticket_show_email',
+  business_siret: 'ticket_show_siret',
+  business_vat_number: 'ticket_show_vat',
+  business_legal_form: 'ticket_show_legal_form',
+  business_share_capital: 'ticket_show_legal_form',
+  business_rcs: 'ticket_show_rcs',
+  business_payment_mention: 'ticket_show_payment_mention',
+  business_legal_mentions: 'ticket_show_legal_mentions',
+  business_return_policy: 'ticket_show_return_policy',
+  business_food_info: 'ticket_show_food_info'
+};
 
 /**
- * Vue Paramètres Admin
+ * ✅ Composant Tabs pour organiser les paramètres - Responsive
+ */
+const Tabs = ({ tabs, activeTab, onTabChange, onReload, onSave, saving }) => {
+  return (
+    <div className="border-b-2 border-neutral-200 mb-4 sm:mb-6 overflow-x-auto -mx-2 sm:mx-0 px-2 sm:px-0">
+      <div className="flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 -mb-px">
+        {/* Onglets */}
+        <div className="flex gap-1 sm:gap-2 -mb-px min-w-max sm:min-w-0 flex-1 overflow-x-auto">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            
+            return (
+              <button
+                key={tab.id}
+                onClick={() => onTabChange(tab.id)}
+                className={`
+                  flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 lg:px-4 py-2 sm:py-2.5 lg:py-3
+                  font-heading font-semibold text-xs sm:text-sm
+                  border-b-2 transition-all duration-200 whitespace-nowrap flex-shrink-0
+                  ${isActive
+                    ? 'border-black text-black bg-neutral-50'
+                    : 'border-transparent text-neutral-600 hover:text-black hover:border-neutral-300'
+                  }
+                `}
+              >
+                {Icon && <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />}
+                <span className="hidden xs:inline">{tab.label}</span>
+                <span className="xs:hidden">{tab.label.split(' ')[0]}</span>
+                {tab.badge && (
+                  <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold flex-shrink-0 ${
+                    isActive ? 'bg-black text-white' : 'bg-neutral-200 text-neutral-600'
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Boutons d'action - Compact */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <button
+            onClick={onReload}
+            className="p-1.5 sm:p-2 rounded-lg border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 hover:border-neutral-400 transition-colors flex items-center justify-center"
+            title="Recharger"
+          >
+            <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-black text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-semibold"
+            title="Sauvegarder tout"
+          >
+            {saving ? (
+              <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <Save className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            )}
+            <span className="hidden sm:inline">Sauvegarder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * ✅ Section Card améliorée avec icône et gradient - Responsive
+ */
+const SectionCard = ({ icon: Icon, title, description, children, className = '' }) => {
+  return (
+    <Card padding="sm sm:md md:lg lg:xl" className={`border-2 border-neutral-200 shadow-lg ${className}`}>
+      <div className="flex items-start gap-3 sm:gap-4 lg:gap-5 mb-4 sm:mb-6 lg:mb-8">
+        {Icon && (
+          <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 flex items-center justify-center flex-shrink-0 shadow-md">
+            <Icon className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg sm:text-xl lg:text-2xl font-heading font-bold text-black mb-1 lg:mb-2">
+            {title}
+          </h2>
+          {description && (
+            <p className="text-xs sm:text-sm lg:text-base text-neutral-600 font-sans">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      {children}
+    </Card>
+  );
+};
+
+/**
+ * ✅ Toggle Switch moderne - Responsive
+ */
+const ToggleSwitch = ({ checked, onChange, label, description, icon: Icon }) => {
+  return (
+    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 sm:p-4 bg-gradient-to-r from-neutral-50 to-white rounded-xl border-2 border-neutral-200 hover:border-neutral-300 transition-all duration-200 gap-3 sm:gap-0">
+      <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 w-full sm:w-auto">
+        {Icon && (
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0">
+            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-700" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <h3 className="font-heading font-semibold text-black text-sm mb-0.5">
+            {label}
+          </h3>
+          {description && (
+            <p className="text-xs text-neutral-600 font-sans">
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto justify-between sm:justify-end">
+        <span className={`px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-heading font-semibold whitespace-nowrap ${
+          checked
+            ? 'bg-green-100 text-green-700'
+            : 'bg-neutral-200 text-neutral-600'
+        }`}>
+          {checked ? 'Activé' : 'Désactivé'}
+        </span>
+        
+        <button
+          type="button"
+          onClick={() => onChange(!checked)}
+          className={`
+            relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-neutral-200 flex-shrink-0
+            ${checked ? 'bg-black' : 'bg-neutral-300'}
+          `}
+        >
+          <span
+            className={`
+              inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-200 shadow-md
+              ${checked ? 'translate-x-6' : 'translate-x-1'}
+            `}
+          />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Vue Paramètres Admin - Design amélioré avec onglets
  * Gestion des paramètres de l'application depuis MySQL
  */
 const AdminSettings = () => {
   const { success, error: showError } = useNotifications();
   const { fetchCategories } = useProductStore();
+  const { allProducts } = useProducts();
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('business');
   
   // État des connexions système
   const [systemStatus, setSystemStatus] = useState({
     backend: { connected: false, loading: true, message: '' },
-    database: { connected: false, loading: true, message: '' },
+    database: { connected: false, loading: true, message: '', tables: 0, pool: null },
     frontend: { connected: true, loading: false, message: 'Frontend actif' }
+  });
+  
+  // Statistiques système
+  const [systemStats, setSystemStats] = useState({
+    database: null,
+    health: null,
+    loading: false
   });
   
   // États pour la gestion des catégories
   const [categories, setCategories] = useState([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const [editingCategoryId, setEditingCategoryId] = useState(null);
-  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false);
   const [categoryFormData, setCategoryFormData] = useState({
     name: '',
     slug: '',
@@ -39,226 +236,38 @@ const AdminSettings = () => {
     displayOrder: 1,
     isActive: true
   });
+
+  // États pour la gestion de la fidélité
+  const [loyaltyPointValue, setLoyaltyPointValue] = useState('1');
+  const [rewards, setRewards] = useState([]);
   
-  // Charger les paramètres depuis la base de données
-  useEffect(() => {
-    loadSettings();
-    checkSystemStatus();
-    loadCategories();
-    // Vérifier le statut toutes les 30 secondes
-    const interval = setInterval(checkSystemStatus, 30000);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => clearInterval(interval);
-  }, []);
+  // États pour la gestion des promos
+  const [promos, setPromos] = useState([]);
+  
+  // ✅ Onglets organisés par catégorie
+  const tabs = [
+    { id: 'business', label: 'Entreprise', icon: Building2, description: 'Informations légales' },
+    { id: 'ticket', label: 'Ticket', icon: Ticket, description: 'Affichage du ticket' },
+    { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alertes et communications' },
+    { id: 'loyalty', label: 'Fidélité', icon: Gift, description: 'Programme de récompenses' },
+    { id: 'categories', label: 'Catégories', icon: Grid3x3, badge: categories.length, description: 'Gestion des catégories' },
+    { id: 'system', label: 'Système', icon: Activity, description: 'État et diagnostic' }
+  ];
   
   // Fonctions pour la gestion des catégories
-  const loadCategories = async () => {
+  const loadCategories = useCallback(async () => {
     try {
-      setCategoriesLoading(true);
       const response = await apiCall('/admin/categories');
       if (response.success && response.data) {
         setCategories(response.data);
       }
     } catch (error) {
-      console.error('❌ Erreur chargement catégories:', error);
+      logger.error('❌ Erreur chargement catégories:', error);
       showError('Erreur lors du chargement des catégories');
-    } finally {
-      setCategoriesLoading(false);
     }
-  };
+  }, [showError]);
   
-  const syncCategoriesWithPOS = async () => {
-    try {
-      await fetchCategories();
-      success('Modifications synchronisées');
-    } catch (error) {
-      console.warn('⚠️ Erreur synchronisation POS:', error);
-    }
-  };
-  
-  const generateSlug = (name) => {
-    return name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  };
-  
-  const handleCategoryNameChange = (name) => {
-    setCategoryFormData({
-      ...categoryFormData,
-      name,
-      slug: generateSlug(name)
-    });
-  };
-  
-  const handleAddCategory = async () => {
-    try {
-      if (!categoryFormData.name.trim()) {
-        showError('Le nom de la catégorie est requis');
-        return;
-      }
-
-      const response = await apiCall('/admin/categories', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: categoryFormData.name,
-          slug: categoryFormData.slug,
-          description: categoryFormData.description,
-          icon: categoryFormData.icon,
-          displayOrder: parseInt(categoryFormData.displayOrder)
-        })
-      });
-
-      if (response.success) {
-        success('Catégorie ajoutée avec succès !');
-        setShowAddCategoryForm(false);
-        setCategoryFormData({
-          name: '',
-          slug: '',
-          description: '',
-          icon: '📦',
-          displayOrder: 1,
-          isActive: true
-        });
-        await loadCategories();
-        await syncCategoriesWithPOS();
-      }
-    } catch (error) {
-      console.error('❌ Erreur ajout catégorie:', error);
-      showError('Erreur lors de l\'ajout de la catégorie');
-    }
-  };
-  
-  const handleUpdateCategory = async (id) => {
-    try {
-      const category = categories.find(c => c.id === id);
-      if (!category) return;
-
-      const response = await apiCall(`/admin/categories/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          name: category.name,
-          slug: category.slug,
-          description: category.description,
-          icon: category.icon,
-          displayOrder: parseInt(category.display_order),
-          isActive: category.is_active
-        })
-      });
-
-      if (response.success) {
-        success('Catégorie mise à jour avec succès !');
-        setEditingCategoryId(null);
-        await loadCategories();
-        await syncCategoriesWithPOS();
-      }
-    } catch (error) {
-      console.error('❌ Erreur mise à jour catégorie:', error);
-      showError('Erreur lors de la mise à jour de la catégorie');
-    }
-  };
-  
-  const handleDeleteCategory = async (id) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ? Cette action est irréversible.')) {
-      return;
-    }
-
-    try {
-      const response = await apiCall(`/admin/categories/${id}`, {
-        method: 'DELETE'
-      });
-
-      if (response.success) {
-        success('Catégorie supprimée avec succès !');
-        await loadCategories();
-        await syncCategoriesWithPOS();
-      }
-    } catch (error) {
-      console.error('❌ Erreur suppression catégorie:', error);
-      showError(error.message || 'Erreur lors de la suppression de la catégorie');
-    }
-  };
-  
-  const handleToggleCategoryActive = async (id) => {
-    try {
-      const category = categories.find(c => c.id === id);
-      if (!category) return;
-
-      const response = await apiCall(`/admin/categories/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...category,
-          displayOrder: parseInt(category.display_order),
-          isActive: !category.is_active
-        })
-      });
-
-      if (response.success) {
-        success(category.is_active ? 'Catégorie désactivée' : 'Catégorie activée');
-        await loadCategories();
-        await syncCategoriesWithPOS();
-      }
-    } catch (error) {
-      console.error('❌ Erreur toggle catégorie:', error);
-      showError('Erreur lors du changement de statut');
-    }
-  };
-  
-  const updateCategoryField = (id, field, value) => {
-    setCategories(prev =>
-      prev.map(cat =>
-        cat.id === id ? { ...cat, [field]: value } : cat
-      )
-    );
-  };
-  
-  const reorderCategories = async (newOrder) => {
-    try {
-      setCategories(newOrder);
-
-      for (let i = 0; i < newOrder.length; i++) {
-        const category = newOrder[i];
-        await apiCall(`/admin/categories/${category.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            name: category.name,
-            slug: category.slug,
-            description: category.description,
-            icon: category.icon,
-            displayOrder: i + 1,
-            isActive: category.is_active
-          })
-        });
-      }
-
-      success('Ordre mis à jour !');
-      await syncCategoriesWithPOS();
-    } catch (error) {
-      console.error('❌ Erreur réorganisation:', error);
-      showError('Erreur lors de la réorganisation');
-      await loadCategories();
-    }
-  };
-  
-  const moveCategoryUp = async (index) => {
-    if (index === 0) return;
-    
-    const newOrder = [...categories];
-    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
-    await reorderCategories(newOrder);
-  };
-  
-  const moveCategoryDown = async (index) => {
-    if (index === categories.length - 1) return;
-    
-    const newOrder = [...categories];
-    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
-    await reorderCategories(newOrder);
-  };
-  
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
       const response = await apiCall('/admin/settings');
@@ -272,15 +281,102 @@ const AdminSettings = () => {
         }
       }
     } catch (error) {
-      console.error('❌ Erreur chargement paramètres:', error);
+      logger.error('❌ Erreur chargement paramètres:', error);
       showError('Erreur lors du chargement des paramètres');
     } finally {
       setLoading(false);
     }
-  };
+  }, [showError]);
+  
+  // Charger les statistiques système
+  const loadSystemStats = useCallback(async () => {
+    try {
+      setSystemStats(prev => ({ ...prev, loading: true }));
+      
+      // Charger uniquement les stats système (pas les stats business)
+      const [healthResponse, dbStatusResponse] = await Promise.allSettled([
+        fetch(`${ENV.BACKEND_URL}/api/health/db`).then(r => r.json()),
+        fetch(`${ENV.BACKEND_URL}/api/db/status`).then(r => r.json())
+      ]);
+      
+      const health = healthResponse.status === 'fulfilled' && healthResponse.value?.success 
+        ? healthResponse.value 
+        : null;
+      
+      const dbStatus = dbStatusResponse.status === 'fulfilled' && dbStatusResponse.value?.success 
+        ? dbStatusResponse.value 
+        : null;
+      
+      setSystemStats({
+        database: dbStatus,
+        health,
+        loading: false
+      });
+    } catch (error) {
+      logger.error('❌ Erreur chargement stats système:', error);
+      setSystemStats(prev => ({ ...prev, loading: false }));
+    }
+  }, []);
+  
+  // Vérifier la connexion à la base de données
+  const checkDatabaseStatus = useCallback(async () => {
+    setSystemStatus(prev => ({
+      ...prev,
+      database: { ...prev.database, loading: true }
+    }));
+    
+    try {
+      // Essayer /api/db/status pour avoir plus d'infos
+      const response = await fetch(`${ENV.BACKEND_URL}/api/db/status`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setSystemStatus(prev => ({
+            ...prev,
+            database: {
+              connected: data.database?.ok || false,
+              loading: false,
+              message: data.database?.ok ? 'Base de données connectée' : 'Base de données non disponible',
+              tables: data.database?.tables || 0,
+              pool: data.pool || null
+            }
+          }));
+          return;
+        }
+      }
+      
+      // Fallback sur /admin/settings
+      const fallbackResponse = await apiCall('/admin/settings');
+      if (fallbackResponse.success) {
+        setSystemStatus(prev => ({
+          ...prev,
+          database: {
+            connected: true,
+            loading: false,
+            message: 'Base de données connectée',
+            tables: prev.database.tables || 0,
+            pool: prev.database.pool || null
+          }
+        }));
+      } else {
+        throw new Error('Réponse API invalide');
+      }
+    } catch (error) {
+      setSystemStatus(prev => ({
+        ...prev,
+        database: {
+          connected: false,
+          loading: false,
+          message: `Erreur: ${error.message}`,
+          tables: prev.database.tables || 0,
+          pool: prev.database.pool || null
+        }
+      }));
+    }
+  }, []);
   
   // Vérifier l'état des connexions système
-  const checkSystemStatus = async () => {
+  const checkSystemStatus = useCallback(async () => {
     // Vérifier le backend
     setSystemStatus(prev => ({
       ...prev,
@@ -331,55 +427,266 @@ const AdminSettings = () => {
         }
       }));
     }
+  }, [checkDatabaseStatus]);
+  
+  // Charger les paramètres depuis la base de données
+  useEffect(() => {
+    loadSettings();
+    checkSystemStatus();
+    loadCategories();
+    loadSystemStats();
+    // Vérifier le statut toutes les 30 secondes
+    const interval = setInterval(() => {
+      checkSystemStatus();
+      loadSystemStats();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadSettings, checkSystemStatus, loadCategories, loadSystemStats]);
+  
+  const syncCategoriesWithPOS = useCallback(async () => {
+    try {
+      await fetchCategories();
+      success('Modifications synchronisées');
+    } catch (error) {
+      logger.warn('⚠️ Erreur synchronisation POS:', error);
+    }
+  }, [fetchCategories, success]);
+  
+  const generateSlug = (name) => {
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   };
   
-  // Vérifier la connexion à la base de données
-  const checkDatabaseStatus = async () => {
-    setSystemStatus(prev => ({
-      ...prev,
-      database: { ...prev.database, loading: true }
-    }));
-    
+  const handleAddCategory = async (categoryData = null) => {
     try {
-      const response = await apiCall('/admin/settings');
+      const dataToUse = categoryData || categoryFormData;
+      
+      if (!dataToUse.name || !dataToUse.name.trim()) {
+        showError('Le nom de la catégorie est requis');
+        return;
+      }
+
+      const response = await apiCall('/admin/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: dataToUse.name,
+          slug: dataToUse.slug || generateSlug(dataToUse.name),
+          description: dataToUse.description || '',
+          icon: dataToUse.icon || '📦',
+          displayOrder: parseInt(dataToUse.display_order || dataToUse.displayOrder || categories.length + 1)
+        })
+      });
+
       if (response.success) {
-        setSystemStatus(prev => ({
-          ...prev,
-          database: {
-            connected: true,
-            loading: false,
-            message: 'Base de données connectée'
-          }
-        }));
-      } else {
-        throw new Error('Réponse API invalide');
+        success('Catégorie ajoutée avec succès !');
+        
+        if (!categoryData) {
+          // Mode formulaire traditionnel
+          setCategoryFormData({
+            name: '',
+            slug: '',
+            description: '',
+            icon: '📦',
+            displayOrder: 1,
+            isActive: true
+          });
+        } else {
+          // Mode inline - la catégorie sera chargée avec loadCategories
+        }
+        
+        await loadCategories();
+        await syncCategoriesWithPOS();
       }
     } catch (error) {
-      setSystemStatus(prev => ({
-        ...prev,
-        database: {
-          connected: false,
-          loading: false,
-          message: `Erreur: ${error.message}`
-        }
-      }));
+      logger.error('❌ Erreur ajout catégorie:', error);
+      showError('Erreur lors de l\'ajout de la catégorie');
+      
+      // Si c'était une catégorie inline, la retirer en cas d'erreur
+      if (categoryData && categoryData.id && categoryData.id.toString().startsWith('new-')) {
+        setCategories(prev => prev.filter(cat => cat.id !== categoryData.id));
+      }
     }
   };
   
-  const handleChange = (key, value) => {
-    setSettings(prev => 
-      prev.map(setting => 
-        setting.setting_key === key 
-          ? { ...setting, setting_value: String(value) }
-          : setting
+  const handleDeleteCategory = async (id) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ? Cette action est irréversible.')) {
+      return;
+    }
+
+    try {
+      const response = await apiCall(`/admin/categories/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (response.success) {
+        success('Catégorie supprimée avec succès !');
+        await loadCategories();
+        await syncCategoriesWithPOS();
+      }
+    } catch (error) {
+      logger.error('❌ Erreur suppression catégorie:', error);
+      showError(error.message || 'Erreur lors de la suppression de la catégorie');
+    }
+  };
+  
+  const handleToggleCategoryActive = async (id) => {
+    try {
+      const category = categories.find(c => c.id === id);
+      if (!category) return;
+
+      const response = await apiCall(`/admin/categories/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...category,
+          displayOrder: parseInt(category.display_order),
+          isActive: !category.is_active
+        })
+      });
+
+      if (response.success) {
+        success(category.is_active ? 'Catégorie désactivée' : 'Catégorie activée');
+        await loadCategories();
+        await syncCategoriesWithPOS();
+      }
+    } catch (error) {
+      logger.error('❌ Erreur toggle catégorie:', error);
+      showError('Erreur lors du changement de statut');
+    }
+  };
+  
+  const updateCategoryField = (id, field, value) => {
+    setCategories(prev =>
+      prev.map(cat =>
+        cat.id === id ? { ...cat, [field]: value } : cat
       )
     );
+  };
+
+  // ✅ Sauvegarde automatique optimisée avec debounce pour les catégories
+  const saveCategoriesTimeoutRef = useRef(null);
+  
+  const handleSaveCategory = useCallback(async (categoryId, silent = false) => {
+    if (saveCategoriesTimeoutRef.current) {
+      clearTimeout(saveCategoriesTimeoutRef.current);
+    }
+
+    saveCategoriesTimeoutRef.current = setTimeout(async () => {
+      try {
+        const category = categories.find(c => c.id === categoryId);
+        if (!category || !category.name || category.name.trim() === '') {
+          return;
+        }
+
+        const response = await apiCall(`/admin/categories/${categoryId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: category.name,
+            slug: category.slug,
+            description: category.description || '',
+            icon: category.icon || '📦',
+            displayOrder: parseInt(category.display_order) || 0,
+            isActive: category.is_active !== false
+          })
+        });
+
+        if (response.success) {
+          if (!silent) {
+            success('Catégorie sauvegardée automatiquement !');
+          }
+          await syncCategoriesWithPOS();
+        }
+      } catch (error) {
+        logger.error('❌ Erreur sauvegarde catégorie:', error);
+        if (!silent) {
+          showError('Erreur lors de la sauvegarde');
+        }
+      }
+    }, silent ? 800 : 500);
+  }, [categories, showError, success, syncCategoriesWithPOS]);
+
+  // Cleanup du timeout au démontage
+  useEffect(() => {
+    return () => {
+      if (saveCategoriesTimeoutRef.current) {
+        clearTimeout(saveCategoriesTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  const reorderCategories = async (newOrder) => {
+    try {
+      setCategories(newOrder);
+
+      for (let i = 0; i < newOrder.length; i++) {
+        const category = newOrder[i];
+        await apiCall(`/admin/categories/${category.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: category.name,
+            slug: category.slug,
+            description: category.description,
+            icon: category.icon,
+            displayOrder: i + 1,
+            isActive: category.is_active
+          })
+        });
+      }
+
+      success('Ordre mis à jour !');
+      await syncCategoriesWithPOS();
+    } catch (error) {
+      logger.error('❌ Erreur réorganisation:', error);
+      showError('Erreur lors de la réorganisation');
+      await loadCategories();
+    }
+  };
+  
+  const moveCategoryUp = async (index) => {
+    if (index === 0) return;
+    
+    const newOrder = [...categories];
+    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+    await reorderCategories(newOrder);
+  };
+  
+  const moveCategoryDown = async (index) => {
+    if (index === categories.length - 1) return;
+    
+    const newOrder = [...categories];
+    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+    await reorderCategories(newOrder);
+  };
+  
+  const handleChange = (key, value) => {
+    setSettings(prev => {
+      const exists = prev.some(setting => setting.setting_key === key);
+      if (exists) {
+        return prev.map(setting => 
+          setting.setting_key === key 
+            ? { ...setting, setting_value: String(value) }
+            : setting
+        );
+      }
+
+      return [
+        ...prev,
+        {
+          setting_key: key,
+          setting_value: String(value),
+          setting_type: 'string'
+        }
+      ];
+    });
   };
   
   const handleSave = async () => {
     setSaving(true);
     try {
-      console.log('💾 Sauvegarde des paramètres...');
+      logger.log('💾 Sauvegarde des paramètres...');
       
       // Sauvegarder chaque paramètre modifié
       for (const setting of settings) {
@@ -397,7 +704,7 @@ const AdminSettings = () => {
       success('Paramètres sauvegardés avec succès !');
       await loadSettings(); // Recharger pour confirmer
     } catch (error) {
-      console.error('❌ Erreur sauvegarde paramètres:', error);
+      logger.error('❌ Erreur sauvegarde paramètres:', error);
       showError('Erreur lors de la sauvegarde des paramètres');
     } finally {
       setSaving(false);
@@ -407,8 +714,8 @@ const AdminSettings = () => {
   const handleToggleTableNumber = async (newValue) => {
     setSaving(true);
     try {
-      console.log('🔄 Toggle numéro de table vers:', newValue);
-      console.log('📊 État actuel avant toggle:', getSettingBool('table_number_enabled'));
+      logger.log('🔄 Toggle numéro de table vers:', newValue);
+      logger.log('📊 État actuel avant toggle:', getSettingBool('table_number_enabled'));
       
       // Sauvegarder dans la base de données
       const response = await apiCall('/admin/settings/table_number_enabled', {
@@ -416,39 +723,401 @@ const AdminSettings = () => {
         body: JSON.stringify({ value: newValue })
       });
       
-      console.log('📡 Réponse API:', response);
+      logger.log('📡 Réponse API:', response);
       
       // Recharger les paramètres depuis MySQL
       await loadSettings();
       
-      console.log('📊 État après rechargement:', getSettingBool('table_number_enabled'));
+      logger.log('📊 État après rechargement:', getSettingBool('table_number_enabled'));
       
       // Notification de succès
       success(newValue === 'true' ? '✅ Numéro de table activé !' : '⚪ Numéro de table désactivé');
     } catch (error) {
-      console.error('❌❌❌ ERREUR TOGGLE ❌❌❌');
-      console.error('Valeur tentée:', newValue);
-      console.error('Type erreur:', error.name);
-      console.error('Message:', error.message);
-      console.error('Stack:', error.stack);
+      logger.error('❌❌❌ ERREUR TOGGLE ❌❌❌');
+      logger.error('Valeur tentée:', newValue);
+      logger.error('Type erreur:', error.name);
+      logger.error('Message:', error.message);
+      logger.error('Stack:', error.stack);
       showError('Erreur lors de la modification du paramètre');
     } finally {
       setSaving(false);
     }
   };
   
-  const getSetting = (key) => {
+  const getSetting = useCallback((key) => {
     const setting = settings.find(s => s.setting_key === key);
     // Pour currency_symbol, retourner '€' par défaut si vide
     if (key === 'currency_symbol') {
       return setting?.setting_value || '€';
     }
     return setting?.setting_value || '';
-  };
+  }, [settings]);
   
   const getSettingBool = (key) => {
     const value = getSetting(key);
     return value === 'true' || value === '1';
+  };
+
+  const getSettingJSON = useCallback((key, defaultValue = null) => {
+    const value = getSetting(key);
+    if (!value) return defaultValue;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return defaultValue;
+    }
+  }, [getSetting]);
+
+  // État pour suivre si les paliers ont été initialisés
+  const [loyaltyInitialized, setLoyaltyInitialized] = useState(false);
+
+  // Charger les récompenses de fidélité depuis la base de données
+  useEffect(() => {
+    const loadLoyaltyRewards = async () => {
+      if (!loyaltyInitialized) {
+        try {
+          // Charger la valeur d'un point depuis les settings
+          const pointValue = getSetting('loyalty_point_value') || '1';
+          setLoyaltyPointValue(pointValue);
+          
+          // Charger les récompenses depuis l'API
+          const response = await adminService.getLoyaltyRewards();
+          if (response.success && response.data) {
+            // Convertir les données de la BDD au format attendu par le frontend
+            const rewardsList = response.data.map(reward => ({
+              id: reward.id,
+              name: reward.name || '',
+              description: reward.description || '',
+              pointsRequired: reward.points_required || 0,
+              type: reward.reward_type || 'percentage',
+              discountValue: reward.discount_value || 0,
+              productId: reward.product_id || null,
+              isActive: reward.is_active !== false,
+              sortOrder: reward.sort_order || 0,
+              icon: reward.icon || '🎁'
+            }));
+            setRewards(rewardsList);
+          } else {
+            setRewards([]);
+          }
+          
+          setLoyaltyInitialized(true);
+        } catch (error) {
+          logger.error('❌ Erreur chargement récompenses fidélité:', error);
+          // En cas d'erreur, essayer de charger depuis les settings (fallback)
+          const rewardsList = getSettingJSON('loyalty_rewards', []);
+          setRewards(rewardsList.length > 0 ? rewardsList : []);
+          setLoyaltyInitialized(true);
+        }
+      }
+    };
+    
+    loadLoyaltyRewards();
+  }, [loyaltyInitialized, getSetting, getSettingJSON]);
+
+  const handleAddReward = () => {
+    setRewards([...rewards, { 
+      name: '', 
+      description: '', 
+      pointsRequired: 0,
+      type: 'percentage', // 'percentage', 'product' ou 'fixed'
+      discountValue: 0, // Pourcentage ou montant fixe selon le type
+      productId: null, // ID du produit offert
+      isActive: true,
+      sortOrder: rewards.length,
+      icon: '🎁'
+    }]);
+  };
+
+  const handleRemoveReward = async (index) => {
+    const reward = rewards[index];
+    
+    // Si la récompense a un ID (existe en BDD), la supprimer
+    if (reward.id) {
+      try {
+        const result = await adminService.deleteLoyaltyReward(reward.id);
+        if (result.success) {
+          setRewards(rewards.filter((_, i) => i !== index));
+          success('Récompense supprimée avec succès !');
+        } else {
+          showError('Erreur lors de la suppression de la récompense');
+        }
+      } catch (error) {
+        logger.error('❌ Erreur suppression récompense:', error);
+        showError('Erreur lors de la suppression de la récompense');
+      }
+    } else {
+      // Si c'est une nouvelle récompense non sauvegardée, juste la retirer de la liste
+      setRewards(rewards.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleUpdateReward = (index, field, value) => {
+    const updated = [...rewards];
+    updated[index] = { ...updated[index], [field]: field === 'pointsRequired' ? parseInt(value) || 0 : value };
+    setRewards(updated);
+  };
+
+  // ✅ Gestion des promos
+  const loadPromos = useCallback(async () => {
+    try {
+      const promosSetting = getSettingJSON('payment_promos');
+      if (Array.isArray(promosSetting)) {
+        setPromos(promosSetting);
+      } else {
+        setPromos([]);
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement promos:', error);
+      setPromos([]);
+    }
+  }, [getSettingJSON]);
+
+  useEffect(() => {
+    if (activeTab === 'general') {
+      loadPromos();
+    }
+  }, [activeTab, loadPromos]);
+
+  const handleAddPromo = () => {
+    setPromos([...promos, { 
+      label: '', 
+      discountType: 'percentage', // 'percentage' ou 'fixed'
+      discountValue: 0,
+      isActive: true
+    }]);
+  };
+
+  const handleRemovePromo = (index) => {
+    setPromos(promos.filter((_, i) => i !== index));
+  };
+
+  const handleUpdatePromo = (index, field, value) => {
+    const updated = [...promos];
+    updated[index] = { 
+      ...updated[index], 
+      [field]: field === 'discountValue' ? parseFloat(value) || 0 : value 
+    };
+    setPromos(updated);
+  };
+
+  const handleSavePromos = useCallback(async () => {
+    setSaving(true);
+    try {
+      await apiCall('/admin/settings/payment_promos', {
+        method: 'PUT',
+        body: JSON.stringify({ 
+          value: JSON.stringify(promos),
+          setting_type: 'json'
+        })
+      });
+      handleChange('payment_promos', JSON.stringify(promos));
+      success('Promos sauvegardées avec succès !');
+    } catch (error) {
+      logger.error('❌ Erreur sauvegarde promos:', error);
+      showError('Erreur lors de la sauvegarde des promos');
+    } finally {
+      setSaving(false);
+    }
+  }, [promos, showError, success]);
+
+  // ✅ Sauvegarde optimisée avec debounce pour éviter trop d'appels API
+  const saveTimeoutRef = useRef(null);
+  
+  const handleSaveLoyaltySettings = useCallback(async (silent = false) => {
+    // Annuler le timeout précédent pour éviter les appels multiples
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Debounce : attendre 500ms avant de sauvegarder
+    saveTimeoutRef.current = setTimeout(async () => {
+    setSaving(true);
+    try {
+        // Sauvegarder chaque récompense dans la base de données (uniquement celles modifiées)
+        const promises = rewards.map(async (reward) => {
+          // Ignorer les récompenses sans nom (en cours de création)
+          if (!reward.name || reward.name.trim() === '') {
+            return;
+          }
+
+        const rewardData = {
+          name: reward.name || '',
+          description: reward.description || '',
+          pointsRequired: reward.pointsRequired || 0,
+          rewardType: reward.type || 'percentage',
+          discountValue: reward.discountValue || 0,
+          productId: reward.productId || null,
+          isActive: reward.isActive !== false,
+          sortOrder: reward.sortOrder || 0,
+          icon: reward.icon || '🎁'
+        };
+
+        if (reward.id) {
+          // Mettre à jour une récompense existante
+          await adminService.updateLoyaltyReward(reward.id, rewardData);
+        } else {
+          // Créer une nouvelle récompense
+          const result = await adminService.createLoyaltyReward(rewardData);
+            if (result.success && result.rewardId) {
+            // Mettre à jour l'ID localement
+              const updatedRewards = rewards.map((r) => 
+                r === reward ? { ...r, id: result.rewardId } : r
+              );
+              setRewards(updatedRewards);
+            }
+          }
+        });
+
+        await Promise.all(promises);
+
+        if (!silent) {
+          success('Récompenses sauvegardées automatiquement !');
+        }
+        
+        // Recharger les récompenses depuis la BDD pour synchroniser
+      setLoyaltyInitialized(false);
+    } catch (error) {
+      logger.error('❌ Erreur sauvegarde paramètres fidélité:', error);
+        if (!silent) {
+          showError('Erreur lors de la sauvegarde');
+        }
+    } finally {
+      setSaving(false);
+    }
+    }, silent ? 800 : 500);
+  }, [rewards, showError, success]);
+  
+  // Cleanup du timeout au démontage
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const getDisplaySetting = (key) => {
+    const setting = settings.find(s => s.setting_key === key);
+    if (!setting || setting.setting_value === '') {
+      return true;
+    }
+    return setting.setting_value === 'true' || setting.setting_value === '1';
+  };
+
+  const toggleDisplayField = (ticketKey) => {
+    const nextValue = (!getDisplaySetting(ticketKey)).toString();
+    handleChange(ticketKey, nextValue);
+  };
+
+  const renderTicketLabel = (fieldKey, labelText, htmlFor, displayKeyOverride) => {
+    const ticketKey = displayKeyOverride || FIELD_DISPLAY_MAPPING[fieldKey];
+    const isToggleable = Boolean(ticketKey);
+    const isVisible = isToggleable ? getDisplaySetting(ticketKey) : true;
+    const targetId = htmlFor || fieldKey;
+
+    return (
+      <div className="flex items-center justify-between mb-2">
+        <label
+          htmlFor={targetId}
+          className="text-sm font-heading font-medium text-black"
+        >
+          {labelText}
+        </label>
+        {isToggleable && (
+          <button
+            type="button"
+            onClick={() => toggleDisplayField(ticketKey)}
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
+              isVisible
+                ? 'border-neutral-300 text-neutral-700 hover:bg-neutral-100'
+                : 'border-neutral-200 text-neutral-400 hover:bg-neutral-100'
+            }`}
+            title={isVisible ? 'Masquer sur le ticket' : 'Afficher sur le ticket'}
+          >
+            {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const ticketDisplayPreferences = TICKET_DISPLAY_FIELDS.reduce((prefs, field) => {
+    const setting = settings.find((s) => s.setting_key === field.key);
+    if (setting && setting.setting_value !== '') {
+      prefs[field.displayKey] = setting.setting_value === 'true' || setting.setting_value === '1';
+    }
+    return prefs;
+  }, { ...DEFAULT_TICKET_DISPLAY });
+
+  const currentBusinessInfo = {
+    name: getSetting('business_name') || DEFAULT_BUSINESS_INFO.name,
+    address: getSetting('business_address') || DEFAULT_BUSINESS_INFO.address,
+    phone: getSetting('business_phone') || DEFAULT_BUSINESS_INFO.phone,
+    website: getSetting('business_website') || DEFAULT_BUSINESS_INFO.website,
+    customerService: getSetting('business_customer_service') || DEFAULT_BUSINESS_INFO.customerService,
+    email: getSetting('business_email') || DEFAULT_BUSINESS_INFO.email,
+    siret: getSetting('business_siret') || DEFAULT_BUSINESS_INFO.siret,
+    vatNumber: getSetting('business_vat_number') || DEFAULT_BUSINESS_INFO.vatNumber,
+    legalForm: getSetting('business_legal_form') || DEFAULT_BUSINESS_INFO.legalForm,
+    shareCapital: getSetting('business_share_capital') || DEFAULT_BUSINESS_INFO.shareCapital,
+    rcs: getSetting('business_rcs') || DEFAULT_BUSINESS_INFO.rcs,
+    paymentMention: getSetting('business_payment_mention') || DEFAULT_BUSINESS_INFO.paymentMention,
+    legalMentions: getSetting('business_legal_mentions') || DEFAULT_BUSINESS_INFO.legalMentions,
+    returnPolicy: getSetting('business_return_policy') || DEFAULT_BUSINESS_INFO.returnPolicy,
+    foodInfo: getSetting('business_food_info') || DEFAULT_BUSINESS_INFO.foodInfo
+  };
+
+  const handlePreviewTicket = () => {
+    const previewItems = [
+      { id: 'preview-1', name: 'Menu Déjeuner', quantity: 2, price: 12.5, unit_price: 12.5, tax_rate: 10, taxRate: 10 },
+      { id: 'preview-2', name: 'Boisson Maison', quantity: 1, price: 4.5, unit_price: 4.5, tax_rate: 5.5, taxRate: 5.5 },
+      { id: 'preview-3', name: 'Dessert Gourmand', quantity: 1, price: 6.9, unit_price: 6.9, tax_rate: 20, taxRate: 20 }
+    ];
+
+    const totalPreview = previewItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const paidAmount = 50;
+    const changeAmount = Number((paidAmount - totalPreview).toFixed(2));
+
+    const sampleOrder = {
+      id: 9999,
+      order_number: 'PREVIEW-0001',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      handled_by_name: 'Prévisualisation',
+      items: previewItems,
+      total_amount: totalPreview,
+      discount_amount: 0,
+      tax_amount: null,
+      amount_paid: paidAmount,
+      change_amount: changeAmount,
+      payment_method: 'cash',
+      payment_details: {
+        payments: [
+          {
+            method: 'cash',
+            amount: paidAmount
+          }
+        ],
+        totals: {
+          change: changeAmount
+        }
+      }
+    };
+
+    const previewBusinessInfo = {
+      ...currentBusinessInfo,
+      displayPreferences: ticketDisplayPreferences
+    };
+
+    previewReceipt(sampleOrder, {
+      businessInfo: previewBusinessInfo,
+      clientType: 'particulier',
+      clientInfo: {
+        name: 'Client Démo'
+      },
+      ticketDisplay: ticketDisplayPreferences
+    });
   };
   
   if (loading) {
@@ -459,185 +1128,406 @@ const AdminSettings = () => {
     );
   }
   
-  return (
-    <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8 animate-fade-in w-full overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-heading font-bold text-black flex items-center gap-3">
-            <Settings className="w-6 h-6 md:w-8 md:h-8" />
-            Paramètres Application
-        </h1>
-          <p className="text-neutral-600 font-sans mt-1">
-            Configuration globale de l&apos;application
-          </p>
-        </div>
-        <div className="flex gap-2">
+  // ✅ Rendu des sections selon l'onglet actif
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'business':
+        return (
+          <div className="space-y-6">
+            <SectionCard
+              icon={Settings}
+              title="Paramètres généraux"
+              description="Personnalisez l'apparence et les options principales"
+            >
+              <div className="space-y-4 sm:space-y-5 lg:space-y-6">
+                <div>
+                  <label className="block text-xs sm:text-sm font-heading font-semibold text-black mb-2">
+                    Devise affichée
+                  </label>
+                  <select
+                    value={getSetting('currency_symbol')}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      handleChange('currency_symbol', newValue);
+                      apiCall(`/admin/settings/currency_symbol`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ value: newValue })
+                      })
+                        .then(() => {
+                          localStorage.setItem('currency_symbol', newValue);
+                          success('Devise mise à jour !');
+                        })
+                        .catch((err) => {
+                          logger.error('Erreur sauvegarde devise:', err);
+                          showError('Erreur lors de la sauvegarde de la devise');
+                        });
+                    }}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border-2 border-neutral-200 bg-white text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans text-sm"
+                  >
+                    <option value="€">€ (Euro)</option>
+                    <option value="$">$ (Dollar)</option>
+                    <option value="£">£ (Livre Sterling)</option>
+                    <option value="¥">¥ (Yen)</option>
+                  </select>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              icon={CreditCard}
+              title="Options de Commande"
+              description="Configurez les options disponibles pour les commandes"
+            >
+              <ToggleSwitch
+                checked={getSettingBool('table_number_enabled')}
+                onChange={(checked) => handleToggleTableNumber(checked ? 'true' : 'false')}
+                label="Demander le numéro de table"
+                description="Pour les commandes sur place"
+                icon={Settings}
+              />
+            </SectionCard>
+
+            <SectionCard
+              icon={Gift}
+              title="Promos de Paiement"
+              description="Configurez les promotions disponibles lors du paiement"
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-heading font-bold text-black">
+                      Promos ({promos.length})
+                    </h3>
+                    <p className="text-xs text-neutral-600 font-sans mt-1">
+                      Les promos apparaîtront dans le menu déroulant du bouton &quot;Promo&quot; lors du paiement
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAddPromo}
+                    icon={<Plus className="w-4 h-4" />}
+                    className="w-full sm:w-auto"
+                  >
+                    Ajouter
+                  </Button>
+                </div>
+
+                {promos.length === 0 ? (
+                  <div className="text-center py-8 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+                    <Gift className="w-12 h-12 mx-auto mb-3 text-neutral-400" />
+                    <p className="font-sans font-medium text-base">Aucune promo</p>
+                    <p className="text-sm mt-2 text-neutral-600 font-sans">
+                      Ajoutez votre première promo pour commencer
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {promos.map((promo, index) => (
+                      <div key={index} className="p-4 bg-white rounded-xl border-2 border-neutral-200 shadow-sm">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Label</label>
+                              <input
+                                type="text"
+                                value={promo.label || ''}
+                                onChange={(e) => handleUpdatePromo(index, 'label', e.target.value)}
+                                placeholder="Ex: Réduction 10%"
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                                onBlur={handleSavePromos}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Type</label>
+                              <select
+                                value={promo.discountType || 'percentage'}
+                                onChange={(e) => {
+                                  handleUpdatePromo(index, 'discountType', e.target.value);
+                                  handleSavePromos();
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                              >
+                                <option value="percentage">Pourcentage (%)</option>
+                                <option value="fixed">Montant fixe (€)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                                {promo.discountType === 'percentage' ? 'Valeur (%)' : 'Montant (€)'}
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                max={promo.discountType === 'percentage' ? '100' : undefined}
+                                step={promo.discountType === 'percentage' ? '1' : '0.01'}
+                                value={promo.discountValue || 0}
+                                onChange={(e) => handleUpdatePromo(index, 'discountValue', e.target.value)}
+                                placeholder="0"
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                                onBlur={handleSavePromos}
+                              />
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              handleRemovePromo(index);
+                              handleSavePromos();
+                            }}
+                            className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex-shrink-0 ml-3"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              icon={Building2}
+              title="Informations Entreprise"
+              description="Renseignez les informations légales de votre commerce"
+            >
+              <div className="flex items-center justify-end mb-4">
           <Button
             variant="outline"
-            onClick={loadSettings}
-            icon={<RefreshCw className="w-4 h-4" />}
+            onClick={handlePreviewTicket}
+            icon={<Eye className="w-4 h-4" />}
+                  size="sm"
           >
-            Recharger
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            loading={saving}
-            icon={<Save className="w-4 h-4" />}
-          >
-            Sauvegarder
+            Aperçu du ticket
           </Button>
         </div>
-      </div>
-      
-      {/* Options de Commande */}
-      <Card padding="md">
-        <h2 className="text-base font-heading font-bold mb-3 text-black">
-          🍽️ Numéro de Table
-        </h2>
-        
-        <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg border-2 border-neutral-200">
-          <div className="flex items-center gap-2">
-            <div className="text-lg">🪑</div>
-            <div>
-              <h3 className="font-heading font-semibold text-black text-sm">
-                Demander le numéro de table
-              </h3>
-              <p className="text-xs text-neutral-600 font-sans">
-                Pour les commandes sur place
-              </p>
-            </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 lg:gap-6">
+          <div>
+                  {renderTicketLabel('business_name', "Nom de l'entreprise", 'business_name')}
+            <input
+              id="business_name"
+              type="text"
+              value={getSetting('business_name')}
+              onChange={(e) => handleChange('business_name', e.target.value)}
+              placeholder="SUPERMARCHÉ DUPONT"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
           </div>
-          
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 rounded-full text-xs font-heading font-semibold ${
-              getSettingBool('table_number_enabled')
-                ? 'bg-green-100 text-green-700'
-                : 'bg-neutral-200 text-neutral-600'
-            }`}>
-              {getSettingBool('table_number_enabled') ? 'Activé' : 'Désactivé'}
-            </span>
-            
-            <Button
-              variant={getSettingBool('table_number_enabled') ? "danger" : "success"}
-              size="sm"
-              onClick={() => handleToggleTableNumber(getSettingBool('table_number_enabled') ? 'false' : 'true')}
-              loading={saving}
-              icon={getSettingBool('table_number_enabled') ? <XCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
-              className="text-xs py-1.5 px-3"
-            >
-              {getSettingBool('table_number_enabled') ? 'Désactiver' : 'Activer'}
-            </Button>
+          <div>
+            {renderTicketLabel('business_address', 'Adresse complète', 'business_address')}
+            <input
+              id="business_address"
+              type="text"
+              value={getSetting('business_address')}
+              onChange={(e) => handleChange('business_address', e.target.value)}
+              placeholder="15 Avenue des Champs-Élysées, 75008 PARIS"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_phone', 'Téléphone principal', 'business_phone')}
+            <input
+              id="business_phone"
+              type="text"
+              value={getSetting('business_phone')}
+              onChange={(e) => handleChange('business_phone', e.target.value)}
+              placeholder="01 42 56 78 90"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_website', 'Site web', 'business_website')}
+            <input
+              id="business_website"
+              type="text"
+              value={getSetting('business_website')}
+              onChange={(e) => handleChange('business_website', e.target.value)}
+              placeholder="www.supermarche-dupont.fr"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+                  {renderTicketLabel('business_customer_service', 'Service client', 'business_customer_service')}
+            <input
+              id="business_customer_service"
+              type="text"
+              value={getSetting('business_customer_service')}
+              onChange={(e) => handleChange('business_customer_service', e.target.value)}
+              placeholder="0800 123 456"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_email', 'Email de contact', 'business_email')}
+            <input
+              id="business_email"
+              type="email"
+              value={getSetting('business_email')}
+              onChange={(e) => handleChange('business_email', e.target.value)}
+              placeholder="contact@supermarche-dupont.fr"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_siret', 'SIRET', 'business_siret')}
+            <input
+              id="business_siret"
+              type="text"
+              value={getSetting('business_siret')}
+              onChange={(e) => handleChange('business_siret', e.target.value)}
+              placeholder="123 456 789 00012"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_vat_number', 'N° TVA intracommunautaire', 'business_vat_number')}
+            <input
+              id="business_vat_number"
+              type="text"
+              value={getSetting('business_vat_number')}
+              onChange={(e) => handleChange('business_vat_number', e.target.value)}
+              placeholder="FR 12 345678901"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_legal_form', 'Forme juridique', 'business_legal_form')}
+            <input
+              id="business_legal_form"
+              type="text"
+              value={getSetting('business_legal_form')}
+              onChange={(e) => handleChange('business_legal_form', e.target.value)}
+              placeholder="SAS"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_share_capital', 'Capital social', 'business_share_capital', 'ticket_show_legal_form')}
+            <input
+              id="business_share_capital"
+              type="text"
+              value={getSetting('business_share_capital')}
+              onChange={(e) => handleChange('business_share_capital', e.target.value)}
+              placeholder="100 000 €"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_rcs', 'RCS', 'business_rcs')}
+            <input
+              id="business_rcs"
+              type="text"
+              value={getSetting('business_rcs')}
+              onChange={(e) => handleChange('business_rcs', e.target.value)}
+              placeholder="RCS Paris B 123 456 789"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
+          </div>
+          <div>
+            {renderTicketLabel('business_payment_mention', 'Mention fiscale / TVA', 'business_payment_mention')}
+            <input
+              id="business_payment_mention"
+              type="text"
+              value={getSetting('business_payment_mention')}
+              onChange={(e) => handleChange('business_payment_mention', e.target.value)}
+              placeholder="TVA acquittée sur les encaissements"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+            />
           </div>
         </div>
-      </Card>
-      
-      {/* Paramètres d'Affichage */}
-      <Card padding="lg">
-        <h2 className="text-lg font-heading font-bold mb-4 text-black">
-          🎨 Paramètres d&apos;Affichage
-        </h2>
-        
-        <div className="space-y-4">
-          {/* Devise affichée en haut */}
+
+              <div className="mt-6 lg:mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
           <div>
-            <label className="block text-sm font-heading font-medium text-black mb-2">
-              Devise affichée
-            </label>
-            <select
-              value={getSetting('currency_symbol')}
-              onChange={(e) => {
-                handleChange('currency_symbol', e.target.value);
-                // Sauvegarder immédiatement la devise
-                const newValue = e.target.value;
-                apiCall(`/admin/settings/currency_symbol`, {
-                  method: 'PUT',
-                  body: JSON.stringify({ value: newValue })
-                }).then(() => {
-                  localStorage.setItem('currency_symbol', newValue);
-                  success('Devise mise à jour !');
-                }).catch((err) => {
-                  console.error('Erreur sauvegarde devise:', err);
-                  showError('Erreur lors de la sauvegarde de la devise');
-                });
-              }}
-              className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black focus:bg-white transition-all duration-200"
-            >
-              <option value="€">€ (Euro)</option>
-              <option value="$">$ (Dollar)</option>
-              <option value="£">£ (Livre Sterling)</option>
-              <option value="¥">¥ (Yen)</option>
-            </select>
+            {renderTicketLabel('business_return_policy', 'Conditions de retour / garantie', 'business_return_policy')}
+            <textarea
+              id="business_return_policy"
+              rows={3}
+              value={getSetting('business_return_policy')}
+              onChange={(e) => handleChange('business_return_policy', e.target.value)}
+              placeholder="Les produits alimentaires ne sont ni repris ni échangés. Merci de conserver votre ticket."
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
+            />
           </div>
-          
-          {/* Messages côte à côte */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-heading font-medium text-black mb-2">
-                Message de bienvenue
-              </label>
-              <textarea
-                value={getSetting('welcome_message')}
-                onChange={(e) => handleChange('welcome_message', e.target.value)}
-                placeholder="Bienvenue chez Blossom Café ! Découvrez nos délicieux thés et pâtisseries..."
-                rows="2"
-                className="w-full px-3 py-2 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black focus:bg-white transition-all duration-200 resize-none text-sm"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-heading font-medium text-black mb-2">
-                Message de fermeture
-              </label>
-              <textarea
-                value={getSetting('closed_message')}
-                onChange={(e) => handleChange('closed_message', e.target.value)}
-                placeholder="Nous sommes actuellement fermés. Nos horaires d'ouverture sont..."
-                rows="2"
-                className="w-full px-3 py-2 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black focus:bg-white transition-all duration-200 resize-none text-sm"
-              />
-            </div>
+          <div>
+            {renderTicketLabel('business_food_info', 'Informations denrées alimentaires / sécurité', 'business_food_info')}
+            <textarea
+              id="business_food_info"
+              rows={3}
+              value={getSetting('business_food_info')}
+              onChange={(e) => handleChange('business_food_info', e.target.value)}
+              placeholder="Les denrées alimentaires servies ne peuvent être reprises pour des raisons sanitaires."
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
+            />
+          </div>
+          <div className="md:col-span-2">
+            {renderTicketLabel('business_legal_mentions', 'Mentions légales complémentaires', 'business_legal_mentions')}
+            <textarea
+              id="business_legal_mentions"
+              rows={3}
+              value={getSetting('business_legal_mentions')}
+              onChange={(e) => handleChange('business_legal_mentions', e.target.value)}
+              placeholder="TVA acquittée sur les encaissements. Toute réclamation doit être effectuée dans un délai de 7 jours."
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
+            />
           </div>
         </div>
-      </Card>
-      
-      {/* Paramètres de Notifications */}
-      <Card padding="lg">
-        <h2 className="text-lg font-heading font-bold mb-4 text-black">
-          🔔 Paramètres de Notifications
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl border-2 border-neutral-200">
-            <div>
-              <h3 className="font-heading font-semibold text-black">Notifications email automatiques</h3>
-              <p className="text-sm text-neutral-600">Envoyer des emails aux clients</p>
+            </SectionCard>
             </div>
-            <Button
-              variant={getSettingBool('email_notifications') ? 'destructive' : 'default'}
-              size="sm"
-              onClick={() => handleChange('email_notifications', !getSettingBool('email_notifications'))}
+        );
+
+      case 'ticket':
+        return (
+          <div className="space-y-6">
+            <SectionCard
+              icon={Ticket}
+              title="Paramètres d'Affichage du Ticket"
+              description="Configurez quels éléments apparaissent sur les tickets de caisse"
             >
-              {getSettingBool('email_notifications') ? 'Désactiver' : 'Activer'}
-            </Button>
+              <div className="space-y-2 sm:space-y-3">
+                {TICKET_DISPLAY_FIELDS.map((field) => (
+                  <ToggleSwitch
+                    key={field.key}
+                    checked={getDisplaySetting(field.key)}
+                    onChange={(checked) => handleChange(field.key, checked ? 'true' : 'false')}
+                    label={field.label}
+                    description={`Afficher ${field.label.toLowerCase()} sur le ticket`}
+                  />
+                ))}
           </div>
-          
-          <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl border-2 border-neutral-200">
-            <div>
-              <h3 className="font-heading font-semibold text-black">Notifications SMS</h3>
-              <p className="text-sm text-neutral-600">Envoyer des SMS aux clients</p>
+            </SectionCard>
             </div>
-            <Button
-              variant={getSettingBool('sms_notifications') ? 'destructive' : 'default'}
-              size="sm"
-              onClick={() => handleChange('sms_notifications', !getSettingBool('sms_notifications'))}
+        );
+
+      case 'notifications':
+        return (
+          <div className="space-y-6">
+            <SectionCard
+              icon={Bell}
+              title="Paramètres de Notifications"
+              description="Configurez les alertes et communications automatiques"
             >
-              {getSettingBool('sms_notifications') ? 'Désactiver' : 'Activer'}
-            </Button>
-          </div>
-          
+              <div className="space-y-3 sm:space-y-4">
+                <ToggleSwitch
+                  checked={getSettingBool('email_notifications')}
+                  onChange={(checked) => handleChange('email_notifications', checked ? 'true' : 'false')}
+                  label="Notifications email automatiques"
+                  description="Envoyer des emails aux clients pour les mises à jour de commande"
+                  icon={Bell}
+                />
+                
+                <ToggleSwitch
+                  checked={getSettingBool('sms_notifications')}
+                  onChange={(checked) => handleChange('sms_notifications', checked ? 'true' : 'false')}
+                  label="Notifications SMS"
+                  description="Envoyer des SMS aux clients (nécessite un service SMS)"
+                  icon={Bell}
+                />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6 pt-3 sm:pt-4 lg:pt-6 border-t border-neutral-200">
           <div>
-            <label className="block text-sm font-heading font-medium text-black mb-2">
+                    <label className="block text-xs sm:text-sm font-heading font-semibold text-black mb-2">
               Email de réception des commandes
             </label>
             <input
@@ -645,12 +1535,12 @@ const AdminSettings = () => {
               value={getSetting('orders_email')}
               onChange={(e) => handleChange('orders_email', e.target.value)}
               placeholder="commandes@blossom-cafe.fr"
-              className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black focus:bg-white transition-all duration-200"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border-2 border-neutral-200 bg-white text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans text-sm"
             />
           </div>
           
           <div>
-            <label className="block text-sm font-heading font-medium text-black mb-2">
+                    <label className="block text-xs sm:text-sm font-heading font-semibold text-black mb-2">
               Délai avant rappel automatique (minutes)
             </label>
             <input
@@ -658,412 +1548,920 @@ const AdminSettings = () => {
               value={getSetting('reminder_delay')}
               onChange={(e) => handleChange('reminder_delay', e.target.value)}
               placeholder="30"
-              className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black focus:bg-white transition-all duration-200"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border-2 border-neutral-200 bg-white text-black focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans text-sm"
             />
           </div>
         </div>
-      </Card>
-      
-      {/* Gestion des Catégories */}
-      <Card padding="lg">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-heading font-bold flex items-center gap-2 text-black">
-            <Grid3x3 className="w-5 h-5" />
-            Catégories ({categories.length})
-          </h2>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={loadCategories}
-              icon={<RefreshCw className="w-4 h-4" />}
-              size="sm"
-            >
-              Actualiser
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => setShowAddCategoryForm(!showAddCategoryForm)}
-              icon={<Plus className="w-4 h-4" />}
-              size="sm"
-            >
-              Nouvelle Catégorie
-            </Button>
-          </div>
         </div>
-
-        {/* Formulaire d'ajout */}
-        {showAddCategoryForm && (
-          <div className="mb-4 p-4 bg-blue-50 rounded-xl border-2 border-blue-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-heading font-bold text-black flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                Nouvelle Catégorie
-              </h3>
-              <button
-                onClick={() => setShowAddCategoryForm(false)}
-                className="p-1 hover:bg-neutral-200 rounded-lg transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Nom de la catégorie"
-                value={categoryFormData.name}
-                onChange={(e) => handleCategoryNameChange(e.target.value)}
-                placeholder="Ex: Boissons Chaudes"
-                required
-              />
-              <Input
-                label="Slug (URL)"
-                value={categoryFormData.slug}
-                onChange={(e) => setCategoryFormData({ ...categoryFormData, slug: e.target.value })}
-                placeholder="boissons-chaudes"
-                required
-              />
-              <Input
-                label="Description"
-                value={categoryFormData.description}
-                onChange={(e) => setCategoryFormData({ ...categoryFormData, description: e.target.value })}
-                placeholder="Cafés, thés et chocolats chauds"
-              />
-              <Input
-                label="Icône (emoji)"
-                value={categoryFormData.icon}
-                onChange={(e) => setCategoryFormData({ ...categoryFormData, icon: e.target.value })}
-                placeholder="☕"
-                maxLength={2}
-              />
-              <Input
-                label="Ordre d&apos;affichage"
-                type="number"
-                value={categoryFormData.displayOrder}
-                onChange={(e) => setCategoryFormData({ ...categoryFormData, displayOrder: e.target.value })}
-                min="1"
-              />
-            </div>
-
-            <div className="flex gap-2 mt-4">
-              <Button
-                variant="primary"
-                onClick={handleAddCategory}
-                icon={<Save className="w-4 h-4" />}
-                size="sm"
-              >
-                Ajouter
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setShowAddCategoryForm(false)}
-                size="sm"
-              >
-                Annuler
-              </Button>
-            </div>
+            </SectionCard>
           </div>
-        )}
+        );
 
-        {/* Liste des catégories */}
-        <div className="space-y-3">
-          {categories.length === 0 ? (
-            <div className="text-center py-12 text-neutral-500">
-              <Grid3x3 className="w-12 h-12 mx-auto mb-3 text-neutral-400" />
-              <p className="font-sans">Aucune catégorie trouvée</p>
-              <p className="text-sm mt-2">Ajoutez votre première catégorie pour commencer</p>
-            </div>
-          ) : (
-            categories.map((category, index) => (
-              <div
-                key={category.id}
-                className={`p-4 rounded-xl border-2 transition-all ${
-                  editingCategoryId === category.id
-                    ? 'border-blue-300 bg-blue-50'
-                    : 'border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm'
-                }`}
-              >
-                {editingCategoryId === category.id ? (
-                  // Mode édition
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Input
-                        label="Nom"
-                        value={category.name}
-                        onChange={(e) => updateCategoryField(category.id, 'name', e.target.value)}
+      case 'loyalty':
+        return (
+          <div className="space-y-4 sm:space-y-6 lg:space-y-8">
+            {/* ✅ Configuration principale - Simplifiée */}
+            <SectionCard
+              icon={Gift}
+              title="Programme de Fidélité"
+              description="Configurez le système de points et récompenses"
+            >
+              <div className="space-y-6 lg:space-y-8">
+                {/* Valeur d'un point - Design compact */}
+                <div className="flex flex-col sm:flex-row sm:items-end gap-4 lg:gap-6 p-4 lg:p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200">
+                  <div className="flex-1">
+                    <label className="block text-sm lg:text-base font-heading font-semibold text-black mb-2">
+                      💰 Valeur d&apos;un point (€)
+            </label>
+                    <div className="flex items-center gap-3">
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={loyaltyPointValue}
+              onChange={(e) => setLoyaltyPointValue(e.target.value)}
+              placeholder="1.00"
+                        className="flex-1 max-w-xs"
                       />
-                      <Input
-                        label="Slug"
-                        value={category.slug}
-                        onChange={(e) => updateCategoryField(category.id, 'slug', e.target.value)}
-                      />
-                      <Input
-                        label="Description"
-                        value={category.description || ''}
-                        onChange={(e) => updateCategoryField(category.id, 'description', e.target.value)}
-                      />
-                      <Input
-                        label="Icône"
-                        value={category.icon || '📦'}
-                        onChange={(e) => updateCategoryField(category.id, 'icon', e.target.value)}
-                        maxLength={2}
-                      />
-                      <Input
-                        label="Ordre d&apos;affichage"
-                        type="number"
-                        value={category.display_order}
-                        onChange={(e) => updateCategoryField(category.id, 'display_order', e.target.value)}
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="primary"
-                        onClick={() => handleUpdateCategory(category.id)}
-                        icon={<Save className="w-4 h-4" />}
-                        size="sm"
-                      >
-                        Sauvegarder
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setEditingCategoryId(null)}
-                        size="sm"
-                      >
-                        Annuler
-                      </Button>
+                      <span className="text-sm lg:text-base text-neutral-600 font-sans whitespace-nowrap">
+                        = 1€ dépensé
+                      </span>
                     </div>
                   </div>
-                ) : (
-                  // Mode affichage
-                  <div className="flex items-center gap-4">
-                    {/* Ordre et flèches */}
-                    <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-neutral-700 to-neutral-900 text-white flex items-center justify-center font-bold text-sm shadow-md">
-                        #{index + 1}
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        await apiCall('/admin/settings/loyalty_point_value', {
+                          method: 'PUT',
+                          body: JSON.stringify({ value: loyaltyPointValue })
+                        });
+                        handleChange('loyalty_point_value', loyaltyPointValue);
+                        success('Valeur du point sauvegardée !');
+                      } catch (error) {
+                        showError('Erreur lors de la sauvegarde');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    loading={saving}
+                    icon={<Save className="w-4 h-4" />}
+                    size="sm"
+                    className="w-full sm:w-auto whitespace-nowrap"
+                  >
+                    Sauvegarder
+                  </Button>
+          </div>
+
+                {/* ✅ Récompenses - Tableau compact et performant */}
+          <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 lg:mb-6">
+                    <div>
+                      <h3 className="text-base lg:text-lg font-heading font-bold text-black">
+                        Récompenses ({rewards.length})
+                      </h3>
+                      <p className="text-xs sm:text-sm text-neutral-600 font-sans mt-1">
+                        Gérez les récompenses offertes aux clients
+                      </p>
+                    </div>
+              <Button
+                      variant="primary"
+                size="sm"
+                onClick={handleAddReward}
+                      icon={<Plus className="w-4 h-4" />}
+                      className="w-full sm:w-auto"
+              >
+                      Ajouter
+              </Button>
+            </div>
+
+                  {rewards.length === 0 ? (
+                    <div className="text-center py-8 lg:py-12 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+                      <Gift className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-3 lg:mb-4 text-neutral-400" />
+                      <p className="font-sans font-medium text-base lg:text-lg">Aucune récompense</p>
+                      <p className="text-sm lg:text-base mt-2 text-neutral-600 font-sans">
+                        Ajoutez votre première récompense pour commencer
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 lg:space-y-4">
+                      {/* Version Desktop - Tableau compact */}
+                      <div className="hidden lg:block overflow-x-auto">
+                        <table className="w-full min-w-[900px]">
+                          <thead className="bg-purple-50 border-b-2 border-purple-200">
+                            <tr>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">#</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Nom</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Points</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Type</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Valeur</th>
+                              <th className="px-4 py-3 text-center font-heading font-semibold text-black text-sm">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-purple-100">
+              {rewards.map((reward, index) => (
+                              <tr key={reward.id || index} className="hover:bg-purple-50/50 transition-colors">
+                                <td className="px-4 py-4">
+                                  <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm">
+                                    {index + 1}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                      type="text"
+                      value={reward.name || ''}
+                      onChange={(e) => handleUpdateReward(index, 'name', e.target.value)}
+                      placeholder="Nom de la récompense"
+                                    className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                    onBlur={() => handleSaveLoyaltySettings(true)}
+                    />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                      type="number"
+                      min="0"
+                      value={reward.pointsRequired || 0}
+                      onChange={(e) => handleUpdateReward(index, 'pointsRequired', e.target.value)}
+                                    placeholder="Points"
+                                    className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all text-center max-w-24"
+                                    onBlur={() => handleSaveLoyaltySettings(true)}
+                                  />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <select
+                                    value={reward.type || 'percentage'}
+                                    onChange={(e) => {
+                                      handleUpdateReward(index, 'type', e.target.value);
+                                      handleSaveLoyaltySettings();
+                                    }}
+                                    className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                  >
+                                    <option value="percentage">Réduction %</option>
+                                    <option value="product">Produit gratuit</option>
+                                  </select>
+                                </td>
+                                <td className="px-4 py-4">
+                                  {(reward.type || 'percentage') === 'percentage' ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        value={reward.discountValue || 0}
+                                        onChange={(e) => handleUpdateReward(index, 'discountValue', e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all text-center max-w-20"
+                                        onBlur={() => handleSaveLoyaltySettings(true)}
+                                      />
+                                      <span className="text-sm text-neutral-600 font-sans">%</span>
+                  </div>
+                                  ) : (
+                                    <select
+                                      value={reward.productId || ''}
+                                      onChange={(e) => {
+                                        handleUpdateReward(index, 'productId', e.target.value);
+                                        handleSaveLoyaltySettings();
+                                      }}
+                                      className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                    >
+                                      <option value="">Sélectionner...</option>
+                                      {allProducts.map((product) => (
+                                        <option key={product.id} value={product.id}>
+                                          {product.name} - {product.price}€
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </td>
+                                <td className="px-4 py-4">
+                                  <div className="flex items-center justify-center gap-2">
+                      <button
+                                      onClick={() => handleRemoveReward(index)}
+                                      className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                                      title="Supprimer"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                      </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <button
-                          onClick={() => moveCategoryUp(index)}
-                          disabled={index === 0}
-                          className={`p-1.5 rounded-lg transition-all ${
-                            index === 0
-                              ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
-                              : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white hover:scale-110 shadow-sm'
-                          }`}
-                          title="Monter"
-                        >
-                          <ChevronUp className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => moveCategoryDown(index)}
-                          disabled={index === categories.length - 1}
-                          className={`p-1.5 rounded-lg transition-all ${
-                            index === categories.length - 1
-                              ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
-                              : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white hover:scale-110 shadow-sm'
-                          }`}
-                          title="Descendre"
-                        >
-                          <ChevronDown className="w-4 h-4" />
-                        </button>
+
+                      {/* Version Mobile/Tablette - Cartes compactes */}
+                      <div className="lg:hidden space-y-3">
+                        {rewards.map((reward, index) => (
+                          <div key={reward.id || index} className="p-4 bg-white rounded-xl border-2 border-purple-200 shadow-sm">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                                  {index + 1}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <input
+                                    type="text"
+                                    value={reward.name || ''}
+                                    onChange={(e) => handleUpdateReward(index, 'name', e.target.value)}
+                                    placeholder="Nom de la récompense"
+                                    className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                    onBlur={() => handleSaveLoyaltySettings(true)}
+                                  />
+                                </div>
+                              </div>
+                      <button
+                                onClick={() => handleRemoveReward(index)}
+                                className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex-shrink-0"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                      </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Points requis</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={reward.pointsRequired || 0}
+                                  onChange={(e) => handleUpdateReward(index, 'pointsRequired', e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                  onBlur={() => handleSaveLoyaltySettings()}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Type</label>
+                                <select
+                                  value={reward.type || 'percentage'}
+                                  onChange={(e) => {
+                                    handleUpdateReward(index, 'type', e.target.value);
+                                    handleSaveLoyaltySettings();
+                                  }}
+                                  className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                >
+                                  <option value="percentage">Réduction %</option>
+                                  <option value="product">Produit gratuit</option>
+                                </select>
+                    </div>
+                  </div>
+
+                            <div className="mt-3">
+                  {(reward.type || 'percentage') === 'percentage' ? (
+                                <div>
+                                  <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Pourcentage</label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={reward.discountValue || 0}
+                          onChange={(e) => handleUpdateReward(index, 'discountValue', e.target.value)}
+                                      className="flex-1 px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                      onBlur={() => handleSaveLoyaltySettings(true)}
+                        />
+                                    <span className="text-sm text-neutral-600 font-sans">%</span>
                       </div>
                     </div>
+                  ) : (
+                                <div>
+                                  <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Produit offert</label>
+                      <select
+                        value={reward.productId || ''}
+                                    onChange={(e) => {
+                                      handleUpdateReward(index, 'productId', e.target.value);
+                                      handleSaveLoyaltySettings();
+                                    }}
+                                    className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-black text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
+                                  >
+                                    <option value="">Sélectionner...</option>
+                        {allProducts.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name} - {product.price}€
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                            </div>
+                </div>
+              ))}
+                      </div>
+                    </div>
+                  )}
 
-                    {/* Informations catégorie */}
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="text-2xl">{category.icon || '📦'}</div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-heading font-bold text-black text-base">
-                            {category.name}
-                          </h3>
-                          <span className="text-xs text-neutral-500 font-mono">
-                            /{category.slug}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                            category.is_active
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
-                            {category.is_active ? 'Actif' : 'Inactif'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-neutral-600 mt-0.5">
-                          {category.description || 'Pas de description'}
+                  {/* Note d'information */}
+                  {rewards.length > 0 && (
+                    <div className="mt-4 lg:mt-6 p-3 lg:p-4 bg-blue-50 rounded-xl border border-blue-200">
+                      <p className="text-xs sm:text-sm text-blue-800 font-sans">
+                        💡 <strong>Astuce:</strong> Les modifications sont sauvegardées automatiquement lorsque vous quittez un champ.
+                      </p>
+                    </div>
+              )}
+            </div>
+          </div>
+            </SectionCard>
+        </div>
+        );
+
+      case 'categories':
+        return (
+          <div className="space-y-4 sm:space-y-6 lg:space-y-8">
+            <SectionCard
+              icon={Grid3x3}
+              title={`Catégories (${categories.length})`}
+              description="Gérez les catégories de produits de votre catalogue"
+            >
+              <div className="space-y-6 lg:space-y-8">
+                {/* ✅ Récompenses - Tableau compact et performant */}
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 lg:mb-6">
+                    <div>
+                      <h3 className="text-base lg:text-lg font-heading font-bold text-black">
+                        Liste des catégories ({categories.length})
+                      </h3>
+                      <p className="text-xs sm:text-sm text-neutral-600 font-sans mt-1">
+                        Gérez l&apos;ordre et le contenu de vos catégories
+                      </p>
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        const newCategory = {
+                          id: `new-${Date.now()}`,
+                          name: '',
+                          slug: '',
+                          description: '',
+                          icon: '📦',
+                          display_order: categories.length + 1,
+                          is_active: true
+                        };
+                        setCategories([...categories, newCategory]);
+                      }}
+                      icon={<Plus className="w-4 h-4" />}
+                      className="w-full sm:w-auto"
+                    >
+                      Ajouter
+                    </Button>
+                  </div>
+
+                  {categories.length === 0 ? (
+                    <div className="text-center py-8 lg:py-12 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+                      <Grid3x3 className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-3 lg:mb-4 text-neutral-400" />
+                      <p className="font-sans font-medium text-base lg:text-lg">Aucune catégorie</p>
+                      <p className="text-sm lg:text-base mt-2 text-neutral-600 font-sans">
+                        Ajoutez votre première catégorie pour commencer
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 lg:space-y-4">
+                      {/* Version Desktop - Tableau compact */}
+                      <div className="hidden lg:block overflow-x-auto">
+                        <table className="w-full min-w-[1000px]">
+                          <thead className="bg-blue-50 border-b-2 border-blue-200">
+                            <tr>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm w-16">#</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Icône</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Nom</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Slug</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Description</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm w-24">Ordre</th>
+                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm w-32">Statut</th>
+                              <th className="px-4 py-3 text-center font-heading font-semibold text-black text-sm w-32">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-blue-100">
+                            {categories.map((category, index) => (
+                              <tr key={category.id || index} className="hover:bg-blue-50/50 transition-colors">
+                                <td className="px-4 py-4">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                                    {index + 1}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                                    type="text"
+                                    value={category.icon || '📦'}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'icon', e.target.value);
+                                      handleSaveCategory(category.id, true);
+                                    }}
+                                    maxLength={2}
+                                    className="w-16 px-3 py-2 rounded-lg border border-blue-200 bg-white text-2xl text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => handleSaveCategory(category.id, true)}
+                                  />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                                    type="text"
+                                    value={category.name || ''}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'name', e.target.value);
+                                      if (category.id && category.id.toString().startsWith('new-')) {
+                                        // Auto-générer le slug pour les nouvelles catégories
+                                        updateCategoryField(category.id, 'slug', generateSlug(e.target.value));
+                                      }
+                                    }}
+                                    placeholder="Nom de la catégorie"
+                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => {
+                                      if (category.name && category.name.trim()) {
+                                        if (category.id && category.id.toString().startsWith('new-')) {
+                                          // Créer la nouvelle catégorie
+                                          handleAddCategory(category);
+                                        } else {
+                                          handleSaveCategory(category.id, true);
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                                    type="text"
+                                    value={category.slug || ''}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'slug', e.target.value);
+                                      handleSaveCategory(category.id, true);
+                                    }}
+                                    placeholder="slug-url"
+                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => handleSaveCategory(category.id, true)}
+                                  />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <input
+                                    type="text"
+                                    value={category.description || ''}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'description', e.target.value);
+                                      handleSaveCategory(category.id, true);
+                                    }}
+                                    placeholder="Description..."
+                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => handleSaveCategory(category.id, true)}
+                                  />
+                                </td>
+                                <td className="px-4 py-4">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => moveCategoryUp(index)}
+                                      disabled={index === 0}
+                                      className={`p-1.5 rounded-lg transition-all ${
+                                        index === 0
+                                          ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                                          : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white border border-blue-200'
+                                      }`}
+                                      title="Monter"
+                                    >
+                                      <ChevronUp className="w-4 h-4" />
+                                    </button>
+                                    <input
+                                      type="number"
+                                      value={category.display_order || 0}
+                                      onChange={(e) => {
+                                        updateCategoryField(category.id, 'display_order', e.target.value);
+                                        handleSaveCategory(category.id, true);
+                                      }}
+                                      className="w-16 px-2 py-1.5 rounded-lg border border-blue-200 bg-white text-black text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                      onBlur={() => handleSaveCategory(category.id, true)}
+                                    />
+                                    <button
+                                      onClick={() => moveCategoryDown(index)}
+                                      disabled={index === categories.length - 1}
+                                      className={`p-1.5 rounded-lg transition-all ${
+                                        index === categories.length - 1
+                                          ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                                          : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white border border-blue-200'
+                                      }`}
+                                      title="Descendre"
+                                    >
+                                      <ChevronDown className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4">
+                                  <button
+                                    onClick={() => handleToggleCategoryActive(category.id)}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                                      category.is_active
+                                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                        : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                    }`}
+                                  >
+                                    {category.is_active ? 'Actif' : 'Inactif'}
+                                  </button>
+                                </td>
+                                <td className="px-4 py-4">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={() => handleDeleteCategory(category.id)}
+                                      className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                                      title="Supprimer"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Version Mobile/Tablette - Cartes compactes */}
+                      <div className="lg:hidden space-y-3">
+                        {categories.map((category, index) => (
+                          <div key={category.id || index} className="p-4 bg-white rounded-xl border-2 border-blue-200 shadow-sm">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                                  {index + 1}
+                                </div>
+                                <input
+                                  type="text"
+                                  value={category.icon || '📦'}
+                                  onChange={(e) => {
+                                    updateCategoryField(category.id, 'icon', e.target.value);
+                                    handleSaveCategory(category.id, true);
+                                  }}
+                                  maxLength={2}
+                                  className="w-14 px-2 py-1.5 rounded-lg border border-blue-200 bg-white text-2xl text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                  onBlur={() => handleSaveCategory(category.id, true)}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <input
+                                    type="text"
+                                    value={category.name || ''}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'name', e.target.value);
+                                      if (category.id && category.id.toString().startsWith('new-')) {
+                                        updateCategoryField(category.id, 'slug', generateSlug(e.target.value));
+                                      }
+                                    }}
+                                    placeholder="Nom de la catégorie"
+                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => {
+                                      if (category.name && category.name.trim()) {
+                                        if (category.id && category.id.toString().startsWith('new-')) {
+                                          handleAddCategory(category);
+                                        } else {
+                                          handleSaveCategory(category.id, true);
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteCategory(category.id)}
+                                className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex-shrink-0"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 mb-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Slug</label>
+                                <input
+                                  type="text"
+                                  value={category.slug || ''}
+                                  onChange={(e) => {
+                                    updateCategoryField(category.id, 'slug', e.target.value);
+                                    handleSaveCategory(category.id, true);
+                                  }}
+                                  className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                  onBlur={() => handleSaveCategory(category.id, true)}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Ordre</label>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => moveCategoryUp(index)}
+                                    disabled={index === 0}
+                                    className={`p-1.5 rounded-lg transition-all ${
+                                      index === 0
+                                        ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                                        : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white border border-blue-200'
+                                    }`}
+                                  >
+                                    <ChevronUp className="w-3 h-3" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    value={category.display_order || 0}
+                                    onChange={(e) => {
+                                      updateCategoryField(category.id, 'display_order', e.target.value);
+                                      handleSaveCategory(category.id, true);
+                                    }}
+                                    className="flex-1 px-2 py-2 rounded-lg border border-blue-200 bg-white text-black text-xs text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                    onBlur={() => handleSaveCategory(category.id, true)}
+                                  />
+                                  <button
+                                    onClick={() => moveCategoryDown(index)}
+                                    disabled={index === categories.length - 1}
+                                    className={`p-1.5 rounded-lg transition-all ${
+                                      index === categories.length - 1
+                                        ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                                        : 'bg-white text-neutral-700 hover:bg-blue-500 hover:text-white border border-blue-200'
+                                    }`}
+                                  >
+                                    <ChevronDown className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mb-3">
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Description</label>
+                              <input
+                                type="text"
+                                value={category.description || ''}
+                                onChange={(e) => {
+                                  updateCategoryField(category.id, 'description', e.target.value);
+                                  handleSaveCategory(category.id, true);
+                                }}
+                                placeholder="Description..."
+                                className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-black text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                                onBlur={() => handleSaveCategory(category.id, true)}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <button
+                                onClick={() => handleToggleCategoryActive(category.id)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                                  category.is_active
+                                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                    : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                }`}
+                              >
+                                {category.is_active ? 'Actif' : 'Inactif'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Note d'information */}
+                  {categories.length > 0 && (
+                    <div className="mt-4 lg:mt-6 p-3 lg:p-4 bg-blue-50 rounded-xl border border-blue-200">
+                      <p className="text-xs sm:text-sm text-blue-800 font-sans">
+                        💡 <strong>Astuce:</strong> Les modifications sont sauvegardées automatiquement lorsque vous quittez un champ.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+        );
+
+      case 'system': {
+        const dbPool = systemStatus.database.pool || systemStats.database?.pool;
+        const dbHealth = systemStats.health;
+        
+        return (
+          <div className="space-y-4 sm:space-y-6 lg:space-y-8">
+            {/* État des services - Compact */}
+            <SectionCard
+              icon={Activity}
+              title="État des Services"
+              description="Surveillance en temps réel de l'infrastructure"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5 mb-4 sm:mb-6">
+                {/* Backend */}
+                <div className="p-3 sm:p-4 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border-2 border-blue-200 hover:border-blue-300 transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Server className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                      <span className="font-heading font-semibold text-black text-sm">Backend API</span>
+                    </div>
+                    {systemStatus.backend.loading ? (
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : systemStatus.backend.connected ? (
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-red-600" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className={`text-xs font-medium ${systemStatus.backend.connected ? 'text-green-700' : 'text-red-700'}`}>
+                      {systemStatus.backend.loading ? 'Vérification...' : systemStatus.backend.message}
+                    </p>
+                    <p className="text-[10px] text-neutral-600 font-sans truncate">{ENV.BACKEND_URL}</p>
+                    <p className="text-[10px] text-neutral-500 font-sans">Node.js • Port {ENV.BACKEND_PORT}</p>
+                  </div>
+                </div>
+
+                {/* Base de données */}
+                <div className="p-3 sm:p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200 hover:border-purple-300 transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                      <span className="font-heading font-semibold text-black text-sm">Base de données</span>
+                    </div>
+                    {systemStatus.database.loading ? (
+                      <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : systemStatus.database.connected ? (
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-red-600" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className={`text-xs font-medium ${systemStatus.database.connected ? 'text-green-700' : 'text-red-700'}`}>
+                      {systemStatus.database.loading ? 'Vérification...' : systemStatus.database.message}
+                    </p>
+                    <p className="text-[10px] text-neutral-600 font-sans">MySQL • {systemStatus.database.tables || systemStats.database?.database?.tables || 0} tables</p>
+                    {dbPool && (
+                      <p className="text-[10px] text-neutral-500 font-sans">
+                        Pool: {dbPool.active || 0}/{dbPool.limit || 0} • {dbPool.utilization || '0%'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Frontend */}
+                <div className="p-3 sm:p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 hover:border-green-300 transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-5 h-5 text-green-600 flex-shrink-0" />
+                      <span className="font-heading font-semibold text-black text-sm">Frontend</span>
+                    </div>
+                    {systemStatus.frontend.connected && <CheckCircle className="w-5 h-5 text-green-600" />}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-green-700">{systemStatus.frontend.message}</p>
+                    <p className="text-[10px] text-neutral-600 font-sans">React 18 • Vite</p>
+                    <p className="text-[10px] text-neutral-500 font-sans">Port {ENV.FRONTEND_PORT || window.location.port || '5173'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pool MySQL - Détails */}
+              {dbPool && (
+                <div className="p-3 sm:p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200 mb-4 sm:mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Cpu className="w-5 h-5 text-indigo-600" />
+                    <h3 className="font-heading font-semibold text-black text-sm">Pool MySQL</h3>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                    <div>
+                      <p className="text-[10px] text-neutral-600 font-sans mb-1">Actives</p>
+                      <p className="text-lg font-bold text-indigo-700">{dbPool.active || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-neutral-600 font-sans mb-1">Inactives</p>
+                      <p className="text-lg font-bold text-indigo-700">{dbPool.idle || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-neutral-600 font-sans mb-1">Limite</p>
+                      <p className="text-lg font-bold text-indigo-700">{dbPool.limit || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-neutral-600 font-sans mb-1">Utilisation</p>
+                      <p className={`text-lg font-bold ${parseFloat(dbPool.utilization || '0') > 80 ? 'text-red-600' : 'text-indigo-700'}`}>
+                        {dbPool.utilization || '0%'}
+                      </p>
+                    </div>
+                  </div>
+                  {dbPool.queued > 0 && (
+                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-yellow-600" />
+                        <p className="text-xs text-yellow-800 font-sans">
+                          {dbPool.queued} requête(s) en attente
                         </p>
                       </div>
                     </div>
+                  )}
+                </div>
+              )}
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggleCategoryActive(category.id)}
-                        icon={category.is_active ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        title={category.is_active ? 'Désactiver' : 'Activer'}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditingCategoryId(category.id)}
-                        icon={<Edit2 className="w-4 h-4" />}
-                      >
-                        Modifier
-                      </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDeleteCategory(category.id)}
-                        icon={<Trash2 className="w-4 h-4" />}
-                      >
-                        Supprimer
-                      </Button>
-                    </div>
+
+              {/* Informations techniques détaillées */}
+              <div className="p-3 sm:p-4 bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl border-2 border-neutral-200 mb-4 sm:mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Info className="w-5 h-5 text-neutral-700" />
+                  <h3 className="font-heading font-semibold text-black text-sm">Informations Techniques</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 text-xs sm:text-sm font-sans">
+                  <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                    <span className="text-neutral-600">Environnement:</span>
+                    <span className={`font-semibold px-2 py-1 rounded-full text-[10px] ${
+                      ENV.isDevelopment ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                    }`}>
+                      {ENV.isDevelopment ? 'Développement' : 'Production'}
+                    </span>
                   </div>
-                )}
+                  <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                    <span className="text-neutral-600">Backend:</span>
+                    <span className="font-semibold text-black">Node.js</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                    <span className="text-neutral-600">Frontend:</span>
+                    <span className="font-semibold text-black">React 18 + Vite</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                    <span className="text-neutral-600">Base de données:</span>
+                    <span className="font-semibold text-black">MySQL</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                    <span className="text-neutral-600">API URL:</span>
+                    <span className="font-semibold text-black truncate max-w-[150px]" title={ENV.API_URL}>
+                      {ENV.API_URL}
+                    </span>
+                  </div>
+                  {dbHealth && (
+                    <div className="flex justify-between items-center p-2 bg-white rounded-lg border border-neutral-200">
+                      <span className="text-neutral-600">Tables MySQL:</span>
+                      <span className="font-semibold text-black">{systemStatus.database.tables || dbHealth.counts?.users ? 'Connectée' : 'N/A'}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            ))
-          )}
+
+              {/* Actions système */}
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    checkSystemStatus();
+                    loadSystemStats();
+                  }}
+                  icon={<RefreshCw className="w-4 h-4" />}
+                  className="text-xs sm:text-sm"
+                >
+                  Actualiser les statistiques
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    window.location.reload();
+                  }}
+                  icon={<Zap className="w-4 h-4" />}
+                  className="text-xs sm:text-sm"
+                >
+                  Purger le cache
+                </Button>
+              </div>
+            </SectionCard>
+          </div>
+        );
+      }
+
+      default:
+        return null;
+    }
+  };
+  
+  return (
+    <div className="space-y-4 sm:space-y-6 lg:space-y-8 pl-3 sm:pl-5 md:pl-10 lg:pl-12 xl:pl-16 pr-3 sm:pr-5 md:pr-10 lg:pr-12 xl:pr-16 pt-4 sm:pt-6 md:pt-8 lg:pt-10 animate-fade-in w-full overflow-x-hidden max-w-7xl xl:max-w-[90rem] 2xl:max-w-[100rem] mx-auto pb-6 sm:pb-8 lg:pb-10">
+      {/* ✅ En-tête amélioré avec gradient - Responsive */}
+      <div className="bg-gradient-to-r from-neutral-50 to-white rounded-xl sm:rounded-2xl border-2 border-neutral-200 shadow-lg p-4 sm:p-6 lg:p-8">
+        <div className="flex flex-col gap-3 sm:gap-4 lg:gap-6">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-heading font-bold text-black flex items-center gap-2 sm:gap-3 mb-1 sm:mb-2 lg:mb-3">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 flex items-center justify-center shadow-md flex-shrink-0">
+                <Settings className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
+              </div>
+              <span className="truncate">Paramètres</span>
+            </h1>
+            <p className="text-sm sm:text-base lg:text-lg text-neutral-600 font-sans">
+              Configuration complète de l&apos;application
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ✅ Système d'onglets - Responsive avec actions intégrées */}
+      <Card padding="sm sm:md md:lg lg:xl" className="border-2 border-neutral-200 shadow-lg">
+        <Tabs 
+          tabs={tabs} 
+          activeTab={activeTab} 
+          onTabChange={setActiveTab}
+          onReload={loadSettings}
+          onSave={handleSave}
+          saving={saving}
+        />
+        
+        {/* ✅ Contenu selon l'onglet actif */}
+        <div className="animate-fade-in lg:space-y-8">
+          {renderTabContent()}
         </div>
       </Card>
-      
-      {/* Informations Système - Réduite de 30% et en bas */}
-      <Card padding="md">
-        <h2 className="text-base font-heading font-bold mb-3 text-black flex items-center gap-2">
-          <Activity className="w-4 h-4" />
-          Informations Système
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          {/* Backend */}
-          <div className="p-3 bg-neutral-50 rounded-lg border-2 border-neutral-200">
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-1.5">
-                <Server className="w-4 h-4 text-blue-600" />
-                <span className="font-heading font-semibold text-black text-sm">Backend API</span>
-              </div>
-              {systemStatus.backend.loading ? (
-                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              ) : systemStatus.backend.connected ? (
-                <CheckCircle className="w-4 h-4 text-green-600" />
-              ) : (
-                <XCircle className="w-4 h-4 text-red-600" />
-              )}
-            </div>
-            <div className="space-y-0.5">
-              <p className={`text-xs font-sans ${
-                systemStatus.backend.connected ? 'text-green-700' : 'text-red-700'
-              }`}>
-                {systemStatus.backend.loading ? 'Vérification...' : systemStatus.backend.message}
-              </p>
-              <p className="text-[10px] text-neutral-600 font-sans truncate">
-                {ENV.BACKEND_URL}
-              </p>
-              <p className="text-[10px] text-neutral-500 font-sans">
-                Port: {ENV.BACKEND_PORT}
-              </p>
-            </div>
-          </div>
-          
-          {/* Base de données */}
-          <div className="p-3 bg-neutral-50 rounded-lg border-2 border-neutral-200">
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-1.5">
-                <Database className="w-4 h-4 text-purple-600" />
-                <span className="font-heading font-semibold text-black text-sm">Base de données</span>
-              </div>
-              {systemStatus.database.loading ? (
-                <div className="w-3 h-3 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-              ) : systemStatus.database.connected ? (
-                <CheckCircle className="w-4 h-4 text-green-600" />
-              ) : (
-                <XCircle className="w-4 h-4 text-red-600" />
-              )}
-            </div>
-            <div className="space-y-0.5">
-              <p className={`text-xs font-sans ${
-                systemStatus.database.connected ? 'text-green-700' : 'text-red-700'
-              }`}>
-                {systemStatus.database.loading ? 'Vérification...' : systemStatus.database.message}
-              </p>
-              <p className="text-[10px] text-neutral-600 font-sans">
-                MySQL - blossom_cafe
-              </p>
-              <p className="text-[10px] text-neutral-500 font-sans">
-                Localhost:3306
-              </p>
-            </div>
-          </div>
-          
-          {/* Frontend */}
-          <div className="p-3 bg-neutral-50 rounded-lg border-2 border-neutral-200">
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-1.5">
-                <Globe className="w-4 h-4 text-green-600" />
-                <span className="font-heading font-semibold text-black text-sm">Frontend</span>
-              </div>
-              {systemStatus.frontend.connected && (
-                <CheckCircle className="w-4 h-4 text-green-600" />
-              )}
-            </div>
-            <div className="space-y-0.5">
-              <p className="text-xs font-sans text-green-700">
-                {systemStatus.frontend.message}
-              </p>
-              <p className="text-[10px] text-neutral-600 font-sans">
-                React + Vite
-              </p>
-              <p className="text-[10px] text-neutral-500 font-sans">
-                Port: {ENV.FRONTEND_PORT || window.location.port || '5173'}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        {/* Informations détaillées */}
-        <div className="mt-3 p-3 bg-blue-50 rounded-lg border-2 border-blue-200">
-          <h3 className="font-heading font-semibold text-black mb-1.5 text-xs">Informations Techniques</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-sans">
-            <div>
-              <span className="text-neutral-600">Mode:</span>
-              <span className="text-black ml-1.5 font-semibold">
-                {ENV.isDevelopment ? 'Dev' : 'Prod'}
-              </span>
-            </div>
-            <div>
-              <span className="text-neutral-600">API URL:</span>
-              <span className="text-black ml-1.5 font-semibold truncate block">
-                {ENV.API_URL}
-              </span>
-            </div>
-            <div>
-              <span className="text-neutral-600">Backend:</span>
-              <span className="text-black ml-1.5 font-semibold">
-                Node.js
-              </span>
-            </div>
-            <div>
-              <span className="text-neutral-600">Frontend:</span>
-              <span className="text-black ml-1.5 font-semibold">
-                React
-              </span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="mt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={checkSystemStatus}
-            icon={<RefreshCw className="w-3 h-3" />}
-            className="text-xs py-1.5 px-3"
-          >
-            Actualiser
-          </Button>
-        </div>
-      </Card>
-      
     </div>
   );
 };

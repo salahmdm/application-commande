@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Package, Clock, CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronUp, Image as ImageIcon, Receipt } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Package, Clock, CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronUp, Receipt, ShieldAlert, WifiOff, Timer } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import OrderStatusBadge from '../../components/orders/OrderStatusBadge';
@@ -27,49 +27,158 @@ const AdminOrders = () => {
   const [processingOrderId, setProcessingOrderId] = useState(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [authError, setAuthError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   
-  // Charger les commandes depuis MySQL
-  const fetchAllOrders = async () => {
+  // ✅ CORRECTION CRITIQUE: Flag pour empêcher le rechargement multiple
+  const hasLoadedRef = useRef(false);
+  const isFetchingRef = useRef(false);
+  const pendingControllerRef = useRef(null);
+  
+  const fetchAllOrders = useCallback(async () => {
+    if (isFetchingRef.current) return;
+
+    if (pendingControllerRef.current) {
+      try { pendingControllerRef.current.abort(); } catch (_e) {}
+      pendingControllerRef.current = null;
+    }
+
+    isFetchingRef.current = true;
+    setIsLoading(true);
+    setAuthError(null);
+    setLoadError(null);
+
+    const fullCtrl = new AbortController();
+    const sumCtrl = new AbortController();
+    pendingControllerRef.current = fullCtrl; // track main
+
+    const fullTimeout = setTimeout(() => fullCtrl.abort(), 6000);
+    const sumTimeout = setTimeout(() => sumCtrl.abort(), 3000);
+
+    let filled = false;
+
     try {
-      setIsLoading(true);
-      console.log('🔄 AdminOrders - Chargement commandes MySQL...');
-      const response = await orderService.getAllOrders();
-      if (response.success && response.data) {
-        // Parser les items JSON de chaque commande
-        const ordersWithItems = response.data.map(order => {
+      const fillWith = (list) => {
+        const ordersWithItems = (list || []).map(order => {
           let items = [];
-          if (order.items) {
-            try {
-              items = typeof order.items === 'string' 
-                ? JSON.parse(order.items || '[]') 
-                : Array.isArray(order.items) 
-                ? order.items 
-                : [];
-            } catch (e) {
-              console.error(`Erreur parsing items pour commande ${order.id}:`, e);
-              items = [];
-            }
-          }
-          return { ...order, parsedItems: items };
+          try {
+            if (typeof order.items === 'string') items = JSON.parse(order.items || '[]');
+            else if (Array.isArray(order.items)) items = order.items;
+            else if (order.items) items = [order.items];
+          } catch (_e) { items = []; }
+          if (!Array.isArray(items)) items = [];
+          return { ...order, parsedItems: items, items };
         });
-        
         setOrders(ordersWithItems);
-        console.log(`✅ AdminOrders - ${ordersWithItems.length} commandes chargées`);
-      } else {
+      };
+
+      const fullPromise = orderService.getAllOrders({}, { signal: fullCtrl.signal });
+      const sumPromise = orderService
+        .getAllOrders({}, { signal: sumCtrl.signal })
+        .catch(() => ({ success: false })) // fallback no-op if same endpoint
+        .then(async (r) => {
+          // Si le backend supporte /summary, on le sollicite séparément
+          try {
+            const res = await fetch('http://localhost:5000/api/admin/orders/summary', { credentials: 'include', signal: sumCtrl.signal });
+            if (res.ok) {
+              const json = await res.json();
+              return json;
+            }
+          } catch (_e) {}
+          return r;
+        });
+
+      // "Race": summary d'abord
+      const summaryRes = await Promise.race([sumPromise, new Promise((resolve) => setTimeout(() => resolve(null), 3500))]);
+      if (summaryRes && summaryRes.success && Array.isArray(summaryRes.data) && !filled) {
+        fillWith(summaryRes.data);
+        filled = true;
+      }
+
+      // Puis la réponse complète (si elle arrive)
+      const fullRes = await fullPromise;
+      if (fullRes && fullRes.success && Array.isArray(fullRes.data)) {
+        fillWith(fullRes.data);
+        filled = true;
+      }
+
+      if (!filled) {
         setOrders([]);
       }
     } catch (err) {
-      console.error('❌ AdminOrders - Erreur:', err);
-      showError('Erreur lors du chargement des commandes');
-      setOrders([]);
+      if (err.name === 'AbortError') {
+        setLoadError({ type: 'timeout', message: `Le serveur n'a pas répondu sous 6s.` });
+      } else if (err.status === 401) {
+        setAuthError('Authentification requise. Veuillez vous reconnecter.');
+      } else if (err.status === 403) {
+        setAuthError("Accès refusé. Ce compte n'a pas les droits 'manager' ou 'admin'.");
+      } else if (err.name === 'ConnectionError') {
+        setLoadError({ type: 'network', message: "Impossible de joindre l'API backend (port 5000)." });
+      } else {
+        setLoadError({ type: 'unknown', message: err.message || 'Erreur inconnue lors du chargement.' });
+      }
     } finally {
+      clearTimeout(fullTimeout);
+      clearTimeout(sumTimeout);
+      pendingControllerRef.current = null;
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   useEffect(() => {
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
     fetchAllOrders();
+    return () => { try { if (pendingControllerRef.current) pendingControllerRef.current.abort(); } catch (_e) {} };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (authError) {
+    return (
+      <div className="px-5 pt-6 w-full">
+        <Card padding="lg" className="border-red-300 bg-red-50">
+          <div className="flex items-center gap-3 text-red-700">
+            <ShieldAlert className="w-6 h-6" />
+            <div>
+              <h3 className="text-lg font-heading font-bold">Gestion des commandes indisponible</h3>
+              <p className="font-sans">{authError}</p>
+              <p className="font-sans mt-1 text-red-600">Demandez un compte avec rôle "manager" ou "admin".</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="px-5 pt-6 w-full">
+        <Card padding="lg" className="border-amber-300 bg-amber-50">
+          <div className="flex items-start gap-3 text-amber-800">
+            {loadError.type === 'timeout' ? <Timer className="w-6 h-6" /> : <WifiOff className="w-6 h-6" />}
+            <div>
+              <h3 className="text-lg font-heading font-bold">Impossible de charger les commandes</h3>
+              <p className="font-sans">{loadError.message}</p>
+              <div className="mt-3">
+                <Button variant="outline" onClick={fetchAllOrders} icon={<RefreshCw className="w-4 h-4" />}>Réessayer</Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isLoading && orders.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
+        <RefreshCw className="w-12 h-12 animate-spin text-black mb-4" />
+        <p className="text-neutral-600 font-sans">Chargement des commandes...</p>
+      </div>
+    );
+  }
   
   const statusConfig = {
     pending: { label: 'Prise', color: 'amber', icon: Clock },
@@ -159,15 +268,6 @@ const AdminOrders = () => {
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0)
   };
 
-  if (isLoading && orders.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
-        <RefreshCw className="w-12 h-12 animate-spin text-black mb-4" />
-        <p className="text-neutral-600 font-sans">Chargement des commandes...</p>
-      </div>
-    );
-  }
-  
   return (
     <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8 animate-fade-in w-full overflow-x-hidden">
       {/* En-tête */}
@@ -181,14 +281,7 @@ const AdminOrders = () => {
           </p>
         </div>
         
-        <Button
-          variant="outline"
-          onClick={() => fetchAllOrders && fetchAllOrders()}
-          disabled={isLoading}
-          icon={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
-        >
-          Actualiser
-        </Button>
+        {/* Bouton Actualiser supprimé */}
       </div>
 
       {/* Statistiques compactes */}
@@ -368,20 +461,7 @@ const AdminOrders = () => {
                         <div className="space-y-2">
                           {orderItems.map((item, idx) => (
                             <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-neutral-200">
-                              {/* Image produit */}
-                              <div className="w-12 h-12 rounded-lg overflow-hidden border-2 border-neutral-300 flex-shrink-0">
-                                {item.image_url ? (
-                                  <img 
-                                    src={`http://localhost:5000${item.image_url}`}
-                                    alt={item.product_name || item.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-neutral-100 flex items-center justify-center">
-                                    <ImageIcon className="w-6 h-6 text-neutral-400" />
-                                  </div>
-                                )}
-                              </div>
+                              {/* Image produit - Supprimée pour admin */}
                               
                               <div className="flex-1 min-w-0">
                                 <div className="font-heading font-semibold text-sm text-black truncate">

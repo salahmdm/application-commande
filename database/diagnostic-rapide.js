@@ -5,33 +5,33 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('========================================');
-console.log('🔍 DIAGNOSTIC RAPIDE CONNEXIONS');
-console.log('========================================\n');
+logger.log('========================================');
+logger.log('🔍 DIAGNOSTIC RAPIDE CONNEXIONS');
+logger.log('========================================\n');
 
 // 1. Vérifier le fichier .env
-console.log('1️⃣ Vérification du fichier .env...');
+logger.log('1️⃣ Vérification du fichier .env...');
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
-  console.log('✅ Fichier .env trouvé');
+  logger.log('✅ Fichier .env trouvé');
   const envContent = fs.readFileSync(envPath, 'utf8');
   const requiredVars = ['DB_PASSWORD', 'DB_USER', 'DB_NAME'];
   const missing = requiredVars.filter(varName => !envContent.includes(varName));
   
   if (missing.length > 0) {
-    console.log(`⚠️ Variables manquantes dans .env: ${missing.join(', ')}`);
+    logger.log(`⚠️ Variables manquantes dans .env: ${missing.join(', ')}`);
   } else {
-    console.log('✅ Variables requises présentes');
+    logger.log('✅ Variables requises présentes');
   }
 } else {
-  console.log('❌ Fichier .env introuvable');
-  console.log('💡 Solution: Copiez env.example.txt en .env et configurez vos valeurs');
+  logger.log('❌ Fichier .env introuvable');
+  logger.log('💡 Solution: Copiez env.example.txt en .env et configurez vos valeurs');
 }
-console.log('');
+logger.log('');
 
 async function runDiagnostic() {
   // 2. Vérifier les ports
-  console.log('2️⃣ Vérification des ports...');
+  logger.log('2️⃣ Vérification des ports...');
   const { exec } = require('child_process');
   const util = require('util');
   const execPromise = util.promisify(exec);
@@ -39,32 +39,32 @@ async function runDiagnostic() {
   try {
     const { stdout: netstat5000 } = await execPromise('netstat -ano | findstr ":5000" | findstr "LISTENING"');
     if (netstat5000.trim()) {
-      console.log('✅ Port 5000 (Backend) : En cours d\'utilisation');
+      logger.log('✅ Port 5000 (Backend) : En cours d\'utilisation');
     } else {
-      console.log('❌ Port 5000 (Backend) : Non utilisé - Backend non démarré');
-      console.log('💡 Solution: npm run backend');
+      logger.log('❌ Port 5000 (Backend) : Non utilisé - Backend non démarré');
+      logger.log('💡 Solution: npm run backend');
     }
   } catch {
-    console.log('❌ Port 5000 (Backend) : Non utilisé - Backend non démarré');
-    console.log('💡 Solution: npm run backend');
+    logger.log('❌ Port 5000 (Backend) : Non utilisé - Backend non démarré');
+    logger.log('💡 Solution: npm run backend');
   }
 
   try {
     const { stdout: netstat3000 } = await execPromise('netstat -ano | findstr ":3000" | findstr "LISTENING"');
     if (netstat3000.trim()) {
-      console.log('✅ Port 3000 (Frontend) : En cours d\'utilisation');
+      logger.log('✅ Port 3000 (Frontend) : En cours d\'utilisation');
     } else {
-      console.log('❌ Port 3000 (Frontend) : Non utilisé - Frontend non démarré');
-      console.log('💡 Solution: npm run dev');
+      logger.log('❌ Port 3000 (Frontend) : Non utilisé - Frontend non démarré');
+      logger.log('💡 Solution: npm run dev');
     }
   } catch {
-    console.log('❌ Port 3000 (Frontend) : Non utilisé - Frontend non démarré');
-    console.log('💡 Solution: npm run dev');
+    logger.log('❌ Port 3000 (Frontend) : Non utilisé - Frontend non démarré');
+    logger.log('💡 Solution: npm run dev');
   }
-  console.log('');
+  logger.log('');
 
   // 3. Vérifier la connexion MySQL
-  console.log('3️⃣ Test de connexion MySQL...');
+  logger.log('3️⃣ Test de connexion MySQL...');
   try {
     const mysql = require('mysql2/promise');
     const configModule = require('./config');
@@ -80,21 +80,22 @@ async function runDiagnostic() {
     await connection.execute('SELECT 1');
     await connection.end();
     
-    console.log('✅ Connexion MySQL réussie');
-    console.log(`   - Host: ${configModule.database.host}:${configModule.database.port}`);
-    console.log(`   - Database: ${configModule.database.database}`);
+    logger.log('✅ Connexion MySQL réussie');
+    logger.log(`   - Host: ${configModule.database.host}:${configModule.database.port}`);
+    logger.log(`   - Database: ${configModule.database.database}`);
   } catch (error) {
-    console.log('❌ Erreur de connexion MySQL:', error.message);
-    console.log('💡 Vérifications:');
-    console.log('   1. MySQL est-il démarré ?');
-    console.log('   2. Les identifiants dans .env sont-ils corrects ?');
-    console.log('   3. La base de données existe-t-elle ?');
+    logger.log('❌ Erreur de connexion MySQL:', error.message);
+    logger.log('💡 Vérifications:');
+    logger.log('   1. MySQL est-il démarré ?');
+    logger.log('   2. Les identifiants dans .env sont-ils corrects ?');
+    logger.log('   3. La base de données existe-t-elle ?');
   }
-  console.log('');
+  logger.log('');
 
   // 4. Test Backend API
-  console.log('4️⃣ Test de connexion Backend API...');
+  logger.log('4️⃣ Test de connexion Backend API...');
   const http = require('http');
+const logger = require('./utils/logger');
   try {
     const backendTest = await new Promise((resolve, reject) => {
       const req = http.request({
@@ -118,32 +119,32 @@ async function runDiagnostic() {
       req.end();
     });
     
-    console.log('✅ Backend API accessible');
-    console.log(`   - Status: ${backendTest.status}`);
-    console.log('   - URL: http://localhost:5000/api');
+    logger.log('✅ Backend API accessible');
+    logger.log(`   - Status: ${backendTest.status}`);
+    logger.log('   - URL: http://localhost:5000/api');
   } catch (error) {
-    console.log('❌ Backend API non accessible:', error.message);
-    console.log('💡 Solution: npm run backend');
+    logger.log('❌ Backend API non accessible:', error.message);
+    logger.log('💡 Solution: npm run backend');
   }
-  console.log('');
+  logger.log('');
 
   // Résumé
-  console.log('========================================');
-  console.log('📊 RÉSUMÉ');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('📊 RÉSUMÉ');
+  logger.log('========================================\n');
 
-  console.log('💡 Pour démarrer les serveurs:');
-  console.log('   npm run start  (démarre backend + frontend)');
-  console.log('');
-  console.log('💡 Ou séparément:');
-  console.log('   Terminal 1: npm run backend');
-  console.log('   Terminal 2: npm run dev');
-  console.log('');
+  logger.log('💡 Pour démarrer les serveurs:');
+  logger.log('   npm run start  (démarre backend + frontend)');
+  logger.log('');
+  logger.log('💡 Ou séparément:');
+  logger.log('   Terminal 1: npm run backend');
+  logger.log('   Terminal 2: npm run dev');
+  logger.log('');
 }
 
 // Exécuter le diagnostic
 runDiagnostic().catch(error => {
-  console.error('❌ Erreur lors du diagnostic:', error);
+  logger.error('❌ Erreur lors du diagnostic:', error);
   process.exit(1);
 });
 

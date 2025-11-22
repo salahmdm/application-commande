@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
+import logger from '../../utils/logger';
 
 /**
  * 🎨 Composant Modal Ultra-Moderne
@@ -15,8 +16,6 @@ const Modal = ({
   closeOnOverlayClick = true,
   variant = 'default'
 }) => {
-  console.log('🔧 Modal render - isOpen:', isOpen, 'title:', title);
-  
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -64,7 +63,7 @@ const Modal = ({
   
   return (
     <div 
-      className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in"
+      className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 pt-20 md:pt-24 lg:pt-28 animate-fade-in"
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
@@ -84,7 +83,9 @@ const Modal = ({
           rounded-3xl 
           w-full 
           ${sizes[size]} 
-          max-h-[90vh] 
+          max-h-[calc(100vh-5rem-2rem)]
+          md:max-h-[calc(100vh-6rem-2rem)]
+          lg:max-h-[calc(100vh-7rem-2rem)]
           overflow-hidden 
           flex flex-col
           animate-scale-in
@@ -109,8 +110,15 @@ const Modal = ({
                 onClick={onClose}
                 className="p-2 rounded-xl hover:bg-slate-100 transition-all duration-200 hover:scale-110 active:scale-95 group"
                 aria-label="Fermer"
+                title="Fermer"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClose();
+                  }
+                }}
               >
-                <X className="w-6 h-6 text-slate-600 group-hover:text-slate-900 transition-colors duration-200" />
+                <X className="w-6 h-6 text-slate-600 group-hover:text-slate-900 transition-colors duration-200" aria-hidden="true" />
               </button>
             )}
           </div>

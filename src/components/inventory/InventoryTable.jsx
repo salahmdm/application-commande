@@ -131,16 +131,22 @@ const InventoryTable = ({ items, onEdit, onDelete, onSort, sortConfig, selectedI
                 <p className="text-xs text-blue-700 font-heading font-medium mb-2">Quantité en stock</p>
                 <div className="flex items-center justify-center gap-3">
                   <button
-                    onClick={() => onQuantityChange(item.id, Math.max(0, item.quantity - 1))}
+                    onClick={() => {
+                      const newValue = Math.max(0, Math.round(((parseFloat(item.quantity) || 0) - 0.5) * 10) / 10);
+                      onQuantityChange(item.id, newValue);
+                    }}
                     className="p-3 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl transition-colors border-2 border-red-300 active:scale-95"
                   >
                     <Minus className="w-5 h-5" />
                   </button>
                   <span className="font-heading font-bold text-black text-3xl min-w-[60px] text-center">
-                    {item.quantity}
+                    {item.quantity} {item.unit || 'kg'}
                   </span>
                   <button
-                    onClick={() => onQuantityChange(item.id, item.quantity + 1)}
+                    onClick={() => {
+                      const newValue = Math.round(((parseFloat(item.quantity) || 0) + 0.5) * 10) / 10;
+                      onQuantityChange(item.id, newValue);
+                    }}
                     className="p-3 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl transition-colors border-2 border-green-300 active:scale-95"
                   >
                     <Plus className="w-5 h-5" />
@@ -288,19 +294,25 @@ const InventoryTable = ({ items, onEdit, onDelete, onSort, sortConfig, selectedI
               <td className="p-4 text-center">
                 <div className="flex items-center justify-center gap-2">
                   <button
-                    onClick={() => onQuantityChange(item.id, Math.max(0, item.quantity - 1))}
+                    onClick={() => {
+                      const newValue = Math.max(0, Math.round(((parseFloat(item.quantity) || 0) - 0.5) * 10) / 10);
+                      onQuantityChange(item.id, newValue);
+                    }}
                     className="p-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors border border-red-300"
-                    title="Diminuer de 1"
+                    title="Diminuer de 0.5"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
                   <span className="font-heading font-bold text-black min-w-[40px]">
-                    {item.quantity}
+                    {item.quantity} {item.unit || 'kg'}
                   </span>
                   <button
-                    onClick={() => onQuantityChange(item.id, item.quantity + 1)}
+                    onClick={() => {
+                      const newValue = Math.round(((parseFloat(item.quantity) || 0) + 0.5) * 10) / 10;
+                      onQuantityChange(item.id, newValue);
+                    }}
                     className="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors border border-green-300"
-                    title="Augmenter de 1"
+                    title="Augmenter de 0.5"
                   >
                     <Plus className="w-4 h-4" />
                   </button>

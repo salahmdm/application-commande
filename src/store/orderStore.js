@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import orderService from '../services/orderService';
+import logger from '../utils/logger';
 
 /**
  * Store des commandes
@@ -15,16 +16,43 @@ const useOrderStore = create((set, get) => ({
   fetchOrders: async () => {
     set({ isLoading: true, error: null });
     try {
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('📋 orderStore.fetchOrders - Début chargement');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
       const response = await orderService.getUserOrders();
-      if (response.success && response.data) {
-        set({ orders: response.data, isLoading: false });
+      
+      logger.log('📋 orderStore.fetchOrders - Réponse reçue');
+      logger.log('   - success:', response?.success);
+      logger.log('   - data type:', typeof response?.data);
+      logger.log('   - data is array:', Array.isArray(response?.data));
+      logger.log('   - nombre de commandes:', response?.data?.length || 0);
+      
+      if (response && response.success && Array.isArray(response.data)) {
+        logger.log('✅ orderStore.fetchOrders - Commandes récupérées:', response.data.length);
+        if (response.data.length > 0) {
+          logger.log('   - Première commande:', {
+            id: response.data[0].id,
+            order_number: response.data[0].order_number,
+            user_id: response.data[0].user_id,
+            total: response.data[0].total_amount,
+            status: response.data[0].status
+          });
+        }
+        set({ orders: response.data, isLoading: false, error: null });
         return response.data;
       } else {
-        set({ orders: [], isLoading: false });
+        logger.warn('⚠️ orderStore.fetchOrders - Réponse invalide ou tableau vide');
+        logger.warn('   - response:', JSON.stringify(response, null, 2));
+        set({ orders: [], isLoading: false, error: null });
         return [];
       }
     } catch (error) {
-      console.error('Erreur fetchOrders:', error);
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌ orderStore.fetchOrders - Erreur');
+      logger.error('   Message:', error.message);
+      logger.error('   Stack:', error.stack);
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       set({ error: error.message, isLoading: false, orders: [] });
       return [];
     }
@@ -33,13 +61,13 @@ const useOrderStore = create((set, get) => ({
   // Créer une commande - Sauvegarde dans MySQL
   createOrder: async (orderData) => {
     try {
-      console.log('📍 orderStore.createOrder - Appel service');
+      logger.log('📍 orderStore.createOrder - Appel service');
       const response = await orderService.createOrder(orderData);
       
-      console.log('📍 orderStore.createOrder - Réponse:', response);
-      console.log('   - response.success:', response?.success);
-      console.log('   - response.data:', response?.data);
-      console.log('   - response.error:', response?.error);
+      logger.log('📍 orderStore.createOrder - Réponse:', response);
+      logger.log('   - response.success:', response?.success);
+      logger.log('   - response.data:', response?.data);
+      logger.log('   - response.error:', response?.error);
       
       if (response && response.success && response.data) {
         const newOrder = response.data;
@@ -47,21 +75,21 @@ const useOrderStore = create((set, get) => ({
           orders: [newOrder, ...state.orders],
           currentOrder: newOrder
         }));
-        console.log('✅ orderStore.createOrder - Commande ajoutée au store');
+        logger.log('✅ orderStore.createOrder - Commande ajoutée au store');
         return newOrder;
       }
       
       // Si le backend retourne success: false avec un message d'erreur
       const errorMessage = response?.error || response?.message || 'Échec de la création de commande';
-      console.error('❌ orderStore.createOrder - Échec:', errorMessage);
+      logger.error('❌ orderStore.createOrder - Échec:', errorMessage);
       throw new Error(errorMessage);
     } catch (error) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ orderStore.createOrder - Exception capturée');
-      console.error('   Type:', error?.name);
-      console.error('   Message:', error?.message);
-      console.error('   Stack:', error?.stack);
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌ orderStore.createOrder - Exception capturée');
+      logger.error('   Type:', error?.name);
+      logger.error('   Message:', error?.message);
+      logger.error('   Stack:', error?.stack);
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       throw error;
     }
   },
@@ -81,7 +109,7 @@ const useOrderStore = create((set, get) => ({
         return response;
       }
     } catch (error) {
-      console.error('Erreur updateOrderStatus:', error);
+      logger.error('Erreur updateOrderStatus:', error);
       throw error;
     }
   },

@@ -1,4 +1,4 @@
-import React from 'react';
+// Import React non nécessaire avec JSX transform automatique
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 
 /**

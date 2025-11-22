@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Edit, Save, X, Clock, MapPin, Phone, Building, Mail } from 'lucide-react';
 import Button from '../common/Button';
 import Card from '../common/Card';
@@ -6,12 +6,21 @@ import Input from '../common/Input';
 import Modal from '../common/Modal';
 import useAuth from '../../hooks/useAuth';
 
+const daysOfWeek = [
+  { key: 'monday', label: 'Lundi', icon: '📅' },
+  { key: 'tuesday', label: 'Mardi', icon: '📅' },
+  { key: 'wednesday', label: 'Mercredi', icon: '📅' },
+  { key: 'thursday', label: 'Jeudi', icon: '📅' },
+  { key: 'friday', label: 'Vendredi', icon: '📅' },
+  { key: 'saturday', label: 'Samedi', icon: '📅' },
+  { key: 'sunday', label: 'Dimanche', icon: '📅' }
+];
+
 /**
  * Composant d'édition des informations de contact et horaires
  */
 const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
   const { user } = useAuth();
-  const [isEditing, setIsEditing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -41,7 +50,7 @@ const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
     return out;
   })();
 
-  function normalizeHours(hours) {
+  const normalizeHours = useCallback((hours) => {
     const fallback = { open: '08:00', close: '22:00', closed: false };
     const src = hours || {};
     const out = {};
@@ -59,7 +68,7 @@ const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
       }
     }
     return out;
-  }
+  }, []);
 
   useEffect(() => {
     if (businessInfo) {
@@ -73,7 +82,7 @@ const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
         hours: normalizeHours(businessInfo.hours)
       }));
     }
-  }, [businessInfo]);
+  }, [businessInfo, normalizeHours]);
 
   const handleInputChange = (field, value) => {
     if (field.startsWith('hours.')) {
@@ -118,7 +127,6 @@ const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
   const handleSave = () => {
     if (!validate()) return;
     onUpdate(formData);
-    setIsEditing(false);
     setShowModal(false);
   };
 
@@ -132,19 +140,8 @@ const ContactInfoEditor = ({ businessInfo, onUpdate }) => {
         hours: businessInfo.hours || {}
       });
     }
-    setIsEditing(false);
     setShowModal(false);
   };
-
-  const daysOfWeek = [
-    { key: 'monday', label: 'Lundi', icon: '📅' },
-    { key: 'tuesday', label: 'Mardi', icon: '📅' },
-    { key: 'wednesday', label: 'Mercredi', icon: '📅' },
-    { key: 'thursday', label: 'Jeudi', icon: '📅' },
-    { key: 'friday', label: 'Vendredi', icon: '📅' },
-    { key: 'saturday', label: 'Samedi', icon: '📅' },
-    { key: 'sunday', label: 'Dimanche', icon: '📅' }
-  ];
 
   return (
     <div className="relative">

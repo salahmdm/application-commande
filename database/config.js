@@ -4,6 +4,7 @@
  */
 
 const path = require('path');
+const logger = require('./utils/logger');
 
 // Charger le fichier .env depuis le répertoire database/
 // Important : spécifier le chemin explicitement pour éviter les problèmes
@@ -20,15 +21,15 @@ const checkRequiredEnvVars = () => {
   });
   
   if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
-    console.error('\n❌ Variables d\'environnement manquantes:');
+    logger.error('\n❌ Variables d\'environnement manquantes:');
     missing.forEach(varName => {
-      console.error(`   - ${varName}`);
+      logger.error(`   - ${varName}`);
     });
-    console.error('\n💡 Solution:');
-    console.error('   1. Copiez database/.env.example en database/.env');
-    console.error('   2. Configurez vos valeurs dans database/.env');
-    console.error('   3. Redémarrez le serveur');
-    console.error('\n📚 Documentation: Consultez database/README_ENV.md\n');
+    logger.error('\n💡 Solution:');
+    logger.error('   1. Copiez database/.env.example en database/.env');
+    logger.error('   2. Configurez vos valeurs dans database/.env');
+    logger.error('   3. Redémarrez le serveur');
+    logger.error('\n📚 Documentation: Consultez database/README_ENV.md\n');
     
     // Ne jamais utiliser de mot de passe par défaut pour la sécurité
     // Forcer l'utilisateur à créer le fichier .env
@@ -96,9 +97,22 @@ const config = {
 
   // JWT Configuration
   jwt: {
-    secret: process.env.JWT_SECRET || (() => {
-      console.warn('⚠️ JWT_SECRET non défini dans .env - Utilisez un fichier .env pour la sécurité');
-      return 'CHANGEZ_MOI_EN_PRODUCTION_' + Date.now();
+    secret: (() => {
+      const secret = process.env.JWT_SECRET;
+      if (!secret || secret.trim() === '') {
+        logger.error('\n❌ JWT_SECRET est requis dans .env');
+        logger.error('💡 Solution:');
+        logger.error('   1. Ajoutez JWT_SECRET dans database/.env');
+        logger.error('   2. Utilisez un secret d\'au moins 32 caractères');
+        logger.error('   3. Exemple: JWT_SECRET=votre_secret_jwt_super_securise_changez_moi_en_production_123456789');
+        logger.error('\n📚 Documentation: Consultez database/README_ENV.md\n');
+        throw new Error('JWT_SECRET est requis dans .env. Consultez database/README_ENV.md');
+      }
+      if (secret.length < 32) {
+        logger.warn('⚠️ JWT_SECRET doit contenir au moins 32 caractères pour la sécurité');
+        logger.warn('   Longueur actuelle:', secret.length);
+      }
+      return secret;
     })(),
     expiresIn: process.env.JWT_EXPIRES_IN || '1h',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
@@ -114,10 +128,12 @@ const config = {
   },
 
   // CORS Configuration
+  // ✅ Port 3000: Application principale (App.jsx)
+  // ✅ Port 3010: Kiosk (KioskApp.jsx)
   cors: {
-    origins: process.env.CORS_ORIGINS ? 
+    origins: (process.env.CORS_ORIGINS ? 
       process.env.CORS_ORIGINS.split(',') : 
-      ['http://localhost:3000', 'http://localhost:3001'],
+      ['http://localhost:3000', 'http://localhost:3010']).map(origin => origin.replace(/\/$/, '')),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -143,9 +159,18 @@ const config = {
   security: {
     helmetEnabled: process.env.HELMET_ENABLED !== 'false', // true par défaut sauf si explicitement désactivé
     bcryptRounds: 12, // Augmenté pour plus de sécurité
-    sessionSecret: process.env.SESSION_SECRET || (() => {
-      console.warn('⚠️ SESSION_SECRET non défini dans .env - Utilisez un fichier .env pour la sécurité');
-      return 'CHANGEZ_MOI_EN_PRODUCTION_' + Date.now();
+    sessionSecret: (() => {
+      const secret = process.env.SESSION_SECRET;
+      if (!secret || secret.trim() === '') {
+        logger.warn('⚠️ SESSION_SECRET non défini dans .env - Utilisation d\'un secret temporaire');
+        logger.warn('💡 Pour la production, définissez SESSION_SECRET dans database/.env');
+        // En développement, on peut utiliser un secret temporaire mais on log un avertissement
+        return 'CHANGEZ_MOI_EN_PRODUCTION_' + Date.now();
+      }
+      if (secret.length < 32) {
+        logger.warn('⚠️ SESSION_SECRET devrait contenir au moins 32 caractères pour la sécurité');
+      }
+      return secret;
     })()
   },
 

@@ -53,7 +53,14 @@ const Button = ({
       onClick={onClick}
       disabled={disabled || loading}
       className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${widthClass} ${className}`}
-      aria-label={ariaLabel}
+      aria-label={ariaLabel || (typeof children === 'string' ? children : undefined)}
+      aria-disabled={disabled || loading}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !disabled && !loading && onClick) {
+          e.preventDefault();
+          onClick(e);
+        }
+      }}
       {...props}
     >
       {/* Effet de brillance au survol */}

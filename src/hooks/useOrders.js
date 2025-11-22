@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import useOrderStore from '../store/orderStore';
+import logger from '../utils/logger';
 
 /**
  * Hook personnalisé pour les commandes
@@ -28,17 +29,17 @@ const useOrders = () => {
   
   const createOrder = useCallback(async (orderData) => {
     try {
-      console.log('📍 useOrders.createOrder - Appel store');
+      logger.log('📍 useOrders.createOrder - Appel store');
       const order = await storeCreateOrder(orderData);
-      console.log('✅ useOrders.createOrder - Succès:', order);
+      logger.log('✅ useOrders.createOrder - Succès:', order);
       return { success: true, order };
     } catch (error) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ useOrders.createOrder - Exception capturée');
-      console.error('   Type:', error?.name);
-      console.error('   Message:', error?.message);
-      console.error('   Stack:', error?.stack);
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.error('❌ useOrders.createOrder - Exception capturée');
+      logger.error('   Type:', error?.name);
+      logger.error('   Message:', error?.message);
+      logger.error('   Stack:', error?.stack);
+      logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return { success: false, error: error?.message || 'Erreur inconnue lors de la création de la commande' };
     }
   }, [storeCreateOrder]);
@@ -48,7 +49,7 @@ const useOrders = () => {
       await updateOrderStatus(orderId, status);
       return { success: true };
     } catch (error) {
-      console.error('Erreur updateStatus hook:', error);
+      logger.error('Erreur updateStatus hook:', error);
       return { success: false, error: error.message };
     }
   }, [updateOrderStatus]);
@@ -58,7 +59,7 @@ const useOrders = () => {
       await storeCancelOrder(orderId);
       return { success: true };
     } catch (error) {
-      console.error('Erreur cancelOrder hook:', error);
+      logger.error('Erreur cancelOrder hook:', error);
       return { success: false, error: error.message };
     }
   }, [storeCancelOrder]);

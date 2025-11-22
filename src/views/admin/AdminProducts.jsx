@@ -10,6 +10,7 @@ import useProducts from '../../hooks/useProducts';
 import useNotifications from '../../hooks/useNotifications';
 import useProductStore from '../../store/productStore';
 import { apiCall } from '../../services/api';
+import logger from '../../utils/logger';
 
 /**
  * Vue Gestion Produits Admin avec sélection multiple et CSV
@@ -47,7 +48,7 @@ const AdminProducts = () => {
   // Charger les produits et catégories au montage du composant
   // IMPORTANT: Seuls les produits de la BDD MySQL sont affichés
   useEffect(() => {
-    console.log('🔄 AdminProducts - Chargement depuis MySQL...');
+    logger.log('🔄 AdminProducts - Chargement depuis MySQL...');
     
     const loadData = async () => {
       try {
@@ -55,31 +56,24 @@ const AdminProducts = () => {
           fetchAllProductsAdmin(),
           fetchCategories()
         ]);
-        console.log('✅ AdminProducts - TOUS les produits et catégories chargés depuis MySQL');
+        logger.log('✅ AdminProducts - TOUS les produits et catégories chargés depuis MySQL');
         
-        // Debug : Afficher les produits chargés depuis la BDD
-        console.log('📊 AdminProducts - Produits chargés depuis MySQL:', allProducts.length);
-        if (allProducts.length > 0) {
-          console.log('📊 AdminProducts - Détail des produits:', allProducts.map(p => ({
-            id: p.id,
-            name: p.name,
-            category_id: p.category_id,
-            category_name: p.category_name,
-            category_slug: p.category_slug,
-            is_available: p.is_available,
-            price: p.price
-          })));
-        } else {
-          console.warn('⚠️ AdminProducts - Aucun produit trouvé dans la base de données');
+        // ✅ SÉCURITÉ: Ne logger que le nombre, pas les détails complets
+        logger.debug('📊 AdminProducts - Produits chargés depuis MySQL:', allProducts.length);
+        // ✅ SÉCURITÉ: Ne pas logger les détails complets des produits (données sensibles)
+        if (allProducts.length === 0) {
+          logger.warn('⚠️ AdminProducts - Aucun produit trouvé dans la base de données');
         }
       } catch (err) {
-        console.error('❌ AdminProducts - Erreur chargement:', err);
+        logger.error('❌ AdminProducts - Erreur chargement:', err);
         showError('Erreur lors du chargement des données depuis la base de données. Vérifiez que le backend est démarré.');
       }
     };
     
     loadData();
-  }, [fetchAllProductsAdmin, fetchCategories, showError]);
+    // ✅ CORRECTION: Retirer allProducts des dépendances pour éviter les boucles infinies
+    // allProducts change après chaque chargement, ce qui créerait une boucle
+  }, [fetchAllProductsAdmin, fetchCategories, showError]); // ✅ Seulement les fonctions, pas les données
   
   // Convertir categories en objet si c'est un array (données MySQL)
   const categoriesObj = React.useMemo(() => {
@@ -96,14 +90,14 @@ const AdminProducts = () => {
 
   // Fonction de tri
   const handleSort = (column) => {
-    console.log('🔧 Tri demandé:', column, 'Direction actuelle:', sortDirection);
+    logger.log('🔧 Tri demandé:', column, 'Direction actuelle:', sortDirection);
     if (sortColumn === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortColumn(column);
       setSortDirection('asc');
     }
-    console.log('🔧 Nouveau tri:', column, 'Nouvelle direction:', sortDirection === 'asc' ? 'desc' : 'asc');
+    logger.log('🔧 Nouveau tri:', column, 'Nouvelle direction:', sortDirection === 'asc' ? 'desc' : 'asc');
   };
 
   // Filtrage et tri des produits
@@ -225,7 +219,7 @@ const AdminProducts = () => {
           await deleteProduct(id);
           successCount++;
         } catch (error) {
-          console.error('Erreur suppression produit:', id, error);
+          logger.error('Erreur suppression produit:', id, error);
           errorCount++;
         }
       }
@@ -240,7 +234,7 @@ const AdminProducts = () => {
         showError(`❌ Échec de la suppression (${errorCount} erreur(s))`);
       }
     } catch (error) {
-      console.error('Erreur suppression en lot:', error);
+      logger.error('Erreur suppression en lot:', error);
       showError('Erreur lors de la suppression en lot');
     }
   };
@@ -249,8 +243,8 @@ const AdminProducts = () => {
   // Export CSV
   const handleExportCSV = () => {
     try {
-      console.log('🔧 Export CSV demandé');
-      console.log('🔧 Produits à exporter:', filteredProducts.length);
+      logger.log('🔧 Export CSV demandé');
+      logger.log('🔧 Produits à exporter:', filteredProducts.length);
       
       if (filteredProducts.length === 0) {
         showError('Aucun produit à exporter');
@@ -269,7 +263,7 @@ const AdminProducts = () => {
             allergensText = product.allergens.join(', ');
           }
         } catch (e) {
-          console.warn('Erreur parsing allergens:', e);
+          logger.warn('Erreur parsing allergens:', e);
           allergensText = '';
         }
 
@@ -284,15 +278,15 @@ const AdminProducts = () => {
         ];
       });
 
-      console.log('🔧 En-têtes CSV:', headers);
-      console.log('🔧 Première ligne de données:', csvData[0]);
-      console.log('🔧 Nombre de lignes:', csvData.length);
+      logger.log('🔧 En-têtes CSV:', headers);
+      logger.log('🔧 Première ligne de données:', csvData[0]);
+      logger.log('🔧 Nombre de lignes:', csvData.length);
 
       const csvContent = [headers, ...csvData]
         .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
         .join('\n');
 
-      console.log('🔧 Contenu CSV généré, longueur:', csvContent.length);
+      logger.log('🔧 Contenu CSV généré, longueur:', csvContent.length);
 
       // Ajout du BOM UTF-8 pour Excel
       const BOM = '\uFEFF';
@@ -305,7 +299,7 @@ const AdminProducts = () => {
       link.style.visibility = 'hidden';
       
       document.body.appendChild(link);
-      console.log('🔧 Déclenchement du téléchargement...');
+      logger.log('🔧 Déclenchement du téléchargement...');
       link.click();
       
       // Nettoyage après un court délai
@@ -314,10 +308,10 @@ const AdminProducts = () => {
         URL.revokeObjectURL(url);
       }, 100);
       
-      console.log('✅ Export CSV terminé');
+      logger.log('✅ Export CSV terminé');
       success('✅ Export CSV réussi !');
     } catch (error) {
-      console.error('❌ Erreur export CSV:', error);
+      logger.error('❌ Erreur export CSV:', error);
       showError(`Erreur lors de l'export CSV: ${error.message}`);
     }
   };
@@ -343,8 +337,8 @@ const AdminProducts = () => {
       const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
       const dataLines = lines.slice(1);
 
-      console.log('📋 Headers CSV:', headers);
-      console.log('📊 Lignes de données:', dataLines.length);
+      logger.log('📋 Headers CSV:', headers);
+      logger.log('📊 Lignes de données:', dataLines.length);
 
       let successCount = 0;
       let errorCount = 0;
@@ -404,7 +398,7 @@ const AdminProducts = () => {
             mappedCategory = categoryMapping[category];
           } else if (!Object.values(categoriesObj).some(cat => cat.name === category)) {
             mappedCategory = 'Boissons Chaudes'; // Catégorie par défaut
-            console.log(`⚠️ Catégorie "${category}" non reconnue, mappée vers "Boissons Chaudes"`);
+            logger.log(`⚠️ Catégorie "${category}" non reconnue, mappée vers "Boissons Chaudes"`);
           }
 
           const productData = {
@@ -423,10 +417,10 @@ const AdminProducts = () => {
 
           await addProduct(productData);
           successCount++;
-          console.log(`✅ Produit ajouté: ${name}`);
+          logger.log(`✅ Produit ajouté: ${name}`);
 
         } catch (error) {
-          console.error(`❌ Erreur ligne ${lineIndex + 2}:`, error.message);
+          logger.error(`❌ Erreur ligne ${lineIndex + 2}:`, error.message);
           errors.push(`Ligne ${lineIndex + 2}: ${error.message}`);
           errorCount++;
         }
@@ -441,17 +435,17 @@ const AdminProducts = () => {
       } else if (successCount > 0 && errorCount > 0) {
         success(`⚠️ ${successCount} produit(s) ajouté(s), ${errorCount} erreur(s)`);
         if (errors.length > 0) {
-          console.log('Erreurs détaillées:', errors);
+          logger.log('Erreurs détaillées:', errors);
         }
       } else {
         showError(`❌ Échec de l'importation (${errorCount} erreur(s))`);
         if (errors.length > 0) {
-          console.log('Erreurs détaillées:', errors);
+          logger.log('Erreurs détaillées:', errors);
         }
       }
 
     } catch (error) {
-      console.error('❌ Erreur import CSV:', error);
+      logger.error('❌ Erreur import CSV:', error);
       showError(`Erreur lors de l'importation: ${error.message}`);
     } finally {
       setIsImporting(false);
@@ -511,14 +505,14 @@ const AdminProducts = () => {
         throw new Error(response.error || response.message || 'Échec du toggle');
       }
     } catch (error) {
-      console.error('❌ Erreur toggle disponibilité:', error);
+      logger.error('❌ Erreur toggle disponibilité:', error);
       showError(`Erreur: ${error.message}`);
     }
   };
   
   const handleEdit = (product) => {
-    console.log('🔧 handleEdit appelé avec:', product);
-    console.log('🔧 categoriesObj:', categoriesObj);
+    logger.log('🔧 handleEdit appelé avec:', product);
+    logger.log('🔧 categoriesObj:', categoriesObj);
     
     setEditingProduct(product);
     
@@ -536,7 +530,7 @@ const AdminProducts = () => {
       }
     }
     
-    console.log('🔧 categoryKey trouvé:', categoryKey);
+    logger.log('🔧 categoryKey trouvé:', categoryKey);
     
     // Gérer les allergens (peuvent être un tableau ou une chaîne JSON)
     let ingredientsString = '';
@@ -563,12 +557,12 @@ const AdminProducts = () => {
       ingredients: ingredientsString
     };
     
-    console.log('🔧 FormData configuré:', newFormData);
+    logger.log('🔧 FormData configuré:', newFormData);
     
     setFormData(newFormData);
     setShowModal(true);
     
-    console.log('🔧 Modal ouvert, showModal:', true);
+    logger.log('🔧 Modal ouvert, showModal:', true);
   };
   
   const handleCloseModal = () => {
@@ -588,7 +582,7 @@ const AdminProducts = () => {
   return (
     <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8">
       {/* Debug info */}
-      {console.log('🔧 AdminProducts render - showModal:', showModal, 'editingProduct:', editingProduct)}
+      {logger.log('🔧 AdminProducts render - showModal:', showModal, 'editingProduct:', editingProduct)}
       
       {/* Header avec actions */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -613,9 +607,9 @@ const AdminProducts = () => {
           variant="primary"
           icon={<Plus className="w-5 h-5" />}
           onClick={() => {
-            console.log('🔧 Bouton Ajouter cliqué');
+            logger.log('🔧 Bouton Ajouter cliqué');
             setShowModal(true);
-            console.log('🔧 showModal défini à true');
+            logger.log('🔧 showModal défini à true');
           }}
         >
           Ajouter un produit
@@ -737,7 +731,7 @@ const AdminProducts = () => {
         title={editingProduct ? 'Modifier le produit' : 'Ajouter un produit'}
         size="lg"
       >
-        {console.log('🔧 Modal rendu, showModal:', showModal, 'editingProduct:', editingProduct)}
+        {logger.log('🔧 Modal rendu, showModal:', showModal, 'editingProduct:', editingProduct)}
         <div className="space-y-4">
           <ImageUpload 
             currentImage={formData.image_url}

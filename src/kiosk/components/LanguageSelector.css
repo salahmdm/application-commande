@@ -1,0 +1,70 @@
+/* Sélecteur de langue avec drapeaux circulaires - Bas à gauche */
+
+.language-selector {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 100;
+}
+
+.language-selector__flag {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid #e4e4e4;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  overflow: hidden;
+}
+
+.language-selector__flag:hover {
+  border-color: #0f0f0f;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  transform: scale(1.1);
+}
+
+.language-selector__flag--active {
+  border-color: #0f0f0f;
+  background: #0f0f0f;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+  transform: scale(1.1);
+}
+
+.language-selector__flag-emoji {
+  font-size: 32px;
+  line-height: 1;
+  display: block;
+  filter: grayscale(0);
+}
+
+.language-selector__flag--active .language-selector__flag-emoji {
+  filter: grayscale(0);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .language-selector {
+    bottom: 140px;
+    left: 16px;
+    gap: 12px;
+  }
+
+  .language-selector__flag {
+    width: 56px;
+    height: 56px;
+  }
+
+  .language-selector__flag-emoji {
+    font-size: 28px;
+  }
+}
+

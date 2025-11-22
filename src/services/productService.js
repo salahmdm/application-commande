@@ -1,4 +1,5 @@
 import { apiCall } from './api';
+import logger from '../utils/logger';
 
 /**
  * Service de gestion des produits
@@ -11,7 +12,7 @@ const productService = {
    */
   async getAllProducts(filters = {}) {
     try {
-      console.log('🔄 productService.getAllProducts - Appel API');
+      logger.log('🔄 productService.getAllProducts - Appel API');
       let endpoint = '/products';  // ✅ Route publique
       const params = new URLSearchParams();
       
@@ -23,12 +24,12 @@ const productService = {
         endpoint += `?${params.toString()}`;
       }
       
-      console.log('   → Endpoint:', endpoint);
+      logger.log('   → Endpoint:', endpoint);
       const response = await apiCall(endpoint);
-      console.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits');
+      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits');
       return response;
     } catch (error) {
-      console.error('❌ Erreur getAllProducts:', error);
+      logger.error('❌ Erreur getAllProducts:', error);
       throw error;
     }
   },
@@ -38,12 +39,27 @@ const productService = {
    */
   async getAllProductsAdmin() {
     try {
-      console.log('🔄 productService.getAllProductsAdmin - Appel API route admin');
+      logger.log('🔄 productService.getAllProductsAdmin - Appel API route admin');
       const response = await apiCall('/admin/products');  // ✅ Route admin
-      console.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (tous)');
+      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (tous)');
       return response;
     } catch (error) {
-      console.error('❌ Erreur getAllProductsAdmin:', error);
+      logger.error('❌ Erreur getAllProductsAdmin:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Récupérer tous les produits (route authentifiée mais non restreinte)
+   */
+  async getAllProductsAuthenticated() {
+    try {
+      logger.log('🔄 productService.getAllProductsAuthenticated - Route /products/all');
+      const response = await apiCall('/products/all');
+      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (auth)');
+      return response;
+    } catch (error) {
+      logger.error('❌ Erreur getAllProductsAuthenticated:', error);
       throw error;
     }
   },
@@ -58,7 +74,7 @@ const productService = {
       const response = await apiCall(`/admin/products/${id}`);
       return response;
     } catch (error) {
-      console.error('Erreur getProductById:', error);
+      logger.error('Erreur getProductById:', error);
       throw error;
     }
   },
@@ -74,7 +90,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur createProduct:', error);
+      logger.error('Erreur createProduct:', error);
       throw error;
     }
   },
@@ -90,7 +106,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur updateProduct:', error);
+      logger.error('Erreur updateProduct:', error);
       throw error;
     }
   },
@@ -105,7 +121,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur deleteProduct:', error);
+      logger.error('Erreur deleteProduct:', error);
       throw error;
     }
   },
@@ -115,12 +131,12 @@ const productService = {
    */
   async getCategories() {
     try {
-      console.log('🔄 productService.getCategories - Appel API');
+      logger.log('🔄 productService.getCategories - Appel API');
       const response = await apiCall('/categories');  // ✅ Route publique
-      console.log('   ✅ Réponse reçue:', response.data?.length || 0, 'catégories');
+      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'catégories');
       return response;
     } catch (error) {
-      console.error('❌ Erreur getCategories:', error);
+      logger.error('❌ Erreur getCategories:', error);
       throw error;
     }
   },
@@ -136,7 +152,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur createCategory:', error);
+      logger.error('Erreur createCategory:', error);
       throw error;
     }
   },
@@ -152,7 +168,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur updateCategory:', error);
+      logger.error('Erreur updateCategory:', error);
       throw error;
     }
   },
@@ -167,7 +183,7 @@ const productService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur deleteCategory:', error);
+      logger.error('Erreur deleteCategory:', error);
       throw error;
     }
   }

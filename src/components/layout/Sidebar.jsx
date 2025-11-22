@@ -1,5 +1,5 @@
-import React from 'react';
-import { Home, ShoppingBag, User, Package, Settings, Clock, X, PlusCircle, DollarSign, Warehouse, Palette } from 'lucide-react';
+// Import React non nécessaire avec JSX transform automatique
+import { Home, ShoppingBag, User, Package, Settings, Clock, X, PlusCircle, DollarSign, Warehouse, Palette, Users, LogOut } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useUIStore from '../../store/uiStore';
 
@@ -9,10 +9,21 @@ import useUIStore from '../../store/uiStore';
  */
 const Sidebar = ({ isOpen, onClose }) => {
   const { user, isAuthenticated, role } = useAuth();
-  const { currentView, setCurrentView } = useUIStore();
+  const { currentView, setCurrentView, setShowCart, setShowLogoutConfirm } = useUIStore();
   
   const handleNavigation = (view) => {
+    // Fermer le panier si ouvert
+    setShowCart(false);
+    // Naviguer vers la vue
     setCurrentView(view);
+    // Fermer la sidebar
+    if (onClose) onClose();
+  };
+
+  const handleLogout = () => {
+    // Afficher la modale de confirmation pour tous les rôles
+    setShowLogoutConfirm(true);
+    // Fermer la sidebar
     if (onClose) onClose();
   };
   
@@ -23,7 +34,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     ];
     
     const clientItems = [
-      { id: 'products', label: 'Produits', icon: ShoppingBag, roles: ['client'] },
+      { id: 'products', label: 'Nos Produits', icon: ShoppingBag, roles: ['client'] },
       { id: 'orders', label: 'Mes Commandes', icon: Clock, roles: ['client'] },
       { id: 'profile', label: 'Mon Profil', icon: User, roles: ['client'] },
     ];
@@ -37,6 +48,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       { id: 'admin-dashboard', label: 'Dashboard CA', icon: DollarSign, roles: ['admin'] },
       { id: 'admin-products', label: 'Gestion Produits', icon: ShoppingBag, roles: ['manager', 'admin'] },
       { id: 'admin-inventory', label: 'Inventaire', icon: Warehouse, roles: ['manager', 'admin'] },
+      { id: 'admin-accounts', label: 'Gestion des Comptes', icon: Users, roles: ['admin'] },
       { id: 'admin-appearance', label: 'Apparence', icon: Palette, roles: ['admin'] },
     { id: 'admin-settings', label: 'Paramètres', icon: Settings, roles: ['admin'] },
     ];
@@ -123,7 +135,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           
           {/* Informations utilisateur */}
           {isAuthenticated && user && (
-            <div className="pt-4 border-t-2 border-neutral-200">
+            <div className="pt-4 border-t-2 border-neutral-200 space-y-3">
               <div className="flex items-center gap-3 p-3 bg-neutral-100 rounded-2xl border-2 border-neutral-200 shadow-soft">
                 <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center text-white font-heading font-bold text-lg shadow-medium">
                   {user.name?.charAt(0).toUpperCase()}
@@ -133,6 +145,16 @@ const Sidebar = ({ isOpen, onClose }) => {
                   <div className="text-xs text-neutral-600 capitalize font-sans">{role}</div>
                 </div>
               </div>
+              
+              {/* Bouton de déconnexion */}
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-red-50 border-2 border-red-200 text-red-700 hover:bg-red-100 hover:border-red-300 transition-all duration-200 active:scale-95"
+                title="Se déconnecter"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="font-heading font-semibold">Déconnexion</span>
+              </button>
             </div>
           )}
         </div>

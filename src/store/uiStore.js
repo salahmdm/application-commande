@@ -1,17 +1,23 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import logger from '../utils/logger';
+// ⚠️ PERSIST TEMPORAIREMENT DÉSACTIVÉ pour debug "React is null"
+// import { persist } from 'zustand/middleware';
 
 /**
  * Store de l'interface utilisateur
  * Gère le thème, les modales, les notifications et l'état de l'UI
+ * ⚠️ VERSION SANS PERSIST pour debug
  */
 const useUIStore = create(
-  persist(
+  // persist(
     (set) => ({
       theme: 'light', // 'light' | 'dark'
       showCart: false,
       showWelcome: true,
       showOrderTypeSelection: false,
+      showOrderSuccessModal: false,
+      orderSuccessMessage: '',
+      showLogoutConfirm: false,
       currentView: 'home', // 'home' | 'products' | 'profile' | 'orders' | etc.
       viewMode: 'grid', // 'grid' | 'list'
       notifications: [],
@@ -40,6 +46,18 @@ const useUIStore = create(
       
       setShowOrderTypeSelection: (show) => {
         set({ showOrderTypeSelection: show });
+      },
+      
+      setShowOrderSuccessModal: (show) => {
+        set({ showOrderSuccessModal: show });
+      },
+      
+      setOrderSuccessMessage: (message) => {
+        set({ orderSuccessMessage: message });
+      },
+      
+      setShowLogoutConfirm: (show) => {
+        set({ showLogoutConfirm: show });
       },
       
       setCurrentView: (view) => {
@@ -86,15 +104,7 @@ const useUIStore = create(
       setLoading: (isLoading) => {
         set({ isLoading });
       }
-    }),
-    {
-      name: 'blossom-ui-storage',
-      partialize: (state) => ({ 
-        theme: state.theme,
-        viewMode: state.viewMode
-      })
-    }
-  )
+    })
 );
 
 export default useUIStore;

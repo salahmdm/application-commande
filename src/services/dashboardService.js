@@ -1,4 +1,5 @@
 import { apiCall } from './api';
+import logger from '../utils/logger';
 
 /**
  * Service pour le tableau de bord admin
@@ -14,7 +15,7 @@ const dashboardService = {
       const response = await apiCall('/admin/dashboard');
       return response;
     } catch (error) {
-      console.error('Erreur getDashboardStats:', error);
+      logger.error('Erreur getDashboardStats:', error);
       throw error;
     }
   },
@@ -27,7 +28,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/sales?period=${period}`);
       return response;
     } catch (error) {
-      console.error('Erreur getSalesStats:', error);
+      logger.error('Erreur getSalesStats:', error);
       throw error;
     }
   },
@@ -40,7 +41,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/top-products?limit=${limit}`);
       return response;
     } catch (error) {
-      console.error('Erreur getTopProducts:', error);
+      logger.error('Erreur getTopProducts:', error);
       throw error;
     }
   },
@@ -53,7 +54,7 @@ const dashboardService = {
       const response = await apiCall('/admin/analytics/revenue-by-category');
       return response;
     } catch (error) {
-      console.error('Erreur getRevenueByCategory:', error);
+      logger.error('Erreur getRevenueByCategory:', error);
       throw error;
     }
   },
@@ -76,7 +77,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/revenue-comparison?${params}`);
       return response;
     } catch (error) {
-      console.error('Erreur getRevenueStatsWithComparison:', error);
+      logger.error('Erreur getRevenueStatsWithComparison:', error);
       throw error;
     }
   },
@@ -93,7 +94,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/top-products-period?${params}`);
       return response;
     } catch (error) {
-      console.error('Erreur getTopProductsPeriod:', error);
+      logger.error('Erreur getTopProductsPeriod:', error);
       throw error;
     }
   },
@@ -109,7 +110,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/peak-hours?${params}`);
       return response;
     } catch (error) {
-      console.error('Erreur getPeakHours:', error);
+      logger.error('Erreur getPeakHours:', error);
       throw error;
     }
   },
@@ -125,7 +126,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/category-distribution?${params}`);
       return response;
     } catch (error) {
-      console.error('Erreur getCategoryDistribution:', error);
+      logger.error('Erreur getCategoryDistribution:', error);
       throw error;
     }
   },
@@ -138,7 +139,7 @@ const dashboardService = {
       const response = await apiCall('/admin/analytics/critical-stock');
       return response;
     } catch (error) {
-      console.error('Erreur getCriticalStock:', error);
+      logger.error('Erreur getCriticalStock:', error);
       throw error;
     }
   }
@@ -154,7 +155,7 @@ const dashboardService = {
       const response = await apiCall(`/admin/analytics/orders-period?${params}`);
       return response;
     } catch (error) {
-      console.error('Erreur getOrdersPeriod:', error);
+      logger.error('Erreur getOrdersPeriod:', error);
       throw error;
     }
   }

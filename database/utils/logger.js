@@ -1,3 +1,4 @@
+// ✅ IMPORT CIRCULAIRE SUPPRIMÉ - Le logger ne peut pas s'importer lui-même
 /**
  * Système de logging structuré et sécurisé
  * Masque automatiquement les données sensibles
@@ -192,6 +193,7 @@ const logSecurity = (event, details = {}) => {
 
 // Export du logger
 const logger = {
+  log: (message, data) => log('info', message, data), // Alias pour compatibilité
   debug: (message, data) => log('debug', message, data),
   info: (message, data) => log('info', message, data),
   warn: (message, data) => log('warn', message, data),

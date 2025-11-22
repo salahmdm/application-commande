@@ -4,7 +4,6 @@ import Card from '../../components/common/Card';
 
 /**
  * Vue Gestion de l'Apparence Admin
- * Page vide - La gestion des catégories a été déplacée dans Paramètres
  */
 const AdminAppearance = () => {
   return (
@@ -16,6 +15,9 @@ const AdminAppearance = () => {
             <Palette className="w-6 h-6 md:w-8 md:h-8" />
             Gestion de l&apos;Apparence
           </h1>
+          <p className="text-neutral-600 mt-2 font-sans">
+            Personnalisez l&apos;apparence de votre application
+          </p>
         </div>
       </div>
       
@@ -26,7 +28,7 @@ const AdminAppearance = () => {
             Page en cours de développement
           </h2>
           <p className="text-neutral-600 font-sans">
-            La gestion des catégories a été déplacée dans la section &quot;Paramètres&quot;
+            Les paramètres d&apos;apparence seront disponibles prochainement
           </p>
         </div>
       </Card>

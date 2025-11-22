@@ -1,4 +1,5 @@
 import { apiCall } from './api';
+import logger from '../utils/logger';
 
 /**
  * Service pour gérer les actualités
@@ -12,7 +13,7 @@ const newsService = {
       const response = await apiCall('/home/news');
       return response;
     } catch (error) {
-      console.error('Erreur getNews:', error);
+      logger.error('Erreur getNews:', error);
       throw error;
     }
   },
@@ -28,7 +29,7 @@ const newsService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur createNews:', error);
+      logger.error('Erreur createNews:', error);
       throw error;
     }
   },
@@ -38,17 +39,17 @@ const newsService = {
    */
   async updateNews(id, newsData) {
     try {
-      console.log('📝 newsService.updateNews - ID:', id, 'Data:', newsData);
+      logger.log('📝 newsService.updateNews - ID:', id, 'Data:', newsData);
       const response = await apiCall(`/admin/news/${id}`, {
         method: 'PUT',
         body: JSON.stringify(newsData)
       });
-      console.log('✅ newsService.updateNews - Réponse:', response);
+      logger.log('✅ newsService.updateNews - Réponse:', response);
       return response;
     } catch (error) {
-      console.error('❌ Erreur updateNews:', error);
-      console.error('  - ID:', id);
-      console.error('  - Data:', newsData);
+      logger.error('❌ Erreur updateNews:', error);
+      logger.error('  - ID:', id);
+      logger.error('  - Data:', newsData);
       throw error;
     }
   },
@@ -63,7 +64,7 @@ const newsService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur deleteNews:', error);
+      logger.error('Erreur deleteNews:', error);
       throw error;
     }
   }

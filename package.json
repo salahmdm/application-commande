@@ -4,14 +4,24 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 3000 --strictPort",
+    "dev:kiosk": "vite --config vite.config.kiosk.js",
     "build": "vite build",
+    "build:kiosk": "vite build --config vite.config.kiosk.js",
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "backend": "node database/admin-api.js",
-    "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\""
+    "diagnostic": "node diagnostic-server.js",
+    "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\"",
+    "start:all": "concurrently -k -n \"BACKEND,FRONTEND,KIOSK\" -c \"blue,green,yellow\" \"npm run backend\" \"npm run dev\" \"npm run dev:kiosk\""
+  },
+  "overrides": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "dependencies": {
+    "firebase": "^12.6.0",
+    "jwt-decode": "^4.0.0",
     "lucide-react": "^0.294.0",
     "pdfmake": "^0.2.20",
     "react": "^18.2.0",
@@ -33,6 +43,7 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
+    "express": "^5.1.0",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
     "vite": "^5.0.0"

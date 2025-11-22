@@ -5,12 +5,13 @@
 
 const mysql = require('mysql2/promise');
 const config = require('./config');
+const logger = require('./utils/logger');
 
 async function testOrdersQuery() {
   let connection;
   
   try {
-    console.log('🔌 Connexion à la base de données...');
+    logger.log('🔌 Connexion à la base de données...');
     connection = await mysql.createConnection({
       host: config.database.host,
       port: config.database.port,
@@ -19,15 +20,15 @@ async function testOrdersQuery() {
       database: config.database.database
     });
     
-    console.log('✅ Connecté à la base de données');
+    logger.log('✅ Connecté à la base de données');
     
     // Test 1: Vérifier qu'il y a des commandes
-    console.log('\n📊 Test 1: Nombre total de commandes');
+    logger.log('\n📊 Test 1: Nombre total de commandes');
     const [countResult] = await connection.query('SELECT COUNT(*) as total FROM orders');
-    console.log('   Total commandes:', countResult[0].total);
+    logger.log('   Total commandes:', countResult[0].total);
     
     // Test 2: Vérifier les statuts
-    console.log('\n📊 Test 2: Commandes par statut');
+    logger.log('\n📊 Test 2: Commandes par statut');
     const [statusResult] = await connection.query(`
       SELECT status, COUNT(*) as count 
       FROM orders 
@@ -36,7 +37,7 @@ async function testOrdersQuery() {
     console.table(statusResult);
     
     // Test 3: Vérifier les commandes récentes
-    console.log('\n📊 Test 3: 5 dernières commandes (sans items)');
+    logger.log('\n📊 Test 3: 5 dernières commandes (sans items)');
     const [recentOrders] = await connection.query(`
       SELECT id, order_number, status, total_amount, created_at, user_id
       FROM orders
@@ -46,7 +47,7 @@ async function testOrdersQuery() {
     console.table(recentOrders);
     
     // Test 4: Vérifier si les commandes ont des items
-    console.log('\n📊 Test 4: Commandes avec nombre d\'items');
+    logger.log('\n📊 Test 4: Commandes avec nombre d\'items');
     const [ordersWithItems] = await connection.query(`
       SELECT 
         o.id,
@@ -62,7 +63,7 @@ async function testOrdersQuery() {
     console.table(ordersWithItems);
     
     // Test 5: Tester la requête complète (version simplifiée)
-    console.log('\n📊 Test 5: Requête complète (version simplifiée - 3 premières commandes)');
+    logger.log('\n📊 Test 5: Requête complète (version simplifiée - 3 premières commandes)');
     const [fullQuery] = await connection.query(`
       SELECT 
         o.*,
@@ -119,15 +120,15 @@ async function testOrdersQuery() {
       LIMIT 3
     `);
     
-    console.log('   Nombre de commandes retournées:', fullQuery.length);
+    logger.log('   Nombre de commandes retournées:', fullQuery.length);
     if (fullQuery.length > 0) {
-      console.log('   Première commande:');
-      console.log('     - ID:', fullQuery[0].id);
-      console.log('     - Numéro:', fullQuery[0].order_number);
-      console.log('     - Statut:', fullQuery[0].status);
-      console.log('     - Items count:', fullQuery[0].items_count);
-      console.log('     - Items type:', typeof fullQuery[0].items);
-      console.log('     - Items:', Array.isArray(fullQuery[0].items) ? fullQuery[0].items.length : 'N/A');
+      logger.log('   Première commande:');
+      logger.log('     - ID:', fullQuery[0].id);
+      logger.log('     - Numéro:', fullQuery[0].order_number);
+      logger.log('     - Statut:', fullQuery[0].status);
+      logger.log('     - Items count:', fullQuery[0].items_count);
+      logger.log('     - Items type:', typeof fullQuery[0].items);
+      logger.log('     - Items:', Array.isArray(fullQuery[0].items) ? fullQuery[0].items.length : 'N/A');
       
       // Tester le parsing des items
       let items = [];
@@ -139,28 +140,28 @@ async function testOrdersQuery() {
             items = fullQuery[0].items;
           }
         } catch (e) {
-          console.error('   ❌ Erreur parsing items:', e.message);
+          logger.error('   ❌ Erreur parsing items:', e.message);
         }
       }
-      console.log('     - Items parsés:', items.length);
+      logger.log('     - Items parsés:', items.length);
     } else {
-      console.log('   ⚠️ Aucune commande retournée par la requête !');
+      logger.log('   ⚠️ Aucune commande retournée par la requête !');
     }
     
-    console.log('\n✅ Tests terminés');
+    logger.log('\n✅ Tests terminés');
     
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
-    console.error('   Code:', error.code);
-    console.error('   SQL State:', error.sqlState);
+    logger.error('❌ Erreur:', error.message);
+    logger.error('   Code:', error.code);
+    logger.error('   SQL State:', error.sqlState);
     if (error.stack) {
-      console.error('   Stack:', error.stack);
+      logger.error('   Stack:', error.stack);
     }
     process.exit(1);
   } finally {
     if (connection) {
       await connection.end();
-      console.log('\n🔌 Connexion fermée');
+      logger.log('\n🔌 Connexion fermée');
     }
   }
 }

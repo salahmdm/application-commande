@@ -305,7 +305,7 @@ CREATE TABLE audit_logs (
 INSERT INTO users (email, password_hash, first_name, last_name, phone, role, loyalty_points, email_verified) VALUES
 ('client@blossom.com', '$2a$10$YourHashedPasswordHere1', 'Marie', 'Dupont', '+33612345678', 'client', 150, TRUE),
 ('manager@blossom.com', '$2a$10$YourHashedPasswordHere2', 'Pierre', 'Martin', '+33687654321', 'manager', 0, TRUE),
-('admin@blossom.com', '$2a$10$YourHashedPasswordHere3', 'Sophie', 'Bernard', '+33698765432', 'admin', 0, TRUE),
+('admin@blossom.com', '$2a$10$YourHashedPasswordHere3', 'Administrateur', '', '+33698765432', 'admin', 0, TRUE),
 ('jean.client@example.com', '$2a$10$YourHashedPasswordHere4', 'Jean', 'Client', '+33623456789', 'client', 75, TRUE),
 ('alice.user@example.com', '$2a$10$YourHashedPasswordHere5', 'Alice', 'User', '+33634567890', 'client', 200, TRUE);
 

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Blossom Café</title>
+</head>
+<body>
+    <div id="root" style="padding: 40px; font-family: Arial;">
+        <h1 style="color: #2563eb;">🔍 Test de base</h1>
+        <p>Si vous voyez ce message, le HTML fonctionne.</p>
+        <div id="test-js" style="margin-top: 20px; padding: 20px; background: #f0f0f0; border-radius: 8px;">
+            <p>Test JavaScript en cours...</p>
+        </div>
+    </div>
+    
+    <script>
+        console.log('✅ JavaScript fonctionne !');
+        const testDiv = document.getElementById('test-js');
+        if (testDiv) {
+            testDiv.innerHTML = '<p style="color: green; font-weight: bold;">✅ JavaScript fonctionne !</p>';
+        }
+        
+        // Test import React
+        setTimeout(() => {
+            console.log('🔄 Tentative d\'import React...');
+            import('https://esm.sh/react@18')
+                .then((React) => {
+                    console.log('✅ React importé depuis CDN');
+                    testDiv.innerHTML += '<p style="color: green;">✅ React importé depuis CDN</p>';
+                    
+                    import('https://esm.sh/react-dom@18/client')
+                        .then(({ createRoot }) => {
+                            console.log('✅ createRoot importé');
+                            const root = createRoot(document.getElementById('root'));
+                            root.render(
+                                React.createElement('div', null,
+                                    React.createElement('h1', { style: { color: '#22c55e' } }, '✅ React fonctionne !'),
+                                    React.createElement('p', null, 'Si vous voyez ce message, React se rend correctement depuis CDN.'),
+                                    React.createElement('button', {
+                                        onClick: () => window.location.href = '/',
+                                        style: {
+                                            padding: '10px 20px',
+                                            backgroundColor: '#2563eb',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            marginTop: '20px'
+                                        }
+                                    }, 'Retour à l\'application')
+                                )
+                            );
+                            console.log('✅ React rendu avec succès');
+                        })
+                        .catch((error) => {
+                            console.error('❌ Erreur import createRoot:', error);
+                            testDiv.innerHTML += '<p style="color: red;">❌ Erreur import createRoot: ' + error.message + '</p>';
+                        });
+                })
+                .catch((error) => {
+                    console.error('❌ Erreur import React:', error);
+                    testDiv.innerHTML += '<p style="color: red;">❌ Erreur import React: ' + error.message + '</p>';
+                });
+        }, 1000);
+    </script>
+</body>
+</html>
+

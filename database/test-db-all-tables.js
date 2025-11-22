@@ -3,12 +3,13 @@
 
 const mysql = require('mysql2/promise');
 const path = require('path');
+const logger = require('./utils/logger');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 async function main() {
-  console.log('========================================');
-  console.log('🔍 TEST ACCÈS À TOUTES LES TABLES MySQL');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('🔍 TEST ACCÈS À TOUTES LES TABLES MySQL');
+  logger.log('========================================\n');
 
   const host = process.env.DB_HOST || '127.0.0.1';
   const port = parseInt(process.env.DB_PORT || '3306', 10);
@@ -16,11 +17,11 @@ async function main() {
   const user = process.env.DB_USER || 'root';
   const password = process.env.DB_PASSWORD || '';
 
-  console.log('🎛️ Connexion:');
-  console.log('   - Host:', host);
-  console.log('   - Port:', port);
-  console.log('   - Database:', database);
-  console.log('   - User:', user);
+  logger.log('🎛️ Connexion:');
+  logger.log('   - Host:', host);
+  logger.log('   - Port:', port);
+  logger.log('   - Database:', database);
+  logger.log('   - User:', user);
 
   let connection;
   try {
@@ -33,7 +34,7 @@ async function main() {
       // Utiliser connectTimeout uniquement (les autres options non standard provoquent des warnings)
       connectTimeout: 10000,
     });
-    console.log('✅ Connexion MySQL établie\n');
+    logger.log('✅ Connexion MySQL établie\n');
 
     // Lister toutes les tables du schéma
     const [tables] = await connection.query(
@@ -42,11 +43,11 @@ async function main() {
     );
 
     if (!tables.length) {
-      console.log('ℹ️ Aucune table trouvée dans la base.');
+      logger.log('ℹ️ Aucune table trouvée dans la base.');
       return;
     }
 
-    console.log(`📚 ${tables.length} tables trouvées:\n`);
+    logger.log(`📚 ${tables.length} tables trouvées:\n`);
     let okCount = 0;
     let failCount = 0;
 
@@ -56,20 +57,20 @@ async function main() {
       try {
         const [res] = await connection.query(`SELECT COUNT(*) AS cnt FROM \`${table}\``);
         const cnt = res && res[0] ? res[0].cnt : 0;
-        console.log(`OK (count=${cnt})`);
+        logger.log(`OK (count=${cnt})`);
         okCount++;
       } catch (err) {
-        console.log(`❌ ${err.code || err.message}`);
+        logger.log(`❌ ${err.code || err.message}`);
         failCount++;
       }
     }
 
-    console.log('\n========================================');
-    console.log('✅ Accès OK:', okCount, 'tables');
-    console.log('❌ Accès FAIL:', failCount, 'tables');
-    console.log('========================================');
+    logger.log('\n========================================');
+    logger.log('✅ Accès OK:', okCount, 'tables');
+    logger.log('❌ Accès FAIL:', failCount, 'tables');
+    logger.log('========================================');
   } catch (e) {
-    console.error('❌ Erreur de connexion MySQL:', e.message);
+    logger.error('❌ Erreur de connexion MySQL:', e.message);
     process.exitCode = 1;
   } finally {
     if (connection) {

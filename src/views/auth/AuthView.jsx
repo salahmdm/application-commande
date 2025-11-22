@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Mail, Lock, User, Phone, MapPin, UserCircle, X } from 'lucide-react';
+import { useState } from 'react';
+import { Mail, Lock, User, Phone, UserCircle, X } from 'lucide-react';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import Card from '../../components/common/Card';
 import useAuth from '../../hooks/useAuth';
 import useNotifications from '../../hooks/useNotifications';
+import logger from '../../utils/logger';
 
 /**
  * Vue d'authentification (Login/Register)
@@ -24,46 +25,145 @@ const AuthView = () => {
   });
   
   const [registerData, setRegisterData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
-    phone: '',
-    address: ''
+    phone: ''
   });
+
+  // ✅ États pour les erreurs de validation du mot de passe
+  const [passwordErrors, setPasswordErrors] = useState([]);
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+
+  // ✅ Fonction de validation du mot de passe
+  const validatePassword = (password) => {
+    const errors = [];
+    
+    if (!password) {
+      return errors; // Ne pas afficher d'erreurs si le champ est vide (géré par required)
+    }
+    
+    if (password.length < 8) {
+      errors.push('Le mot de passe doit contenir au moins 8 caractères');
+    }
+    
+    if (!/[a-z]/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins une lettre minuscule');
+    }
+    
+    if (!/[A-Z]/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins une lettre majuscule');
+    }
+    
+    if (!/\d/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins un chiffre');
+    }
+    
+    return errors;
+  };
+
+  // ✅ Handler pour la modification du mot de passe avec validation en temps réel
+  const handlePasswordChange = (e) => {
+    const newPassword = e.target.value;
+    setRegisterData({...registerData, password: newPassword});
+    
+    // Valider en temps réel (uniquement si le champ n'est pas vide)
+    if (newPassword.length > 0) {
+      const errors = validatePassword(newPassword);
+      setPasswordErrors(errors);
+    } else {
+      // Réinitialiser les erreurs si le champ est vide
+      setPasswordErrors([]);
+    }
+    
+    // Valider la correspondance avec la confirmation si elle existe
+    if (registerData.confirmPassword) {
+      if (newPassword !== registerData.confirmPassword) {
+        setConfirmPasswordError('Les mots de passe ne correspondent pas');
+      } else {
+        setConfirmPasswordError('');
+      }
+    }
+  };
+
+  // ✅ Handler pour la modification de la confirmation du mot de passe
+  const handleConfirmPasswordChange = (e) => {
+    const newConfirmPassword = e.target.value;
+    setRegisterData({...registerData, confirmPassword: newConfirmPassword});
+    
+    // Valider la correspondance (uniquement si les deux champs ont une valeur)
+    if (registerData.password && newConfirmPassword) {
+      if (newConfirmPassword !== registerData.password) {
+        setConfirmPasswordError('Les mots de passe ne correspondent pas');
+      } else {
+        setConfirmPasswordError('');
+      }
+    } else {
+      // Réinitialiser l'erreur si un des champs est vide
+      setConfirmPasswordError('');
+    }
+  };
   
   const handleLogin = async (e) => {
     e.preventDefault();
-    console.log('📝 AuthView.handleLogin - Début');
-    console.log('   Email:', loginData.email);
-    console.log('   Password:', loginData.password ? '***' : 'vide');
+    logger.log('📝 AuthView.handleLogin - Début');
+    logger.log('   Email:', loginData.email);
+    logger.log('   Password:', loginData.password ? '***' : 'vide');
     setIsLoading(true);
     
     try {
-      console.log('🔄 AuthView - Appel de login()...');
+      logger.log('🔄 AuthView - Appel de login()...');
       const result = await login(loginData.email, loginData.password);
-      console.log('📊 AuthView - Résultat login:', result);
+      logger.log('📊 AuthView - Résultat login:', result);
       
       if (result.success) {
-        console.log('✅ AuthView - Connexion réussie !');
+        logger.log('✅ AuthView - Connexion réussie !');
         success('Connexion réussie !');
       } else {
-        console.log('❌ AuthView - Connexion échouée:', result.error);
+        logger.log('❌ AuthView - Connexion échouée:', result.error);
         showError(result.error || 'Erreur de connexion');
       }
     } catch (err) {
-      console.error('❌ AuthView - Exception:', err);
+      logger.error('❌ AuthView - Exception:', err);
       showError(err.message || 'Erreur inattendue');
     } finally {
       setIsLoading(false);
-      console.log('🏁 AuthView.handleLogin - Fin');
+      logger.log('🏁 AuthView.handleLogin - Fin');
     }
   };
   
   const handleRegister = async (e) => {
     e.preventDefault();
     
+    // ✅ Validation côté client avant l'envoi
+    if (!registerData.firstName || !registerData.firstName.trim()) {
+      showError('Le prénom est requis');
+      return;
+    }
+    if (!registerData.lastName || !registerData.lastName.trim()) {
+      showError('Le nom est requis');
+      return;
+    }
+    if (!registerData.email || !registerData.email.trim()) {
+      showError('L\'email est requis');
+      return;
+    }
+    if (!registerData.password || !registerData.password.trim()) {
+      showError('Le mot de passe est requis');
+      return;
+    }
+    // ✅ Valider le mot de passe avant l'envoi
+    const passwordValidationErrors = validatePassword(registerData.password);
+    if (passwordValidationErrors.length > 0) {
+      setPasswordErrors(passwordValidationErrors);
+      showError('Le mot de passe ne respecte pas les critères requis');
+      return;
+    }
+    
     if (registerData.password !== registerData.confirmPassword) {
+      setConfirmPasswordError('Les mots de passe ne correspondent pas');
       showError('Les mots de passe ne correspondent pas');
       return;
     }
@@ -73,14 +173,32 @@ const AuthView = () => {
     try {
       // eslint-disable-next-line no-unused-vars
       const { confirmPassword, ...userData } = registerData;
+      // ✅ S'assurer que les champs sont bien trimés
+      userData.firstName = userData.firstName.trim();
+      userData.lastName = userData.lastName.trim();
+      userData.email = userData.email.trim();
+      if (userData.phone) {
+        userData.phone = userData.phone.trim();
+      }
+      
       const result = await register(userData);
       if (result.success) {
-        success('Inscription réussie ! Bienvenue chez Blossom Café 🌸');
+        // ✅ Vérifier si la connexion automatique a échoué
+        if (result.warning) {
+          // Afficher un message de succès avec un avertissement
+          success('Compte créé avec succès ! Veuillez vous connecter.');
+          showError(result.warning);
+        } else {
+          // Connexion automatique réussie
+          success('Inscription réussie ! Bienvenue chez Blossom Café 🌸');
+        }
       } else {
-        showError(result.error);
+        // ✅ Afficher le message d'erreur détaillé (inclut les détails de validation)
+        showError(result.error || 'Erreur lors de l\'inscription');
       }
     } catch (err) {
-      showError(err.message);
+      // ✅ Afficher le message d'erreur avec tous les détails de validation
+      showError(err.message || 'Erreur lors de l\'inscription');
     } finally {
       setIsLoading(false);
     }
@@ -112,19 +230,65 @@ const AuthView = () => {
     }
   };
   
-  // Connexions rapides pour le développement
+  // ✅ Remplir les emails dans le champ de connexion
+  const handleFillClientEmail = () => {
+    setIsLogin(true); // S'assurer qu'on est sur l'onglet connexion
+    setLoginData({
+      ...loginData,
+      email: import.meta.env.VITE_TEST_CLIENT_EMAIL || 'client@blossom.com'
+    });
+  };
+
+  const handleFillManagerEmail = () => {
+    setIsLogin(true); // S'assurer qu'on est sur l'onglet connexion
+    setLoginData({
+      ...loginData,
+      email: import.meta.env.VITE_TEST_MANAGER_EMAIL || 'manager@blossom.com'
+    });
+  };
+
+  const handleFillAdminEmail = () => {
+    setIsLogin(true); // S'assurer qu'on est sur l'onglet connexion
+    setLoginData({
+      ...loginData,
+      email: import.meta.env.VITE_TEST_ADMIN_EMAIL || 'admin@blossom.com'
+    });
+  };
+
+  // Connexions rapides pour le développement (UNIQUEMENT EN DÉVELOPPEMENT)
   const handleQuickLogin = async (role) => {
+    // ✅ SÉCURITÉ: Ne pas exposer les mots de passe en production
+    if (import.meta.env.PROD || import.meta.env.MODE === 'production') {
+      showError('Connexion rapide désactivée en production');
+      return;
+    }
+    
+    // ✅ Utiliser des variables d'environnement pour les credentials de test
     const credentials = {
-      client: { email: 'client@blossom.com', password: 'client123' },
-      manager: { email: 'manager@blossom.com', password: 'manager123' },
-      admin: { email: 'admin@blossom.com', password: 'admin123' }
+      client: { 
+        email: import.meta.env.VITE_TEST_CLIENT_EMAIL || 'client@blossom.com', 
+        password: import.meta.env.VITE_TEST_CLIENT_PASS || '' 
+      },
+      manager: { 
+        email: import.meta.env.VITE_TEST_MANAGER_EMAIL || 'manager@blossom.com', 
+        password: import.meta.env.VITE_TEST_MANAGER_PASS || '' 
+      },
+      admin: { 
+        email: import.meta.env.VITE_TEST_ADMIN_EMAIL || 'admin@blossom.com', 
+        password: import.meta.env.VITE_TEST_ADMIN_PASS || '' 
+      }
     };
     
-    const { email, password } = credentials[role];
+    const creds = credentials[role];
+    if (!creds.password) {
+      showError('Credentials de test non configurés');
+      return;
+    }
+    
     setIsLoading(true);
     
     try {
-      const result = await login(email, password);
+      const result = await login(creds.email, creds.password);
       if (result.success) {
         success(`Connexion rapide ${role} réussie !`);
       } else {
@@ -146,7 +310,7 @@ const AuthView = () => {
             <h3 className="text-white text-sm font-semibold mb-3">🚀 Développement</h3>
             <div className="space-y-2">
               <Button
-                onClick={() => handleQuickLogin('client')}
+                onClick={handleFillClientEmail}
                 variant="outline"
                 size="md"
                 fullWidth
@@ -156,7 +320,7 @@ const AuthView = () => {
                 👤 Client
               </Button>
               <Button
-                onClick={() => handleQuickLogin('manager')}
+                onClick={handleFillManagerEmail}
                 variant="outline"
                 size="md"
                 fullWidth
@@ -166,7 +330,7 @@ const AuthView = () => {
                 👨‍💼 Manager
               </Button>
               <Button
-                onClick={() => handleQuickLogin('admin')}
+                onClick={handleFillAdminEmail}
                 variant="outline"
                 size="md"
                 fullWidth
@@ -193,7 +357,7 @@ const AuthView = () => {
           {/* Boutons de développement mobile */}
           <div className="md:hidden mb-4 grid grid-cols-3 gap-2">
             <Button
-              onClick={() => handleQuickLogin('client')}
+              onClick={handleFillClientEmail}
               variant="outline"
               size="sm"
               disabled={isLoading}
@@ -202,7 +366,7 @@ const AuthView = () => {
               👤 Client
             </Button>
             <Button
-              onClick={() => handleQuickLogin('manager')}
+              onClick={handleFillManagerEmail}
               variant="outline"
               size="sm"
               disabled={isLoading}
@@ -211,7 +375,7 @@ const AuthView = () => {
               👨‍💼 Manager
             </Button>
             <Button
-              onClick={() => handleQuickLogin('admin')}
+              onClick={handleFillAdminEmail}
               variant="outline"
               size="sm"
               disabled={isLoading}
@@ -274,26 +438,36 @@ const AuthView = () => {
                 Se connecter
               </Button>
               
-              <div className="text-center text-sm text-gray-600">
-                <p className="mb-2">Comptes de test :</p>
-                <div className="space-y-1 text-xs">
-                  <p>Client: client@blossom.com / client123</p>
-                  <p>Manager: manager@blossom.com / manager123</p>
-                  <p>Admin: admin@blossom.com / admin123</p>
+              {/* ✅ SÉCURITÉ: Ne pas afficher les mots de passe en production */}
+              {!import.meta.env.PROD && import.meta.env.MODE !== 'production' && (
+                <div className="text-center text-sm text-gray-600">
+                  <p className="mb-2">Mode développement activé</p>
+                  <p className="text-xs text-gray-500">Utilisez les boutons de connexion rapide ci-dessus</p>
                 </div>
-              </div>
+              )}
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
-              <Input
-                label="Nom complet"
-                type="text"
-                placeholder="Jean Dupont"
-                value={registerData.name}
-                onChange={(e) => setRegisterData({...registerData, name: e.target.value})}
-                icon={<User className="w-5 h-5" />}
-                required
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Prénom"
+                  type="text"
+                  placeholder="Jean"
+                  value={registerData.firstName}
+                  onChange={(e) => setRegisterData({...registerData, firstName: e.target.value})}
+                  icon={<User className="w-5 h-5" />}
+                  required
+                />
+                <Input
+                  label="Nom"
+                  type="text"
+                  placeholder="Dupont"
+                  value={registerData.lastName}
+                  onChange={(e) => setRegisterData({...registerData, lastName: e.target.value})}
+                  icon={<User className="w-5 h-5" />}
+                  required
+                />
+              </div>
               
               <Input
                 label="Email"
@@ -314,33 +488,41 @@ const AuthView = () => {
                 icon={<Phone className="w-5 h-5" />}
               />
               
-              <Input
-                label="Adresse"
-                type="text"
-                placeholder="12 Rue de la Paix, Paris"
-                value={registerData.address}
-                onChange={(e) => setRegisterData({...registerData, address: e.target.value})}
-                icon={<MapPin className="w-5 h-5" />}
-              />
-              
-              <Input
-                label="Mot de passe"
-                type="password"
-                placeholder="••••••••"
-                value={registerData.password}
-                onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
-                icon={<Lock className="w-5 h-5" />}
-                required
-              />
+              <div>
+                <Input
+                  label="Mot de passe"
+                  type="password"
+                  placeholder="••••••••"
+                  value={registerData.password}
+                  onChange={handlePasswordChange}
+                  icon={<Lock className="w-5 h-5" />}
+                  required
+                  error={passwordErrors.length > 0 ? passwordErrors[0] : undefined}
+                />
+                {/* ✅ Afficher toutes les erreurs de validation du mot de passe en rouge */}
+                {passwordErrors.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {passwordErrors.map((error, index) => (
+                      <div key={index} className="flex items-center gap-2 text-sm text-red-600 font-medium animate-fade-in-up">
+                        <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <span>{error}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               
               <Input
                 label="Confirmer le mot de passe"
                 type="password"
                 placeholder="••••••••"
                 value={registerData.confirmPassword}
-                onChange={(e) => setRegisterData({...registerData, confirmPassword: e.target.value})}
+                onChange={handleConfirmPasswordChange}
                 icon={<Lock className="w-5 h-5" />}
                 required
+                error={confirmPasswordError || undefined}
               />
               
               <Button

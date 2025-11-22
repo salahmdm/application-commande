@@ -4,6 +4,7 @@ import Modal from '../common/Modal';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import ImageUploadNews from '../news/ImageUploadNews';
+import logger from '../../utils/logger';
 
 /**
  * Modal d'édition d'une actualité
@@ -68,7 +69,7 @@ const NewsEditorModal = ({ isOpen, onClose, newsItem, onSave }) => {
     }
     // S'assurer que l'ID est inclus si on modifie une actualité existante
     const dataToSave = newsItem ? { ...formData, id: newsItem.id } : formData;
-    console.log('💾 NewsEditorModal.handleSubmit:', {
+    logger.log('💾 NewsEditorModal.handleSubmit:', {
       newsItem: newsItem?.id,
       dataToSave
     });

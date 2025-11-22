@@ -11,10 +11,49 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
     name: '',
     category: '',
     quantity: 0,
+    unit: 'kg',
     price: 0,
     minQuantity: 0,
     status: 'available'
   });
+
+  // Fonction pour suggérer l'unité selon le nom du produit
+  const suggestUnit = (productName) => {
+    if (!productName) return 'kg';
+    
+    const nameLower = productName.toLowerCase();
+    
+    // Liquides → Litre
+    if (nameLower.includes('lait') || nameLower.includes('eau') || 
+        nameLower.includes('jus') || nameLower.includes('huile') || 
+        nameLower.includes('vin') || nameLower.includes('bière') ||
+        nameLower.includes('soda') || nameLower.includes('boisson') ||
+        nameLower.includes('crème') || nameLower.includes('sauce') ||
+        nameLower.includes('sirop') || nameLower.includes('liquide')) {
+      return 'L';
+    }
+    
+    // Produits en pièces → pièce
+    if (nameLower.includes('oeuf') || nameLower.includes('œuf') ||
+        nameLower.includes('pièce') || nameLower.includes('unité') ||
+        nameLower.includes('sachet') || nameLower.includes('paquet') ||
+        nameLower.includes('bouteille') || nameLower.includes('pot') ||
+        nameLower.includes('boîte') || nameLower.includes('canette')) {
+      return 'pièce';
+    }
+    
+    // Produits très légers → gramme
+    if (nameLower.includes('épice') || nameLower.includes('herbe') ||
+        nameLower.includes('vanille') || nameLower.includes('cannelle') ||
+        nameLower.includes('safran') || nameLower.includes('curcuma') ||
+        nameLower.includes('poivre') || nameLower.includes('sel') ||
+        nameLower.includes('levure') || nameLower.includes('poudre')) {
+      return 'g';
+    }
+    
+    // Par défaut → kg
+    return 'kg';
+  };
 
   // Initialiser le formulaire avec les données de l'article (mode édition)
   React.useEffect(() => {
@@ -23,6 +62,7 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
         name: item.name || '',
         category: item.category || '',
         quantity: item.quantity || 0,
+        unit: item.unit || 'kg',
         price: item.price || 0,
         minQuantity: item.minQuantity || 0,
         status: item.status || 'available'
@@ -33,6 +73,7 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
         name: '',
         category: '',
         quantity: 0,
+        unit: 'kg',
         price: 0,
         minQuantity: 0,
         status: 'available'
@@ -42,10 +83,17 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
+    const newFormData = {
+      ...formData,
       [name]: name === 'quantity' || name === 'price' || name === 'minQuantity' ? parseFloat(value) || 0 : value
-    }));
+    };
+    
+    // Si le nom change et qu'on n'est pas en mode édition, suggérer l'unité
+    if (name === 'name' && !item && value) {
+      newFormData.unit = suggestUnit(value);
+    }
+    
+    setFormData(newFormData);
   };
 
   const handleSubmit = (e) => {
@@ -59,7 +107,7 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pt-20 md:pt-24 lg:pt-28">
           {/* Overlay */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -74,7 +122,7 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[calc(100vh-5rem-2rem)] md:max-h-[calc(100vh-6rem-2rem)] lg:max-h-[calc(100vh-7rem-2rem)] overflow-y-auto"
           >
             {/* Header */}
             <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-t-2xl flex items-center justify-between">
@@ -142,6 +190,25 @@ const InventoryModal = ({ isOpen, onClose, onSubmit, item, categories }) => {
                     placeholder="0"
                     className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 focus:bg-white transition-all duration-200"
                   />
+                </div>
+
+                {/* Unité de mesure */}
+                <div>
+                  <label className="block text-sm font-heading font-medium text-black mb-2">
+                    Unité de mesure *
+                  </label>
+                  <select
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 focus:bg-white transition-all duration-200"
+                  >
+                    <option value="kg">Kilogramme (kg)</option>
+                    <option value="g">Gramme (g)</option>
+                    <option value="L">Litre (L)</option>
+                    <option value="pièce">Pièce</option>
+                  </select>
                 </div>
 
                 {/* Prix */}

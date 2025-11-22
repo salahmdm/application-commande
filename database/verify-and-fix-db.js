@@ -6,13 +6,13 @@ const mysql = require('mysql2/promise');
  */
 
 async function verifyAndFixDatabase() {
-  console.log('========================================');
-  console.log('🔍 VÉRIFICATION ET CORRECTION DB');
-  console.log('========================================\n');
+  logger.log('========================================');
+  logger.log('🔍 VÉRIFICATION ET CORRECTION DB');
+  logger.log('========================================\n');
 
   try {
     // 1. CONNEXION À MYSQL
-    console.log('📊 1. Test de connexion MySQL...');
+    logger.log('📊 1. Test de connexion MySQL...');
     require('dotenv').config();
     const configModule = require('./config');
     const connection = await mysql.createConnection({
@@ -23,19 +23,19 @@ async function verifyAndFixDatabase() {
       database: configModule.database.database
     });
     
-    console.log('✅ Connexion MySQL réussie\n');
+    logger.log('✅ Connexion MySQL réussie\n');
 
     // 2. VÉRIFIER LES TABLES EXISTANTES
-    console.log('📋 2. Vérification des tables...');
+    logger.log('📋 2. Vérification des tables...');
     const [tables] = await connection.execute('SHOW TABLES');
     const tableNames = tables.map(t => Object.values(t)[0]);
     
-    console.log(`✅ Tables trouvées: ${tableNames.length}`);
-    tableNames.forEach(table => console.log(`   - ${table}`));
-    console.log('');
+    logger.log(`✅ Tables trouvées: ${tableNames.length}`);
+    tableNames.forEach(table => logger.log(`   - ${table}`));
+    logger.log('');
 
     // 3. VÉRIFIER LA STRUCTURE DE CHAQUE TABLE IMPORTANTE
-    console.log('🔍 3. Vérification de la structure des tables...\n');
+    logger.log('🔍 3. Vérification de la structure des tables...\n');
     
     const tablesToCheck = {
       'users': ['id', 'email', 'password_hash', 'first_name', 'last_name', 'phone', 'role', 'is_active'],
@@ -57,41 +57,42 @@ async function verifyAndFixDatabase() {
       const [columns] = await connection.execute(`DESCRIBE ${tableName}`);
       const existingColumns = columns.map(c => c.Field);
 
-      console.log(`✅ Table '${tableName}':`);
+      logger.log(`✅ Table '${tableName}':`);
       
       // Vérifier les colonnes manquantes
       const missingColumns = requiredColumns.filter(col => !existingColumns.includes(col));
       if (missingColumns.length > 0) {
-        console.log(`   ⚠️  Colonnes manquantes: ${missingColumns.join(', ')}`);
+        logger.log(`   ⚠️  Colonnes manquantes: ${missingColumns.join(', ')}`);
         issues.push(`Table '${tableName}' - colonnes manquantes: ${missingColumns.join(', ')}`);
       } else {
-        console.log(`   ✅ Toutes les colonnes requises présentes`);
+        logger.log(`   ✅ Toutes les colonnes requises présentes`);
       }
 
       // Afficher les colonnes existantes
-      console.log(`   📋 Colonnes: ${existingColumns.slice(0, 5).join(', ')}${existingColumns.length > 5 ? '...' : ''}`);
-      console.log('');
+      logger.log(`   📋 Colonnes: ${existingColumns.slice(0, 5).join(', ')}${existingColumns.length > 5 ? '...' : ''}`);
+      logger.log('');
     }
 
     // 4. VÉRIFIER LES DONNÉES DE TEST
-    console.log('📊 4. Vérification des données...\n');
+    logger.log('📊 4. Vérification des données...\n');
     
     const [userCount] = await connection.execute('SELECT COUNT(*) as count FROM users');
     const [categoryCount] = await connection.execute('SELECT COUNT(*) as count FROM categories');
     const [productCount] = await connection.execute('SELECT COUNT(*) as count FROM products');
     const [orderCount] = await connection.execute('SELECT COUNT(*) as count FROM orders');
 
-    console.log(`   Users: ${userCount[0].count}`);
-    console.log(`   Categories: ${categoryCount[0].count}`);
-    console.log(`   Products: ${productCount[0].count}`);
-    console.log(`   Orders: ${orderCount[0].count}`);
-    console.log('');
+    logger.log(`   Users: ${userCount[0].count}`);
+    logger.log(`   Categories: ${categoryCount[0].count}`);
+    logger.log(`   Products: ${productCount[0].count}`);
+    logger.log(`   Orders: ${orderCount[0].count}`);
+    logger.log('');
 
     // 5. AJOUTER DES DONNÉES DE TEST SI NÉCESSAIRE
     if (userCount[0].count === 0) {
-      console.log('⚠️  Aucun utilisateur trouvé - Ajout d\'utilisateurs de test...');
+      logger.log('⚠️  Aucun utilisateur trouvé - Ajout d\'utilisateurs de test...');
       
       const bcrypt = require('bcrypt');
+const logger = require('./utils/logger');
       const adminPassword = await bcrypt.hash('admin123', 10);
       const managerPassword = await bcrypt.hash('manager123', 10);
       const clientPassword = await bcrypt.hash('client123', 10);
@@ -104,12 +105,12 @@ async function verifyAndFixDatabase() {
         [adminPassword, managerPassword, clientPassword]
       );
       
-      console.log('✅ Utilisateurs de test ajoutés');
+      logger.log('✅ Utilisateurs de test ajoutés');
       fixes.push('Utilisateurs de test créés');
     }
 
     if (categoryCount[0].count === 0) {
-      console.log('⚠️  Aucune catégorie trouvée - Ajout de catégories...');
+      logger.log('⚠️  Aucune catégorie trouvée - Ajout de catégories...');
       
       await connection.execute(
         `INSERT INTO categories (name, slug, icon, display_order, is_active) VALUES
@@ -120,12 +121,12 @@ async function verifyAndFixDatabase() {
          ('Snacks', 'snacks', '🍪', 5, TRUE)`
       );
       
-      console.log('✅ Catégories ajoutées');
+      logger.log('✅ Catégories ajoutées');
       fixes.push('Catégories créées');
     }
 
     if (productCount[0].count === 0) {
-      console.log('⚠️  Aucun produit trouvé - Ajout de produits de test...');
+      logger.log('⚠️  Aucun produit trouvé - Ajout de produits de test...');
       
       await connection.execute(
         `INSERT INTO products (category_id, name, slug, description, price, image_url, stock, is_available, is_featured, calories, preparation_time, allergens) VALUES
@@ -139,45 +140,45 @@ async function verifyAndFixDatabase() {
          (5, 'Cookie Chocolat', 'cookie-chocolat', 'Cookie aux pépites de chocolat', 2.50, '🍪', 50, TRUE, FALSE, 180, 5, '["gluten","oeufs"]')`
       );
       
-      console.log('✅ Produits de test ajoutés');
+      logger.log('✅ Produits de test ajoutés');
       fixes.push('Produits de test créés');
     }
 
     // 6. RÉSUMÉ
-    console.log('');
-    console.log('========================================');
-    console.log('📊 RÉSUMÉ');
-    console.log('========================================\n');
+    logger.log('');
+    logger.log('========================================');
+    logger.log('📊 RÉSUMÉ');
+    logger.log('========================================\n');
 
     if (issues.length === 0 && fixes.length === 0) {
-      console.log('✅ Base de données complète et fonctionnelle !');
+      logger.log('✅ Base de données complète et fonctionnelle !');
     } else {
       if (issues.length > 0) {
-        console.log('⚠️  Problèmes détectés:');
-        issues.forEach(issue => console.log(`   - ${issue}`));
-        console.log('');
+        logger.log('⚠️  Problèmes détectés:');
+        issues.forEach(issue => logger.log(`   - ${issue}`));
+        logger.log('');
       }
       
       if (fixes.length > 0) {
-        console.log('✅ Corrections appliquées:');
-        fixes.forEach(fix => console.log(`   - ${fix}`));
-        console.log('');
+        logger.log('✅ Corrections appliquées:');
+        fixes.forEach(fix => logger.log(`   - ${fix}`));
+        logger.log('');
       }
     }
 
-    console.log('✅ Vérification terminée !');
-    console.log('');
+    logger.log('✅ Vérification terminée !');
+    logger.log('');
 
     await connection.end();
 
   } catch (error) {
-    console.error('❌ Erreur:', error.message);
-    console.error('');
-    console.error('Solutions possibles:');
-    console.error('1. Vérifiez que MySQL est démarré');
-    console.error('2. Vérifiez votre fichier .env (DB_PASSWORD)');
-    console.error('   Copiez database/.env.example en database/.env et configurez vos valeurs');
-    console.error('3. Vérifiez que la base blossom_cafe existe');
+    logger.error('❌ Erreur:', error.message);
+    logger.error('');
+    logger.error('Solutions possibles:');
+    logger.error('1. Vérifiez que MySQL est démarré');
+    logger.error('2. Vérifiez votre fichier .env (DB_PASSWORD)');
+    logger.error('   Copiez database/.env.example en database/.env et configurez vos valeurs');
+    logger.error('3. Vérifiez que la base blossom_cafe existe');
     process.exit(1);
   }
 }

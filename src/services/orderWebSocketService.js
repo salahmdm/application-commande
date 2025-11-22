@@ -4,6 +4,7 @@
  */
 
 import { io } from 'socket.io-client';
+import logger from '../utils/logger';
 
 // URL du backend (sans /api pour WebSocket)
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -22,7 +23,7 @@ class OrderWebSocketService {
    */
   connect(token) {
     if (this.socket?.connected) {
-      console.log('[OrderWebSocket] Déjà connecté');
+      logger.log('[OrderWebSocket] Déjà connecté');
       return;
     }
 
@@ -36,49 +37,74 @@ class OrderWebSocketService {
       });
 
       this.socket.on('connect', () => {
-        console.log('[OrderWebSocket] Connecté');
+        logger.log('[OrderWebSocket] Connecté');
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.emit('connected');
       });
 
       this.socket.on('disconnect', (reason) => {
-        console.log('[OrderWebSocket] Déconnecté:', reason);
+        logger.log('[OrderWebSocket] Déconnecté:', reason);
         this.isConnected = false;
         this.emit('disconnected', reason);
+        
+        // ✅ Émettre aussi un événement global pour cohérence
+        // Import dynamique pour éviter les dépendances circulaires
+        import('./serverConnectionService').then(({ serverConnectionService }) => {
+          serverConnectionService.emitDisconnection(reason);
+        }).catch((importError) => {
+          logger.warn('[OrderWebSocket] Impossible d\'importer serverConnectionService:', importError);
+        });
       });
 
       this.socket.on('connect_error', (error) => {
-        console.error('[OrderWebSocket] Erreur de connexion:', error);
+        logger.error('[OrderWebSocket] Erreur de connexion:', error.message || error);
         this.reconnectAttempts++;
+        
+        // ✅ AMÉLIORATION: Ne pas émettre d'erreur immédiatement, laisser Socket.IO réessayer
+        // Socket.IO gère automatiquement la reconnexion avec reconnectionAttempts
+        // On émet seulement si toutes les tentatives sont épuisées
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          logger.error(`[OrderWebSocket] Échec après ${this.maxReconnectAttempts} tentatives de reconnexion`);
           this.emit('connection_failed', error);
+          
+          // ✅ Émettre aussi un événement global pour cohérence
+          import('./serverConnectionService').then(({ serverConnectionService }) => {
+            serverConnectionService.emitConnectionFailed(error);
+          }).catch((importError) => {
+            logger.warn('[OrderWebSocket] Impossible d\'importer serverConnectionService:', importError);
+          });
+        } else {
+          // Log seulement les premières tentatives pour éviter le spam
+          if (this.reconnectAttempts <= 3) {
+            logger.warn(`[OrderWebSocket] Tentative de reconnexion ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+          }
         }
       });
 
       // Écouter les événements de commandes
       this.socket.on('order:created', (order) => {
-        console.log('[OrderWebSocket] Nouvelle commande:', order);
+        logger.log('[OrderWebSocket] Nouvelle commande:', order);
         this.emit('order:created', order);
       });
 
       this.socket.on('order:updated', (order) => {
-        console.log('[OrderWebSocket] Commande mise à jour:', order);
+        logger.log('[OrderWebSocket] Commande mise à jour:', order);
         this.emit('order:updated', order);
       });
 
       this.socket.on('order:status_changed', (data) => {
-        console.log('[OrderWebSocket] Statut changé:', data);
+        logger.log('[OrderWebSocket] Statut changé:', data);
         this.emit('order:status_changed', data);
       });
 
       this.socket.on('orders:refresh', () => {
-        console.log('[OrderWebSocket] Rafraîchissement demandé');
+        logger.log('[OrderWebSocket] Rafraîchissement demandé');
         this.emit('orders:refresh');
       });
 
     } catch (error) {
-      console.error('[OrderWebSocket] Erreur lors de la connexion:', error);
+      logger.error('[OrderWebSocket] Erreur lors de la connexion:', error);
       this.emit('connection_error', error);
     }
   }
@@ -126,7 +152,7 @@ class OrderWebSocketService {
         try {
           callback(data);
         } catch (error) {
-          console.error(`[OrderWebSocket] Erreur dans callback pour ${event}:`, error);
+          logger.error(`[OrderWebSocket] Erreur dans callback pour ${event}:`, error);
         }
       });
     }

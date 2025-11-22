@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Search, Download, Upload, TrendingUp, Package, Trash2, ClipboardCheck } from 'lucide-react';
+import { Plus, Search, Download, Upload, TrendingUp, Package, Trash2, ClipboardCheck, ListChecks } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import InventoryTable from '../../components/inventory/InventoryTable';
 import InventoryModal from '../../components/inventory/InventoryModal';
 import StockAlertsModal from '../../components/inventory/StockAlertsModal';
 import PhysicalInventoryModal from '../../components/inventory/PhysicalInventoryModal';
+import ShoppingListModal from '../../components/inventory/ShoppingListModal';
 import useNotifications from '../../hooks/useNotifications';
 import inventoryService from '../../services/inventoryService';
+import shoppingListService from '../../services/shoppingListService';
+import logger from '../../utils/logger';
 
 /**
  * Page principale de gestion d'inventaire
@@ -24,6 +27,7 @@ const AdminInventory = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isPhysicalInventoryOpen, setIsPhysicalInventoryOpen] = useState(false);
+  const [isShoppingListOpen, setIsShoppingListOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
@@ -47,7 +51,7 @@ const AdminInventory = () => {
   const loadInventory = React.useCallback(async () => {
     try {
       setIsLoading(true);
-      console.log('📦 Chargement inventaire...');
+      logger.debug('📦 Chargement inventaire...');
       const response = await inventoryService.getInventory();
       if (response.success) {
         // Mettre à jour le statut en fonction de la quantité
@@ -56,26 +60,45 @@ const AdminInventory = () => {
           status: calculateStatus(item.quantity, item.minQuantity)
         }));
         setItems(itemsWithStatus);
-        console.log('✅ Inventaire chargé:', itemsWithStatus);
+        // ✅ SÉCURITÉ: Ne pas logger les données complètes d'inventaire (données sensibles)
+        logger.debug('✅ Inventaire chargé');
       }
     } catch (error) {
-      console.error('❌ Erreur chargement inventaire:', error);
+      logger.error('❌ Erreur chargement inventaire:', error);
       showError('Erreur lors du chargement de l\'inventaire');
     } finally {
       setIsLoading(false);
     }
   }, [showError]);
 
-  // Charger les données au démarrage
+  // Ajouter automatiquement les produits sous stock minimal à la liste de courses
+  const autoAddLowStockToShoppingList = React.useCallback(async () => {
+    try {
+      const response = await shoppingListService.autoAddLowStock();
+      if (response.success && response.added > 0) {
+        logger.log(`✅ ${response.added} produit(s) ajouté(s) automatiquement à la liste de courses`);
+      }
+    } catch (error) {
+      logger.error('❌ Erreur ajout automatique:', error);
+    }
+  }, []);
+
+  // Charger les données au démarrage et ajouter automatiquement les produits sous stock
   useEffect(() => {
     loadInventory();
-  }, [loadInventory]);
+    // Ajouter automatiquement les produits sous stock minimal
+    autoAddLowStockToShoppingList();
+  }, [loadInventory, autoAddLowStockToShoppingList]);
 
   // Produits en alerte de stock
+  // Inclut seulement les produits avec minQuantity > 0 ET (quantity = 0 OU quantity <= minQuantity)
   const alertItems = useMemo(() => {
-    return items.filter(item => 
-      item.quantity <= (item.minQuantity || 0)
-    );
+    return items.filter(item => {
+      const minQty = item.minQuantity || 0;
+      const qty = item.quantity || 0;
+      // Uniquement les produits avec un minimum défini et qui sont en rupture ou en stock bas
+      return minQty > 0 && (qty === 0 || qty <= minQty);
+    });
   }, [items]);
 
   // Filtrage et tri
@@ -128,12 +151,14 @@ const AdminInventory = () => {
     const totalItems = items.filter(item => item.quantity > 0).length; // Nombre d'articles différents en stock
     const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0); // Quantité totale
     const totalValue = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-    const lowStockCount = items.filter(item => 
-      item.quantity <= (item.minQuantity || 0) && item.quantity > 0
-    ).length;
-    const outOfStockCount = items.filter(item => item.quantity === 0).length;
+    // Compter les produits en alerte (même logique que alertItems)
+    const alertCount = items.filter(item => {
+      const minQty = item.minQuantity || 0;
+      const qty = item.quantity || 0;
+      return minQty > 0 && (qty === 0 || qty <= minQty);
+    }).length;
 
-    return { totalItems, totalQuantity, totalValue, lowStockCount: lowStockCount + outOfStockCount };
+    return { totalItems, totalQuantity, totalValue, lowStockCount: alertCount };
   }, [items]);
 
   // Gestion du tri
@@ -147,14 +172,14 @@ const AdminInventory = () => {
   // Ajouter un article
   const handleAdd = async (formData) => {
     try {
-      console.log('📦 Ajout article:', formData);
+      logger.log('📦 Ajout article:', formData);
       const response = await inventoryService.addInventoryItem(formData);
       if (response.success) {
         showSuccess('Article ajouté avec succès !');
         loadInventory(); // Recharger l'inventaire
       }
     } catch (error) {
-      console.error('❌ Erreur ajout:', error);
+      logger.error('❌ Erreur ajout:', error);
       showError('Erreur lors de l\'ajout de l\'article');
     }
   };
@@ -167,7 +192,7 @@ const AdminInventory = () => {
 
   const handleUpdate = async (formData) => {
     try {
-      console.log('📦 Modification article:', editingItem.id, formData);
+      logger.log('📦 Modification article:', editingItem.id, formData);
       const response = await inventoryService.updateInventoryItem(editingItem.id, formData);
       if (response.success) {
         showSuccess('Article modifié avec succès !');
@@ -175,7 +200,7 @@ const AdminInventory = () => {
       }
       setEditingItem(null);
     } catch (error) {
-      console.error('❌ Erreur modification:', error);
+      logger.error('❌ Erreur modification:', error);
       showError('Erreur lors de la modification de l\'article');
     }
   };
@@ -184,14 +209,14 @@ const AdminInventory = () => {
   const handleDelete = async (id) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer cet article ?')) {
       try {
-        console.log('📦 Suppression article:', id);
+        logger.log('📦 Suppression article:', id);
         const response = await inventoryService.deleteInventoryItem(id);
         if (response.success) {
           showSuccess('Article supprimé avec succès !');
           loadInventory(); // Recharger l'inventaire
         }
       } catch (error) {
-        console.error('❌ Erreur suppression:', error);
+        logger.error('❌ Erreur suppression:', error);
         showError('Erreur lors de la suppression de l\'article');
       }
     }
@@ -238,7 +263,7 @@ const AdminInventory = () => {
               errorCount++;
             }
           } catch (error) {
-            console.error('❌ Erreur suppression:', id, error);
+            logger.error('❌ Erreur suppression:', id, error);
             errorCount++;
           }
         }
@@ -258,7 +283,7 @@ const AdminInventory = () => {
           showError(`❌ Échec de la suppression (${errorCount} erreur(s))`);
         }
       } catch (error) {
-        console.error('❌ Erreur suppression multiple:', error);
+        logger.error('❌ Erreur suppression multiple:', error);
         showError('Erreur lors de la suppression des articles');
       }
     }
@@ -272,7 +297,7 @@ const AdminInventory = () => {
 
       for (const item of changedItems) {
         try {
-          console.log(`📦 MAJ quantité: ${item.name} ${item.currentQuantity} → ${item.newQuantity}`);
+          logger.log(`📦 MAJ quantité: ${item.name} ${item.currentQuantity} → ${item.newQuantity}`);
           const response = await inventoryService.updateInventoryItem(item.id, {
             quantity: item.newQuantity
           });
@@ -282,13 +307,16 @@ const AdminInventory = () => {
             errorCount++;
           }
         } catch (error) {
-          console.error('❌ Erreur MAJ quantité:', item.id, error);
+          logger.error('❌ Erreur MAJ quantité:', item.id, error);
           errorCount++;
         }
       }
 
-      // Recharger l'inventaire
+      // Recharger l'inventaire après mise à jour
       await loadInventory();
+      
+      // Ajouter automatiquement les produits sous stock minimal après mise à jour
+      await autoAddLowStockToShoppingList();
 
       // Afficher le résultat
       if (successCount > 0 && errorCount === 0) {
@@ -299,7 +327,7 @@ const AdminInventory = () => {
         showError(`❌ Échec de la mise à jour (${errorCount} erreur(s))`);
       }
     } catch (error) {
-      console.error('❌ Erreur mise à jour inventaire:', error);
+      logger.error('❌ Erreur mise à jour inventaire:', error);
       showError('Erreur lors de la mise à jour de l\'inventaire');
     }
   };
@@ -307,7 +335,7 @@ const AdminInventory = () => {
   // Modifier une quantité directement depuis le tableau
   const handleQuantityChange = async (id, newQuantity) => {
     try {
-      console.log(`📦 MAJ quantité rapide: ID ${id} → ${newQuantity}`);
+      logger.log(`📦 MAJ quantité rapide: ID ${id} → ${newQuantity}`);
       const response = await inventoryService.updateInventoryItem(id, {
         quantity: newQuantity
       });
@@ -327,7 +355,7 @@ const AdminInventory = () => {
         showError('Erreur lors de la mise à jour');
       }
     } catch (error) {
-      console.error('❌ Erreur MAJ quantité:', error);
+      logger.error('❌ Erreur MAJ quantité:', error);
       showError('Erreur lors de la mise à jour de la quantité');
     }
   };
@@ -463,7 +491,7 @@ const AdminInventory = () => {
         } else if (!categories.includes(category)) {
           // Si la catégorie n'existe pas, on la met dans "Autres" par défaut
           mappedCategory = 'Autres';
-          console.log(`⚠️ Catégorie "${category}" non reconnue, mappée vers "Autres"`);
+          logger.log(`⚠️ Catégorie "${category}" non reconnue, mappée vers "Autres"`);
         }
 
         const itemData = {
@@ -476,7 +504,7 @@ const AdminInventory = () => {
         };
 
         try {
-          console.log(`📦 Import: "${itemData.name}" → ${itemData.category}`);
+          logger.log(`📦 Import: "${itemData.name}" → ${itemData.category}`);
           const response = await inventoryService.addInventoryItem(itemData);
           if (response.success) {
             successCount++;
@@ -485,7 +513,7 @@ const AdminInventory = () => {
             errorCount++;
           }
         } catch (error) {
-          console.error('Erreur import ligne:', error);
+          logger.error('Erreur import ligne:', error);
           errors.push(`Ligne ${lineIndex + 2} (${name}): ${error.message}`);
           errorCount++;
         }
@@ -498,10 +526,10 @@ const AdminInventory = () => {
       if (successCount > 0 && errorCount === 0) {
         showSuccess(`✅ ${successCount} article(s) importé(s) avec succès !`);
       } else if (successCount > 0 && errorCount > 0) {
-        console.warn('⚠️ Erreurs d\'importation:', errors);
+        logger.warn('⚠️ Erreurs d\'importation:', errors);
         showSuccess(`⚠️ ${successCount} article(s) importé(s), ${errorCount} erreur(s)`);
       } else {
-        console.error('❌ Erreurs d\'importation:', errors);
+        logger.error('❌ Erreurs d\'importation:', errors);
         const errorMessage = errors.length > 0 
           ? `❌ Échec de l'importation:\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...' : ''}`
           : `❌ Échec de l'importation (${errorCount} erreur(s))`;
@@ -509,7 +537,7 @@ const AdminInventory = () => {
       }
 
     } catch (error) {
-      console.error('Erreur lecture fichier:', error);
+      logger.error('Erreur lecture fichier:', error);
       showError('Erreur lors de la lecture du fichier CSV');
     } finally {
       setIsImporting(false);
@@ -562,6 +590,14 @@ const AdminInventory = () => {
           >
             <ClipboardCheck className="w-4 h-4 md:w-5 md:h-5" />
             INVENTAIRE
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsShoppingListOpen(true)}
+            className="flex items-center gap-2 bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 hover:border-blue-400 font-bold text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
+          >
+            <ListChecks className="w-4 h-4 md:w-5 md:h-5" />
+            LISTE DE COURSES
           </Button>
           <Button
             variant="outline"
@@ -762,6 +798,12 @@ const AdminInventory = () => {
         onClose={() => setIsPhysicalInventoryOpen(false)}
         items={items}
         onUpdate={handlePhysicalInventoryUpdate}
+      />
+
+      {/* Modal Liste de Courses */}
+      <ShoppingListModal
+        isOpen={isShoppingListOpen}
+        onClose={() => setIsShoppingListOpen(false)}
       />
     </div>
   );

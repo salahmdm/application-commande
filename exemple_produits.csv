@@ -1,8 +1,0 @@
-Nom,Catégorie,Prix,Description,Image URL,Populaire,Ingrédients
-"Cappuccino","Boissons Chaudes",3.50,"Café avec mousse de lait","https://example.com/cappuccino.jpg",TRUE,"Café, Lait"
-"Espresso","Boissons Chaudes",2.50,"Café corsé et intense","https://example.com/espresso.jpg",FALSE,"Café"
-"Latte","Boissons Chaudes",4.00,"Café doux avec lait chaud","https://example.com/latte.jpg",TRUE,"Café, Lait"
-"Thé Vert","Boissons Chaudes",3.00,"Thé vert frais","https://example.com/the-vert.jpg",FALSE,"Thé"
-"Jus d'Orange","Boissons Froides",4.50,"Jus d'orange pressé","https://example.com/jus-orange.jpg",TRUE,"Orange"
-"Sandwich Jambon","Délices Salés",8.50,"Sandwich au jambon et fromage","https://example.com/sandwich.jpg",TRUE,"Pain, Jambon, Fromage"
-"Tarte aux Fraises","Délices Sucrés",5.50,"Tarte aux fraises fraîches","https://example.com/tarte-fraises.jpg",TRUE,"Pâte, Fraises, Crème"

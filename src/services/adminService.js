@@ -1,4 +1,5 @@
 import { apiCall } from './api';
+import logger from '../utils/logger';
 
 /**
  * Service pour les fonctionnalités Admin
@@ -14,7 +15,7 @@ export const adminService = {
       const response = await apiCall('/admin/users');
       return response;
     } catch (error) {
-      console.error('Erreur getAllUsers:', error);
+      logger.error('Erreur getAllUsers:', error);
       throw error;
     }
   },
@@ -27,7 +28,7 @@ export const adminService = {
       const response = await apiCall(`/admin/users/${userId}`);
       return response;
     } catch (error) {
-      console.error('Erreur getUserById:', error);
+      logger.error('Erreur getUserById:', error);
       throw error;
     }
   },
@@ -43,7 +44,7 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur createUser:', error);
+      logger.error('Erreur createUser:', error);
       throw error;
     }
   },
@@ -59,7 +60,7 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur updateUser:', error);
+      logger.error('Erreur updateUser:', error);
       throw error;
     }
   },
@@ -74,7 +75,7 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur deleteUser:', error);
+      logger.error('Erreur deleteUser:', error);
       throw error;
     }
   },
@@ -99,7 +100,7 @@ export const adminService = {
       const response = await apiCall(endpoint);
       return response;
     } catch (error) {
-      console.error('Erreur getAllOrders:', error);
+      logger.error('Erreur getAllOrders:', error);
       throw error;
     }
   },
@@ -112,7 +113,7 @@ export const adminService = {
       const response = await apiCall('/admin/dashboard');
       return response;
     } catch (error) {
-      console.error('Erreur getDashboard:', error);
+      logger.error('Erreur getDashboard:', error);
       throw error;
     }
   },
@@ -125,7 +126,7 @@ export const adminService = {
       const response = await apiCall('/admin/inventory');
       return response;
     } catch (error) {
-      console.error('Erreur getInventory:', error);
+      logger.error('Erreur getInventory:', error);
       throw error;
     }
   },
@@ -141,7 +142,7 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur updateInventory:', error);
+      logger.error('Erreur updateInventory:', error);
       throw error;
     }
   },
@@ -154,7 +155,7 @@ export const adminService = {
       const response = await apiCall('/admin/promo-codes');
       return response;
     } catch (error) {
-      console.error('Erreur getPromoCodes:', error);
+      logger.error('Erreur getPromoCodes:', error);
       throw error;
     }
   },
@@ -170,7 +171,7 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur createPromoCode:', error);
+      logger.error('Erreur createPromoCode:', error);
       throw error;
     }
   },
@@ -185,7 +186,69 @@ export const adminService = {
       });
       return response;
     } catch (error) {
-      console.error('Erreur deletePromoCode:', error);
+      logger.error('Erreur deletePromoCode:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Récupérer toutes les récompenses de fidélité
+   */
+  async getLoyaltyRewards() {
+    try {
+      const response = await apiCall('/admin/loyalty-rewards', {
+        method: 'GET'
+      });
+      return response;
+    } catch (error) {
+      logger.error('Erreur getLoyaltyRewards:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Créer une récompense de fidélité
+   */
+  async createLoyaltyReward(rewardData) {
+    try {
+      const response = await apiCall('/admin/loyalty-rewards', {
+        method: 'POST',
+        body: JSON.stringify(rewardData)
+      });
+      return response;
+    } catch (error) {
+      logger.error('Erreur createLoyaltyReward:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Modifier une récompense de fidélité
+   */
+  async updateLoyaltyReward(rewardId, rewardData) {
+    try {
+      const response = await apiCall(`/admin/loyalty-rewards/${rewardId}`, {
+        method: 'PUT',
+        body: JSON.stringify(rewardData)
+      });
+      return response;
+    } catch (error) {
+      logger.error('Erreur updateLoyaltyReward:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Supprimer une récompense de fidélité
+   */
+  async deleteLoyaltyReward(rewardId) {
+    try {
+      const response = await apiCall(`/admin/loyalty-rewards/${rewardId}`, {
+        method: 'DELETE'
+      });
+      return response;
+    } catch (error) {
+      logger.error('Erreur deleteLoyaltyReward:', error);
       throw error;
     }
   },
@@ -198,7 +261,7 @@ export const adminService = {
       const response = await apiCall(`/admin/analytics?period=${period}`);
       return response;
     } catch (error) {
-      console.error('Erreur getAnalytics:', error);
+      logger.error('Erreur getAnalytics:', error);
       throw error;
     }
   }

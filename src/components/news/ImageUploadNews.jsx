@@ -3,6 +3,7 @@ import { Upload, X, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import Button from '../common/Button';
 import { ENV } from '../../config/env';
 import useAuth from '../../hooks/useAuth';
+import logger from '../../utils/logger';
 
 /**
  * Composant ImageUpload pour les actualités
@@ -57,37 +58,37 @@ const ImageUploadNews = ({
         throw new Error('Vous devez être connecté pour uploader une image');
       }
 
-      // Récupérer le token depuis localStorage
+      // ✅ CORRECTION: Utiliser les cookies HTTP-only pour l'authentification
+      // Le token peut être dans localStorage (fallback) ou dans les cookies (sécurisé)
       const token = localStorage.getItem('token');
       const userStr = localStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : null;
       
-      console.log('📤 Upload image actualité:', {
+      logger.debug('📤 Upload image actualité:', {
         isAuthenticated,
         hasToken: !!token,
         hasUser: !!user,
-        userRole: user?.role,
-        tokenLength: token ? token.length : 0,
-        tokenPreview: token ? `${token.substring(0, 20)}...` : 'aucun'
+        userRole: user?.role
       });
 
-      if (!token) {
-        console.error('❌ Token manquant dans localStorage');
-        throw new Error('Token d\'authentification manquant. Veuillez vous reconnecter.');
-      }
-
       const uploadUrl = `${ENV.BACKEND_URL}/api/admin/news/upload-image`;
-      console.log('📤 URL d\'upload:', uploadUrl);
+      logger.debug('📤 URL d\'upload:', uploadUrl);
+
+      // ✅ CORRECTION: Headers simplifiés - les cookies HTTP-only sont envoyés automatiquement avec credentials: 'include'
+      const headers = {};
+      // Ajouter le token dans l'Authorization seulement s'il existe (fallback pour compatibilité)
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       const response = await fetch(uploadUrl, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
+        headers: headers,
+        body: formData,
+        credentials: 'include' // ✅ CRITIQUE: Envoyer les cookies HTTP-only pour l'auth
       });
 
-      console.log('📡 Réponse upload:', {
+      logger.debug('📡 Réponse upload:', {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok
@@ -102,20 +103,35 @@ const ImageUploadNews = ({
           errorData = { error: errorText || `Erreur ${response.status}` };
         }
         
-        console.error('❌ Erreur upload - Réponse serveur:', errorData);
-        throw new Error(errorData.error || errorData.message || `Erreur ${response.status}: ${response.statusText}`);
+        logger.error('❌ Erreur upload - Réponse serveur:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData: errorData
+        });
+        
+        // ✅ AMÉLIORATION: Message d'erreur plus détaillé
+        const errorMessage = errorData.message || errorData.error || `Erreur ${response.status}: ${response.statusText}`;
+        
+        // Messages spécifiques selon le code d'erreur
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Authentification requise. Veuillez vous reconnecter.');
+        } else if (response.status === 400 && errorData.message) {
+          throw new Error(errorData.message);
+        } else {
+          throw new Error(errorMessage);
+        }
       }
 
       const data = await response.json();
 
       if (data.success) {
         onImageChange(data.imageUrl);
-        console.log('✅ Image actualité uploadée:', data.imageUrl);
+        logger.debug('✅ Image actualité uploadée:', data.imageUrl);
       } else {
         throw new Error(data.error || 'Erreur upload');
       }
     } catch (err) {
-      console.error('❌ Erreur upload actualité:', err);
+      logger.error('❌ Erreur upload actualité:', err);
       setError(err.message || 'Erreur lors de l\'upload. Réessayez.');
       setPreview(currentImage);
     } finally {
@@ -132,9 +148,9 @@ const ImageUploadNews = ({
     try {
       setPreview(null);
       if (onImageRemove) onImageRemove();
-      console.log('🗑️ Image actualité supprimée');
+      logger.debug('🗑️ Image actualité supprimée');
     } catch (err) {
-      console.error('❌ Erreur suppression:', err);
+      logger.error('❌ Erreur suppression:', err);
       setError('Erreur lors de la suppression.');
     } finally {
       setUploading(false);

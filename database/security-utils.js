@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const config = require('./config');
+const logger = require('./utils/logger');
 
 /**
  * Classe de gestion sécurisée des mots de passe
@@ -19,10 +20,10 @@ class PasswordSecurity {
     try {
       const saltRounds = config.security.bcryptRounds;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
-      console.log('✅ Password hashed successfully');
+      logger.log('✅ Password hashed successfully');
       return hashedPassword;
     } catch (error) {
-      console.error('❌ Error hashing password:', error);
+      logger.error('❌ Error hashing password:', error);
       throw new Error('Erreur lors du hachage du mot de passe');
     }
   }
@@ -34,11 +35,11 @@ class PasswordSecurity {
     try {
       const isValid = await bcrypt.compare(password, hashedPassword);
       if (!isValid) {
-        console.log('🚨 Invalid password attempt');
+        logger.log('🚨 Invalid password attempt');
       }
       return isValid;
     } catch (error) {
-      console.error('❌ Error verifying password:', error);
+      logger.error('❌ Error verifying password:', error);
       throw new Error('Erreur lors de la vérification du mot de passe');
     }
   }
@@ -98,10 +99,10 @@ class TokenSecurity {
         audience: 'blossom-cafe-users'
       });
 
-      console.log('✅ JWT token generated for user:', payload.id);
+      logger.log('✅ JWT token generated for user:', payload.id);
       return token;
     } catch (error) {
-      console.error('❌ Error generating token:', error);
+      logger.error('❌ Error generating token:', error);
       throw new Error('Erreur lors de la génération du token');
     }
   }
@@ -124,10 +125,10 @@ class TokenSecurity {
         audience: 'blossom-cafe-refresh'
       });
 
-      console.log('✅ Refresh token generated for user:', userId);
+      logger.log('✅ Refresh token generated for user:', userId);
       return refreshToken;
     } catch (error) {
-      console.error('❌ Error generating refresh token:', error);
+      logger.error('❌ Error generating refresh token:', error);
       throw new Error('Erreur lors de la génération du refresh token');
     }
   }
@@ -142,10 +143,10 @@ class TokenSecurity {
         audience: ['blossom-cafe-users', 'blossom-cafe-refresh']
       });
       
-      console.log('✅ Token verified for user:', decoded.id || decoded.userId);
+      logger.log('✅ Token verified for user:', decoded.id || decoded.userId);
       return decoded;
     } catch (error) {
-      console.log('🚨 Token verification failed:', error.message);
+      logger.log('🚨 Token verification failed:', error.message);
       throw new Error('Token invalide ou expiré');
     }
   }
@@ -157,7 +158,7 @@ class TokenSecurity {
     try {
       return jwt.decode(token);
     } catch (error) {
-      console.error('❌ Error decoding token:', error);
+      logger.error('❌ Error decoding token:', error);
       return null;
     }
   }

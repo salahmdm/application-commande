@@ -8,6 +8,7 @@ const mysql = require('mysql2/promise');
 // Utiliser la configuration centralisée depuis config.js
 require('dotenv').config();
 const configModule = require('./config');
+const logger = require('./utils/logger');
 const config = {
   db: configModule.database
 };
@@ -16,11 +17,11 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
   let connection;
   
   try {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🔍 DIAGNOSTIC COMMANDES UTILISATEUR');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📧 Email recherché:', email);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('🔍 DIAGNOSTIC COMMANDES UTILISATEUR');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('📧 Email recherché:', email);
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     // Connexion à la base de données
     connection = await mysql.createConnection({
@@ -31,12 +32,12 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
       database: config.db.database
     });
     
-    console.log('✅ Connexion à la base de données réussie\n');
+    logger.log('✅ Connexion à la base de données réussie\n');
     
     // 1. Trouver l'utilisateur
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('1️⃣ RECHERCHE UTILISATEUR');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('1️⃣ RECHERCHE UTILISATEUR');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     const [users] = await connection.query(
       'SELECT id, email, first_name, last_name, role FROM users WHERE email = ?',
@@ -44,29 +45,29 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
     );
     
     if (users.length === 0) {
-      console.error('❌ Utilisateur non trouvé avec l\'email:', email);
-      console.log('\n📋 Liste de tous les utilisateurs:');
+      logger.error('❌ Utilisateur non trouvé avec l\'email:', email);
+      logger.log('\n📋 Liste de tous les utilisateurs:');
       const [allUsers] = await connection.query(
         'SELECT id, email, first_name, last_name, role FROM users LIMIT 10'
       );
       allUsers.forEach((u, idx) => {
-        console.log(`   ${idx + 1}. ID: ${u.id} - Email: ${u.email} - Nom: ${u.first_name} ${u.last_name}`);
+        logger.log(`   ${idx + 1}. ID: ${u.id} - Email: ${u.email} - Nom: ${u.first_name} ${u.last_name}`);
       });
       return;
     }
     
     const user = users[0];
-    console.log('✅ Utilisateur trouvé:');
-    console.log('   - ID:', user.id);
-    console.log('   - Email:', user.email);
-    console.log('   - Nom:', `${user.first_name} ${user.last_name}`);
-    console.log('   - Role:', user.role);
-    console.log('');
+    logger.log('✅ Utilisateur trouvé:');
+    logger.log('   - ID:', user.id);
+    logger.log('   - Email:', user.email);
+    logger.log('   - Nom:', `${user.first_name} ${user.last_name}`);
+    logger.log('   - Role:', user.role);
+    logger.log('');
     
     // 2. Compter les commandes pour cet utilisateur
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('2️⃣ COMPTAGE COMMANDES');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('2️⃣ COMPTAGE COMMANDES');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     const [countResult] = await connection.query(
       'SELECT COUNT(*) as total FROM orders WHERE user_id = ?',
@@ -74,14 +75,14 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
     );
     
     const totalOrders = countResult[0].total;
-    console.log(`📊 Total commandes pour user_id ${user.id}:`, totalOrders);
-    console.log('');
+    logger.log(`📊 Total commandes pour user_id ${user.id}:`, totalOrders);
+    logger.log('');
     
     // 3. Lister les commandes
     if (totalOrders > 0) {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('3️⃣ LISTE DES COMMANDES');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.log('3️⃣ LISTE DES COMMANDES');
+      logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       const [orders] = await connection.query(
         `SELECT 
@@ -102,21 +103,21 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
       );
       
       orders.forEach((order, idx) => {
-        console.log(`\n   ${idx + 1}. Commande #${order.order_number}:`);
-        console.log(`      - ID: ${order.id}`);
-        console.log(`      - Type: ${order.order_type}`);
-        console.log(`      - Status: ${order.status}`);
-        console.log(`      - Total: ${order.total_amount}€`);
-        console.log(`      - Paiement: ${order.payment_status}`);
-        console.log(`      - Items: ${order.items_count}`);
-        console.log(`      - Date: ${order.created_at}`);
+        logger.log(`\n   ${idx + 1}. Commande #${order.order_number}:`);
+        logger.log(`      - ID: ${order.id}`);
+        logger.log(`      - Type: ${order.order_type}`);
+        logger.log(`      - Status: ${order.status}`);
+        logger.log(`      - Total: ${order.total_amount}€`);
+        logger.log(`      - Paiement: ${order.payment_status}`);
+        logger.log(`      - Items: ${order.items_count}`);
+        logger.log(`      - Date: ${order.created_at}`);
       });
       
       // 4. Vérifier les items d'une commande
       if (orders.length > 0) {
-        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('4️⃣ DÉTAILS D\'UNE COMMANDE');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        logger.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        logger.log('4️⃣ DÉTAILS D\'UNE COMMANDE');
+        logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         
         const firstOrderId = orders[0].id;
         const [items] = await connection.query(
@@ -133,20 +134,20 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
           [firstOrderId]
         );
         
-        console.log(`\n📦 Items de la commande #${orders[0].order_number} (ID: ${firstOrderId}):`);
+        logger.log(`\n📦 Items de la commande #${orders[0].order_number} (ID: ${firstOrderId}):`);
         items.forEach((item, idx) => {
-          console.log(`   ${idx + 1}. ${item.product_name} x${item.quantity} - ${item.unit_price}€ = ${item.subtotal}€`);
+          logger.log(`   ${idx + 1}. ${item.product_name} x${item.quantity} - ${item.unit_price}€ = ${item.subtotal}€`);
         });
       }
     } else {
-      console.log('⚠️ Aucune commande trouvée pour cet utilisateur');
+      logger.log('⚠️ Aucune commande trouvée pour cet utilisateur');
       
       // Vérifier s'il y a des commandes dans la base
       const [allOrdersCount] = await connection.query('SELECT COUNT(*) as total FROM orders');
-      console.log(`\n📊 Total commandes dans la base: ${allOrdersCount[0].total}`);
+      logger.log(`\n📊 Total commandes dans la base: ${allOrdersCount[0].total}`);
       
       if (allOrdersCount[0].total > 0) {
-        console.log('\n📋 Exemples de commandes (tous utilisateurs):');
+        logger.log('\n📋 Exemples de commandes (tous utilisateurs):');
         const [sampleOrders] = await connection.query(
           `SELECT 
             o.id,
@@ -162,22 +163,22 @@ async function diagnosticUserOrders(email = 'client@blossom.com') {
         );
         
         sampleOrders.forEach((order, idx) => {
-          console.log(`   ${idx + 1}. Commande #${order.order_number} - User ID: ${order.user_id} (${order.user_email || 'N/A'}) - Total: ${order.total_amount}€`);
+          logger.log(`   ${idx + 1}. Commande #${order.order_number} - User ID: ${order.user_id} (${order.user_email || 'N/A'}) - Total: ${order.total_amount}€`);
         });
       }
     }
     
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ DIAGNOSTIC TERMINÉ');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.log('✅ DIAGNOSTIC TERMINÉ');
+    logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
   } catch (error) {
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌ ERREUR');
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('Message:', error.message);
-    console.error('Code:', error.code);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('❌ ERREUR');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('Message:', error.message);
+    logger.error('Code:', error.code);
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   } finally {
     if (connection) {
       await connection.end();
@@ -190,7 +191,7 @@ const email = process.argv[2] || 'client@blossom.com';
 diagnosticUserOrders(email).then(() => {
   process.exit(0);
 }).catch((error) => {
-  console.error('Erreur fatale:', error);
+  logger.error('Erreur fatale:', error);
   process.exit(1);
 });
 

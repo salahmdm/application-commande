@@ -1,10 +1,11 @@
-import React from 'react';
+import { Component } from 'react';
+import logger from '../../utils/logger';
 
 /**
  * Composant ErrorBoundary pour capturer les erreurs React
  * Affiche un message d'erreur au lieu d'une page blanche
  */
-class ErrorBoundary extends React.Component {
+class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
     this.state = { 
@@ -21,11 +22,11 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     // Enregistre l'erreur dans la console pour le débogage
-    console.error('❌❌❌ ERREUR CAPTURÉE PAR ERRORBOUNDARY ❌❌❌');
-    console.error('📋 Message:', error.message);
-    console.error('📋 Stack:', error.stack);
-    console.error('📋 Component Stack:', errorInfo.componentStack);
-    console.error('❌❌❌ FIN DE L\'ERREUR ❌❌❌');
+    logger.error('❌❌❌ ERREUR CAPTURÉE PAR ERRORBOUNDARY ❌❌❌');
+    logger.error('📋 Message:', error.message);
+    logger.error('📋 Stack:', error.stack);
+    logger.error('📋 Component Stack:', errorInfo.componentStack);
+    logger.error('❌❌❌ FIN DE L\'ERREUR ❌❌❌');
     
     // Sauvegarde les détails de l'erreur dans l'état
     this.setState({ 

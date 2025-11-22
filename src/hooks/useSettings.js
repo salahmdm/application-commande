@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import settingsService from '../services/settingsService';
+import logger from '../utils/logger';
 
 /**
  * Hook personnalisé pour les paramètres de l'application
@@ -28,12 +29,12 @@ const useSettings = () => {
             setCurrencySymbol(stored || '€');
           }
         } catch (error) {
-          console.error('❌ Erreur chargement devise:', error);
+          logger.error('❌ Erreur chargement devise:', error);
           const stored = localStorage.getItem('currency_symbol');
           setCurrencySymbol(stored || '€');
         }
       } catch (error) {
-        console.error('❌ Erreur chargement paramètre table_number_enabled:', error);
+        logger.error('❌ Erreur chargement paramètre table_number_enabled:', error);
         setTableNumberEnabled(false);
       } finally {
         setLoading(false);

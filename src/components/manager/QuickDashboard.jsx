@@ -73,7 +73,7 @@ const QuickDashboard = ({ className = '' }) => {
   // Simuler des données en temps réel
   useEffect(() => {
     const interval = setInterval(() => {
-      setMetrics(prev => ({
+      setMetrics(_prev => ({
         todayOrders: Math.floor(Math.random() * 50) + 20,
         todayRevenue: Math.floor(Math.random() * 2000) + 500,
         activeUsers: Math.floor(Math.random() * 10) + 5,

@@ -170,8 +170,11 @@ const errorHandler = (err, req, res, next) => {
     code: error.code
   };
 
-  // Ajouter les détails seulement en développement ou pour les erreurs opérationnelles
-  if (!isProd && error.details) {
+  // ✅ Toujours ajouter les détails pour les erreurs de validation (utiles pour l'utilisateur)
+  // Pour les autres erreurs, ajouter les détails seulement en développement
+  if (error.code === 'VALIDATION_ERROR' && error.details) {
+    response.details = error.details;
+  } else if (!isProd && error.details) {
     response.details = error.details;
   }
 

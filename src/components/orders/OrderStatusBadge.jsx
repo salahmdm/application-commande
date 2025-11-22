@@ -1,5 +1,5 @@
 import React from 'react';
-import { STATUS_LABELS, STATUS_COLORS, ORDER_STATUS } from '../../constants/orderStatuses';
+import { STATUS_COLORS, ORDER_STATUS } from '../../constants/orderStatuses';
 
 /**
  * Badge pour afficher le statut d'une commande

@@ -119,6 +119,299 @@
   --gradient-cool: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
 }
 
+/* 🌙 MODE SOMBRE - Styles globaux pour toute l'application */
+.dark {
+  /* Couleurs de fond pour le mode sombre */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-card: #1e293b;
+  --bg-card-hover: #334155;
+
+  /* Couleurs de texte pour le mode sombre */
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #94a3b8;
+  --text-muted: #64748b;
+}
+
+/* Fond global - HTML, Body et tous les conteneurs racine */
+html.dark,
+body.dark,
+.dark,
+.dark body,
+.dark html {
+  background-color: #0f172a !important;
+  background: #0f172a !important;
+  color: var(--text-primary) !important;
+}
+
+/* Forcer le fond sombre sur tous les éléments de niveau supérieur */
+html.dark > body,
+.dark > body,
+body.dark {
+  background-color: #0f172a !important;
+  background: #0f172a !important;
+}
+
+/* Fond principal de l'application */
+.dark .min-h-screen {
+  background-color: #0f172a !important;
+}
+
+/* Tous les conteneurs principaux */
+.dark main,
+.dark [role="main"],
+.dark #root,
+.dark #app {
+  background-color: #0f172a !important;
+}
+
+/* Override spécifique pour MainLayout et tous les conteneurs avec gradient */
+.dark div[class*="min-h-screen"][class*="bg-gradient"],
+.dark div[class*="from-white"],
+.dark div[class*="to-gray-50"],
+.dark div[class*="bg-gradient-to-br"] {
+  background: linear-gradient(to bottom right, rgb(15 23 42), rgb(30 41 59)) !important;
+  background-color: #0f172a !important;
+}
+
+/* Cibler tous les divs de niveau supérieur */
+.dark > div,
+.dark div:first-child {
+  background-color: #0f172a !important;
+}
+
+/* Style global pour forcer le fond sombre partout */
+.dark * {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Fond de l'application */
+.dark .app-container {
+  background: linear-gradient(to bottom right, rgb(15 23 42), rgb(30 41 59), rgb(15 23 42));
+}
+
+/* Tous les éléments avec bg-white deviennent bg-slate-800 */
+.dark .bg-white,
+.dark [class*="bg-white"] {
+  @apply bg-slate-800 !important;
+}
+
+/* Tous les éléments avec text-black deviennent text-white */
+.dark .text-black,
+.dark [class*="text-black"] {
+  @apply text-white !important;
+}
+
+/* Tous les éléments avec text-neutral deviennent text-slate-300 */
+.dark .text-neutral-600,
+.dark .text-neutral-700,
+.dark .text-neutral-800,
+.dark .text-neutral-900 {
+  @apply text-slate-300 !important;
+}
+
+.dark .text-neutral-400,
+.dark .text-neutral-500 {
+  color: rgb(148 163 184) !important;
+}
+
+/* Bordures */
+.dark .border-neutral-200,
+.dark .border-neutral-300,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  @apply border-slate-700 !important;
+}
+
+/* Cartes */
+.dark .card-modern,
+.dark .card-glass,
+.dark [class*="bg-white"] {
+  @apply bg-slate-800 border-slate-700 !important;
+}
+
+/* Inputs */
+.dark .input-modern,
+.dark input,
+.dark textarea,
+.dark select {
+  @apply bg-slate-800 border-slate-600 text-white placeholder-slate-400 !important;
+}
+
+/* Modales */
+.dark .modal-content,
+.dark [class*="modal"] {
+  @apply bg-slate-800 border-slate-700 text-white !important;
+}
+
+/* Badges de statut */
+.dark .status-success {
+  @apply bg-emerald-900/30 text-emerald-300 border-emerald-700 !important;
+}
+
+.dark .status-warning {
+  @apply bg-amber-900/30 text-amber-300 border-amber-700 !important;
+}
+
+.dark .status-danger {
+  @apply bg-red-900/30 text-red-300 border-red-700 !important;
+}
+
+.dark .status-info {
+  @apply bg-blue-900/30 text-blue-300 border-blue-700 !important;
+}
+
+.dark .status-neutral {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(226 232 240) !important;
+  border-color: rgb(71 85 105) !important;
+}
+
+/* Titres et textes */
+.dark .page-title,
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  @apply text-white !important;
+}
+
+.dark .page-subtitle,
+.dark .section-title,
+.dark .card-title {
+  color: rgb(226 232 240) !important;
+}
+
+.dark .card-subtitle {
+  color: rgb(148 163 184) !important;
+}
+
+/* Boutons */
+.dark .btn-outline {
+  border-color: rgb(71 85 105) !important;
+  color: rgb(203 213 225) !important;
+}
+
+.dark .btn-outline:hover {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(255 255 255) !important;
+}
+
+/* Ombres en mode sombre */
+.dark .shadow-lg,
+.dark .shadow-xl,
+.dark .shadow-2xl {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Backgrounds avec gradients - Priorité haute pour tous les gradients */
+.dark .bg-gradient-to-br,
+.dark .bg-gradient-to-r,
+.dark .bg-gradient-to-l,
+.dark .bg-gradient-to-t,
+.dark .bg-gradient-to-b {
+  background-image: linear-gradient(to bottom right, rgb(15 23 42), rgb(30 41 59), rgb(15 23 42)) !important;
+  background-color: #0f172a !important;
+}
+
+.dark .from-slate-50,
+.dark .from-white,
+.dark .via-white,
+.dark .to-blue-50,
+.dark .to-gray-50,
+.dark .to-slate-50 {
+  --tw-gradient-from: rgb(15 23 42) !important;
+  --tw-gradient-via: rgb(30 41 59) !important;
+  --tw-gradient-to: rgb(51 65 85) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important;
+}
+
+/* Gradient spécifique pour MainLayout */
+.dark .bg-gradient-to-br.from-white.to-gray-50,
+.dark [class*="from-white"][class*="to-gray"] {
+  background-image: linear-gradient(to bottom right, rgb(15 23 42), rgb(30 41 59)) !important;
+}
+
+/* Backgrounds neutres */
+.dark .bg-neutral-50,
+.dark .bg-neutral-100,
+.dark .bg-slate-50,
+.dark .bg-slate-100,
+.dark .bg-gray-50,
+.dark .bg-gray-100 {
+  @apply bg-slate-900 !important;
+}
+
+.dark .bg-neutral-200,
+.dark .bg-slate-200,
+.dark .bg-gray-200 {
+  @apply bg-slate-800 !important;
+}
+
+.dark .bg-gray-300,
+.dark .bg-gray-400 {
+  @apply bg-slate-700 !important;
+}
+
+/* Textes avec slate */
+.dark .text-slate-600,
+.dark .text-slate-700,
+.dark .text-slate-800,
+.dark .text-slate-900 {
+  @apply text-slate-200 !important;
+}
+
+.dark .text-slate-400,
+.dark .text-slate-500 {
+  color: rgb(148 163 184) !important;
+}
+
+/* Bordures slate */
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  @apply border-slate-700 !important;
+}
+
+/* Hover states */
+.dark .hover\:bg-white:hover {
+  @apply bg-slate-700 !important;
+}
+
+.dark .hover\:bg-neutral-100:hover,
+.dark .hover\:bg-slate-100:hover {
+  @apply bg-slate-700 !important;
+}
+
+/* Backdrop et overlays */
+.dark .backdrop-blur-sm,
+.dark .backdrop-blur-md,
+.dark .backdrop-blur-lg {
+  background-color: rgba(15, 23, 42, 0.8) !important;
+}
+
+/* Scrollbar en mode sombre */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: rgb(15 23 42);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgb(71 85 105);
+}
+
 /* Reset et styles de base modernes */
 * {
   margin: 0;
@@ -146,7 +439,7 @@ body {
 @layer components {
   /* Container principal */
   .app-container {
-    @apply min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50;
+    background: linear-gradient(to bottom right, rgb(248 250 252), rgb(255 255 255), rgb(239 246 255));
   }
 
   /* Container de page */

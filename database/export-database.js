@@ -22,20 +22,20 @@ async function exportDatabase() {
       database: configModule.database.database
     };
 
-    console.log('📊 Export de la base de données...\n');
-    console.log(`Base de données: ${config.database}`);
-    console.log(`Host: ${config.host}:${config.port}\n`);
+    logger.log('📊 Export de la base de données...\n');
+    logger.log(`Base de données: ${config.database}`);
+    logger.log(`Host: ${config.host}:${config.port}\n`);
 
     // Vérifier si mysqldump est disponible
     try {
       await execAsync('mysqldump --version');
     } catch (error) {
-      console.error('❌ mysqldump n\'est pas installé ou n\'est pas dans le PATH');
-      console.error('   Installez MySQL Client pour utiliser mysqldump');
-      console.error('   Ou utilisez une alternative comme phpMyAdmin\n');
+      logger.error('❌ mysqldump n\'est pas installé ou n\'est pas dans le PATH');
+      logger.error('   Installez MySQL Client pour utiliser mysqldump');
+      logger.error('   Ou utilisez une alternative comme phpMyAdmin\n');
       
       // Alternative : export manuel via connexion
-      console.log('🔄 Tentative d\'export via connexion directe...\n');
+      logger.log('🔄 Tentative d\'export via connexion directe...\n');
       await exportViaConnection(config);
       return;
     }
@@ -48,7 +48,7 @@ async function exportDatabase() {
     // Commande mysqldump
     const command = `mysqldump -h ${config.host} -P ${config.port} -u ${config.user} -p${config.password} ${config.database} > "${filepath}"`;
 
-    console.log('⏳ Export en cours...');
+    logger.log('⏳ Export en cours...');
     await execAsync(command);
 
     // Vérifier que le fichier existe et a du contenu
@@ -56,24 +56,25 @@ async function exportDatabase() {
       const stats = fs.statSync(filepath);
       const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
       
-      console.log('✅ Export réussi !\n');
-      console.log(`📁 Fichier: ${filepath}`);
-      console.log(`📊 Taille: ${fileSizeMB} MB`);
-      console.log(`\n💡 Vous pouvez maintenant sauvegarder ce fichier en lieu sûr.`);
+      logger.log('✅ Export réussi !\n');
+      logger.log(`📁 Fichier: ${filepath}`);
+      logger.log(`📊 Taille: ${fileSizeMB} MB`);
+      logger.log(`\n💡 Vous pouvez maintenant sauvegarder ce fichier en lieu sûr.`);
     } else {
       throw new Error('Le fichier de sauvegarde n\'a pas été créé');
     }
 
   } catch (error) {
-    console.error('❌ Erreur lors de l\'export:', error.message);
+    logger.error('❌ Erreur lors de l\'export:', error.message);
     
       // Si mysqldump échoue, essayer l'export via connexion
     if (error.message.includes('mysqldump') || error.code === 'ENOENT') {
-      console.log('\n🔄 Tentative d\'export via connexion directe...\n');
+      logger.log('\n🔄 Tentative d\'export via connexion directe...\n');
       try {
         // Réutiliser la config déjà chargée
         require('dotenv').config();
         const configModule = require('./config');
+const logger = require('./utils/logger');
         const config = {
           host: configModule.database.host,
           port: configModule.database.port,
@@ -83,7 +84,7 @@ async function exportDatabase() {
         };
         await exportViaConnection(config);
       } catch (err) {
-        console.error('❌ Erreur export via connexion:', err.message);
+        logger.error('❌ Erreur export via connexion:', err.message);
       }
     }
   }
@@ -97,7 +98,7 @@ async function exportViaConnection(config) {
     const filename = `blossom_cafe_backup_${timestamp}.sql`;
     const filepath = path.join(__dirname, filename);
     
-    console.log('⏳ Récupération de la structure et des données...');
+    logger.log('⏳ Récupération de la structure et des données...');
     
     let sqlContent = `-- Export de la base de données ${config.database}\n`;
     sqlContent += `-- Date: ${new Date().toISOString()}\n\n`;
@@ -109,7 +110,7 @@ async function exportViaConnection(config) {
     
     for (const table of tables) {
       const tableName = table[tableKey];
-      console.log(`  📋 Export de la table: ${tableName}`);
+      logger.log(`  📋 Export de la table: ${tableName}`);
       
       // Structure de la table
       const [createTable] = await connection.query(`SHOW CREATE TABLE \`${tableName}\``);
@@ -152,14 +153,14 @@ async function exportViaConnection(config) {
     const stats = fs.statSync(filepath);
     const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
     
-    console.log('\n✅ Export réussi !\n');
-    console.log(`📁 Fichier: ${filepath}`);
-    console.log(`📊 Taille: ${fileSizeMB} MB`);
-    console.log(`📋 Tables exportées: ${tables.length}`);
-    console.log(`\n💡 Vous pouvez maintenant sauvegarder ce fichier en lieu sûr.`);
+    logger.log('\n✅ Export réussi !\n');
+    logger.log(`📁 Fichier: ${filepath}`);
+    logger.log(`📊 Taille: ${fileSizeMB} MB`);
+    logger.log(`📋 Tables exportées: ${tables.length}`);
+    logger.log(`\n💡 Vous pouvez maintenant sauvegarder ce fichier en lieu sûr.`);
     
   } catch (error) {
-    console.error('❌ Erreur lors de l\'export:', error.message);
+    logger.error('❌ Erreur lors de l\'export:', error.message);
     throw error;
   } finally {
     await connection.end();

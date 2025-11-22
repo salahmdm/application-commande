@@ -1,0 +1,129 @@
+/* Notification d'ajout au panier avec animation */
+
+.cart-notification {
+  position: fixed;
+  top: calc(28vh + 24px);
+  right: 32px;
+  background: #0f172a;
+  color: #ffffff;
+  border-radius: 16px;
+  padding: 20px 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.3);
+  z-index: 1000;
+  min-width: 320px;
+  max-width: 400px;
+  transform: translateX(400px);
+  opacity: 0;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cart-notification--visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.cart-notification--hidden {
+  transform: translateX(400px);
+  opacity: 0;
+}
+
+.cart-notification__content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.cart-notification__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  flex-shrink: 0;
+  animation: checkmark 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes checkmark {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.cart-notification__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cart-notification__product {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cart-notification__message {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Animation de pulse pour attirer l'attention */
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.3);
+  }
+  50% {
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.5), 0 0 0 4px rgba(34, 197, 94, 0.2);
+  }
+}
+
+.cart-notification--visible {
+  animation: pulse 2s ease-in-out;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .cart-notification {
+    top: calc(28vh + 16px);
+    right: 16px;
+    left: 16px;
+    min-width: auto;
+    max-width: none;
+    transform: translateY(-100px);
+  }
+
+  .cart-notification--visible {
+    transform: translateY(0);
+  }
+
+  .cart-notification--hidden {
+    transform: translateY(-100px);
+  }
+}
+

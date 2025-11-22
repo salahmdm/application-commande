@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import secureAuthService from '../services/secureAuthService';
+import logger from '../../utils/logger';
 
 /**
  * Composant de protection des routes
@@ -25,7 +26,7 @@ const SecureRoute = ({
       try {
         // Vérifier si l'utilisateur est connecté
         if (!secureAuthService.isAuthenticated()) {
-          console.log('🚨 Unauthorized access attempt - not authenticated');
+          logger.debug('🚨 Unauthorized access attempt - not authenticated');
           navigate(fallbackPath);
           return;
         }
@@ -33,7 +34,7 @@ const SecureRoute = ({
         // Récupérer les données utilisateur
         const user = secureAuthService.getCurrentUser();
         if (!user) {
-          console.log('🚨 Unauthorized access attempt - no user data');
+          logger.debug('🚨 Unauthorized access attempt - no user data');
           navigate(fallbackPath);
           return;
         }
@@ -42,7 +43,8 @@ const SecureRoute = ({
         if (requiredRole) {
           const hasRole = checkUserRole(user.role, requiredRole);
           if (!hasRole) {
-            console.log(`🚨 Unauthorized access attempt - insufficient role: ${user.role} (required: ${requiredRole})`);
+            // ✅ SÉCURITÉ: Ne pas logger le rôle utilisateur (données sensibles)
+            logger.debug(`🚨 Unauthorized access attempt - insufficient role (required: ${requiredRole})`);
             navigate('/unauthorized');
             return;
           }
@@ -50,7 +52,7 @@ const SecureRoute = ({
 
         setIsAuthorized(true);
       } catch (error) {
-        console.error('❌ Authorization check error:', error);
+        logger.error('❌ Authorization check error:', error);
         navigate(fallbackPath);
       } finally {
         setIsLoading(false);
@@ -110,7 +112,7 @@ export const useAuthorization = () => {
           setUser(null);
         }
       } catch (error) {
-        console.error('❌ Auth check error:', error);
+        logger.error('❌ Auth check error:', error);
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -204,7 +206,7 @@ export const SecureRedirect = ({
  */
 export const useSecureErrorHandler = () => {
   const handleError = (error, context = '') => {
-    console.error(`❌ Secure Error Handler [${context}]:`, error);
+    logger.error(`❌ Secure Error Handler [${context}]:`, error);
     
     // Ne pas exposer les détails d'erreur sensibles
     const sanitizedError = {
@@ -237,7 +239,9 @@ export const XSSProtection = ({ children, content }) => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
     
-    return <span dangerouslySetInnerHTML={{ __html: escapedContent }} />;
+    // ✅ SÉCURITÉ: Utiliser textContent au lieu de dangerouslySetInnerHTML
+    // React échappe automatiquement le contenu dans les éléments
+    return <span>{escapedContent}</span>;
   }
   
   return children;

@@ -21,6 +21,10 @@ const NEW_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 const oldSupabase = createClient(OLD_SUPABASE_URL, OLD_SUPABASE_KEY);
 const newSupabase = createClient(NEW_SUPABASE_URL, NEW_SUPABASE_KEY);
 
+console.log('✅ Clients Supabase créés');
+console.log(`   Ancien compte: ${OLD_SUPABASE_URL}`);
+console.log(`   Nouveau compte: ${NEW_SUPABASE_URL}`);
+
 // Liste des tables à transférer (dans l'ordre des dépendances)
 const TABLES_TO_TRANSFER = [
   // Tables sans dépendances

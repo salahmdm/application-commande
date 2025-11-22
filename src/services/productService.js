@@ -1,9 +1,18 @@
 import { apiCall } from './api';
 import logger from '../utils/logger';
+import supabaseService from './supabaseService';
+
+/**
+ * Vérifier si on doit utiliser Supabase directement (sur Vercel sans backend)
+ */
+const shouldUseSupabase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  return !apiUrl || apiUrl === '';
+};
 
 /**
  * Service de gestion des produits
- * Connecté au backend MySQL via API
+ * Connecté au backend MySQL via API ou directement à Supabase (sur Vercel)
  */
 
 const productService = {
@@ -12,6 +21,27 @@ const productService = {
    */
   async getAllProducts(filters = {}) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 productService.getAllProducts - Utilisation Supabase direct');
+        const supabaseFilters = {
+          isActive: filters.featured ? undefined : true, // Par défaut, seulement actifs
+        };
+        if (filters.category) {
+          supabaseFilters.categoryId = filters.category;
+        }
+        if (filters.search) {
+          supabaseFilters.search = filters.search;
+        }
+        const result = await supabaseService.getProducts(supabaseFilters);
+        if (result.success) {
+          logger.log(`✅ productService.getAllProducts - ${result.data.length} produits récupérés depuis Supabase`);
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur Supabase');
+        }
+      }
+
       logger.log('🔄 productService.getAllProducts - Appel API');
       let endpoint = '/products';  // ✅ Route publique
       const params = new URLSearchParams();
@@ -39,6 +69,19 @@ const productService = {
    */
   async getAllProductsAdmin() {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 productService.getAllProductsAdmin - Utilisation Supabase direct (tous les produits)');
+        // Pour l'admin, récupérer tous les produits (actifs ET inactifs)
+        const result = await supabaseService.getProducts({ isActive: undefined });
+        if (result.success) {
+          logger.log(`✅ productService.getAllProductsAdmin - ${result.data.length} produits récupérés depuis Supabase (tous)`);
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur Supabase');
+        }
+      }
+
       logger.log('🔄 productService.getAllProductsAdmin - Appel API route admin');
       const response = await apiCall('/admin/products');  // ✅ Route admin
       logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (tous)');
@@ -131,6 +174,18 @@ const productService = {
    */
   async getCategories() {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 productService.getCategories - Utilisation Supabase direct');
+        const result = await supabaseService.getCategories({ isActive: true });
+        if (result.success) {
+          logger.log(`✅ productService.getCategories - ${result.data.length} catégories récupérées depuis Supabase`);
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur Supabase');
+        }
+      }
+
       logger.log('🔄 productService.getCategories - Appel API');
       const response = await apiCall('/categories');  // ✅ Route publique
       logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'catégories');

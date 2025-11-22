@@ -14,12 +14,12 @@ import { createClient } from '@supabase/supabase-js';
 // - NEXT_PUBLIC_SUPABASE_URL (format Next.js, aussi supporté par Vercel)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 
                     import.meta.env.NEXT_PUBLIC_SUPABASE_URL || 
-                    'https://uvwvfotlvhsplahmnzll.supabase.co';
+                    'https://brygzpxiemwthickhuqb.supabase.co';
 
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 
                     import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
                     import.meta.env.SUPABASE_KEY || 
-                    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg';
+                    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A';
 
 // Vérifier que les variables sont bien définies
 if (!supabaseUrl || !supabaseKey) {

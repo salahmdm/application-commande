@@ -18,8 +18,8 @@ export const testSupabaseConnection = async () => {
   console.log('   VITE_SUPABASE_ANON_KEY:', viteKey ? '✅ défini' : '❌ non défini');
   console.log('   NEXT_PUBLIC_SUPABASE_ANON_KEY:', nextKey ? '✅ défini' : '❌ non défini');
 
-  const supabaseUrl = viteUrl || nextUrl || 'https://uvwvfotlvhsplahmnzll.supabase.co';
-  const supabaseKey = viteKey || nextKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg';
+  const supabaseUrl = viteUrl || nextUrl || 'https://brygzpxiemwthickhuqb.supabase.co';
+  const supabaseKey = viteKey || nextKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A';
 
   if (!viteUrl && !nextUrl) {
     console.warn('⚠️ Aucune variable d\'environnement trouvée, utilisation des valeurs par défaut');

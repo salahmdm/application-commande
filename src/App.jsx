@@ -1,12 +1,8 @@
 import React, { useEffect } from 'react';
 import ErrorBoundary from './components/common/ErrorBoundary';
-import BackendCheck from './components/common/BackendCheck';
-import { NotificationContainer } from './components/common/Notification';
-import OfflineIndicator from './components/common/OfflineIndicator';
 import MainLayout from './components/layout/MainLayout';
 import AuthView from './views/auth/AuthView';
 import useAuth from './hooks/useAuth';
-import useNotifications from './hooks/useNotifications';
 import useUIStore from './store/uiStore';
 import useAuthStore from './store/authStore';
 import useServerDisconnection from './hooks/useServerDisconnection';
@@ -42,7 +38,6 @@ function App() {
   // ✅ Appels des hooks (doivent être au niveau supérieur, toujours dans le même ordre)
   // Les hooks sont maintenant protégés par les stores (gestion erreur localStorage)
   const { user, isAuthenticated } = useAuth();
-  const { notifications, dismiss } = useNotifications();
   const currentView = useUIStore((state) => state.currentView);
   const setCurrentView = useUIStore((state) => state.setCurrentView);
   

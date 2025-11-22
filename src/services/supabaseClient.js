@@ -1,16 +1,34 @@
 /**
  * Client Supabase pour l'application
  * Remplace les connexions MySQL
+ * 
+ * ✅ VERCEL + VITE: Utilise import.meta.env pour les variables d'environnement
+ * Les variables doivent être préfixées par VITE_ pour être exposées au client
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ VERCEL: Utiliser les variables d'environnement depuis Vercel
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 
+// ✅ VERCEL + VITE: Utiliser import.meta.env (Vite) au lieu de process.env
+// Support des deux formats pour compatibilité :
+// - VITE_SUPABASE_URL (format Vite standard)
+// - NEXT_PUBLIC_SUPABASE_URL (format Next.js, aussi supporté par Vercel)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 
+                    import.meta.env.NEXT_PUBLIC_SUPABASE_URL || 
                     'https://crkpunuoliiqyuxtgqlr.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-                    process.env.SUPABASE_KEY || 
+
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 
+                    import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+                    import.meta.env.SUPABASE_KEY || 
                     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNya3B1bnVvbGlpcXl1eHRncWxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3OTQ5NzcsImV4cCI6MjA3OTM3MDk3N30.5_ck1BCakmbijIr8tbIkvfrNPwllmnMEAgEq6gCN2c0';
+
+// Vérifier que les variables sont bien définies
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ ERREUR: Variables Supabase manquantes !');
+  console.error('   VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL);
+  console.error('   NEXT_PUBLIC_SUPABASE_URL:', import.meta.env.NEXT_PUBLIC_SUPABASE_URL);
+  console.error('   VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'défini' : 'non défini');
+  console.error('   NEXT_PUBLIC_SUPABASE_ANON_KEY:', import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'défini' : 'non défini');
+}
 
 // Créer le client Supabase
 const supabase = createClient(supabaseUrl, supabaseKey, {

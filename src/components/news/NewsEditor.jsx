@@ -19,7 +19,8 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
     icon: '🍃',
     gradient: 'from-emerald-400 via-teal-500 to-cyan-600',
     bgPattern: '',
-    order: 0,
+    display_order: 0,
+    order: 0, // Fallback pour compatibilité
     is_new: false
   });
 
@@ -42,7 +43,8 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
       icon: '🍃',
       gradient: 'from-emerald-400 via-teal-500 to-cyan-600',
       bgPattern: '',
-      order: news.length || 0,
+      display_order: news.length || 0,
+      order: news.length || 0, // Fallback pour compatibilité
       is_new: false
     });
   };
@@ -58,7 +60,8 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
       icon: item.icon || '🍃',
       gradient: item.gradient || 'from-emerald-400 via-teal-500 to-cyan-600',
       bgPattern: item.bgPattern || item.bg_pattern || '',
-      order: item.order || 0,
+      display_order: item.display_order || item.order || 0,
+      order: item.order || 0, // Fallback pour compatibilité
       is_new: item.is_new || false
     });
   };
@@ -74,7 +77,8 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
       icon: '🍃',
       gradient: 'from-emerald-400 via-teal-500 to-cyan-600',
       bgPattern: '',
-      order: 0,
+      display_order: 0,
+      order: 0, // Fallback pour compatibilité
       is_new: false
     });
   };
@@ -213,8 +217,12 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ordre</label>
               <input
                 type="number"
-                value={formData.order}
-                onChange={(e) => handleChange('order', parseInt(e.target.value) || 0)}
+                value={formData.display_order || formData.order || 0}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 0;
+                  handleChange('display_order', value);
+                  handleChange('order', value); // Fallback pour compatibilité
+                }}
                 className="w-full px-3 py-2 border-2 border-neutral-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                 min="0"
               />
@@ -356,8 +364,12 @@ const NewsEditor = ({ news, onSave, onDelete }) => {
                       <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ordre</label>
                       <input
                         type="number"
-                        value={formData.order}
-                        onChange={(e) => handleChange('order', parseInt(e.target.value) || 0)}
+                        value={formData.display_order || formData.order || 0}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value) || 0;
+                          handleChange('display_order', value);
+                          handleChange('order', value); // Fallback pour compatibilité
+                        }}
                         className="w-full px-3 py-2 border-2 border-neutral-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                       />
                     </div>

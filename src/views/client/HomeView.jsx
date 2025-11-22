@@ -134,7 +134,7 @@ const HomeView = () => {
     try {
       const response = await newsService.getNews();
       if (response.success && response.data) {
-        setNews(response.data.sort((a, b) => (a.order || 0) - (b.order || 0)));
+        setNews(response.data.sort((a, b) => (a.display_order || a.order || 0) - (b.display_order || b.order || 0)));
       } else {
         setNews([]);
       }

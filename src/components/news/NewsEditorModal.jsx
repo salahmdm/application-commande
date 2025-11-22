@@ -31,7 +31,8 @@ const NewsEditorModal = ({ isOpen, onClose, newsItem, onSave }) => {
         icon: newsItem.icon || '🍃',
         gradient: newsItem.gradient || 'from-emerald-400 via-teal-500 to-cyan-600',
         bgPattern: newsItem.bgPattern || 'bg-[radial-gradient(circle_at_30%_50%,rgba(16,185,129,0.15),transparent_50%)]',
-        order: newsItem.order || 0
+        display_order: newsItem.display_order || newsItem.order || 0,
+        order: newsItem.order || 0 // Fallback pour compatibilité
       });
     } else {
       // Reset pour nouvelle actualité
@@ -43,7 +44,8 @@ const NewsEditorModal = ({ isOpen, onClose, newsItem, onSave }) => {
         icon: '🍃',
         gradient: 'from-emerald-400 via-teal-500 to-cyan-600',
         bgPattern: 'bg-[radial-gradient(circle_at_30%_50%,rgba(16,185,129,0.15),transparent_50%)]',
-        order: 0
+        display_order: 0,
+        order: 0 // Fallback pour compatibilité
       });
     }
   }, [newsItem, isOpen]);
@@ -186,8 +188,12 @@ const NewsEditorModal = ({ isOpen, onClose, newsItem, onSave }) => {
               <Input
                 type="number"
                 min="0"
-                value={formData.order}
-                onChange={(e) => handleChange('order', parseInt(e.target.value) || 0)}
+                value={formData.display_order || formData.order || 0}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 0;
+                  handleChange('display_order', value);
+                  handleChange('order', value); // Fallback pour compatibilité
+                }}
               />
             </div>
           </div>

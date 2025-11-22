@@ -20,6 +20,7 @@
     "react-dom": "^18.2.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.84.0",
     "firebase": "^12.6.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.294.0",

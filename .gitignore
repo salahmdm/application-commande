@@ -73,3 +73,11 @@ coverage/
 # Cache
 .cache/
 .parcel-cache/
+
+# Exports de base de données temporaires
+database/export_*_csv*/
+database/export_csv_*/
+database/schema_*.csv
+database/schema_*.txt
+database/*_CORRIGE.sql
+database/*_2025-*.sql

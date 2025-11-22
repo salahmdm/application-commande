@@ -13,6 +13,7 @@ import useServerDisconnection from './hooks/useServerDisconnection';
 import authServiceFirebase from './services/authServiceFirebase';
 import firebaseService from './services/firebaseService';
 import logger from './utils/logger';
+import { testSupabaseConnection } from './utils/testSupabaseConnection';
 
 // Client views
 import HomeView from './views/client/HomeView';
@@ -47,6 +48,14 @@ function App() {
   
   // ✅ Gestion automatique de la redirection vers la page d'accueil en cas de déconnexion serveur
   useServerDisconnection();
+
+  // ✅ Diagnostic Supabase : Exposer la fonction de test dans la console (développement uniquement)
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      window.testSupabaseConnection = testSupabaseConnection;
+      logger.log('💡 Pour tester la connexion Supabase, tapez dans la console : testSupabaseConnection()');
+    }
+  }, []);
   
   // ✅ Synchronisation Firebase Authentication avec le store - OPTIMISÉ
   useEffect(() => {

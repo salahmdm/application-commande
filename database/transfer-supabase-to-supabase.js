@@ -6,16 +6,16 @@
 const { createClient } = require('@supabase/supabase-js');
 
 // ============================================================================
-// ANCIEN COMPTE SUPABASE (source)
+// ANCIEN COMPTE SUPABASE (source) - Compte actuel avec les données
 // ============================================================================
-const OLD_SUPABASE_URL = 'https://crkpunuoliiqyuxtgqlr.supabase.co';
-const OLD_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNya3B1bnVvbGlpcXl1eHRncWxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3OTQ5NzcsImV4cCI6MjA3OTM3MDk3N30.5_ck1BCakmbijIr8tbIkvfrNPwllmnMEAgEq6gCN2c0';
+const OLD_SUPABASE_URL = 'https://brygzpxiemwthickhuqb.supabase.co';
+const OLD_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A';
 
 // ============================================================================
 // NOUVEAU COMPTE SUPABASE (destination)
 // ============================================================================
-const NEW_SUPABASE_URL = 'https://brygzpxiemwthickhuqb.supabase.co';
-const NEW_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A';
+const NEW_SUPABASE_URL = 'https://uvwvfotlvhsplahmnzll.supabase.co';
+const NEW_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg';
 
 // Créer les clients Supabase
 const oldSupabase = createClient(OLD_SUPABASE_URL, OLD_SUPABASE_KEY);

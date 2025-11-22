@@ -5,37 +5,17 @@
 -- Solution : Renommer la colonne "order" en "display_order" dans la table "news"
 -- ============================================================================
 
--- ÉTAPE 1 : Renommer la colonne "order" en "display_order" dans la table "news"
+-- ÉTAPE 1 : Vérifier si la colonne "order" existe et la renommer
 -- ============================================================================
 
-DO $$
-BEGIN
-  -- Vérifier si la colonne "order" existe et la renommer
-  IF EXISTS (
-    SELECT 1 
-    FROM information_schema.columns 
-    WHERE table_schema = 'public'
-    AND table_name = 'news' 
-    AND column_name = 'order'
-  ) THEN
-    -- Renommer la colonne
-    ALTER TABLE "news" RENAME COLUMN "order" TO "display_order";
-    RAISE NOTICE '✅ Colonne "order" renommée en "display_order" dans la table "news"';
-  ELSE
-    -- Vérifier si la colonne "display_order" existe déjà
-    IF EXISTS (
-      SELECT 1 
-      FROM information_schema.columns 
-      WHERE table_schema = 'public'
-      AND table_name = 'news' 
-      AND column_name = 'display_order'
-    ) THEN
-      RAISE NOTICE 'ℹ️ Colonne "display_order" existe déjà dans la table "news"';
-    ELSE
-      RAISE NOTICE '⚠️ Colonne "order" n''existe pas dans la table "news"';
-    END IF;
-  END IF;
-END $$;
+-- Méthode 1 : Renommer directement (échouera silencieusement si la colonne n'existe pas)
+-- Si la colonne "order" existe, elle sera renommée en "display_order"
+-- Si elle n'existe pas, l'erreur sera ignorée (vous pouvez vérifier manuellement)
+
+-- Renommer la colonne "order" en "display_order" dans la table "news"
+-- ⚠️ Cette commande échouera si la colonne "order" n'existe pas
+-- Dans ce cas, vérifiez que la colonne "display_order" existe déjà
+ALTER TABLE "news" RENAME COLUMN "order" TO "display_order";
 
 -- ============================================================================
 -- ÉTAPE 2 : Vérifier que la table "orders" utilise des guillemets (déjà fait)
@@ -77,4 +57,14 @@ WHERE table_schema = 'public'
   AND table_name = 'news'
   AND column_name IN ('order', 'display_order')
 ORDER BY column_name;
+
+-- ============================================================================
+-- NOTE IMPORTANTE
+-- ============================================================================
+-- Si cette commande échoue avec "column 'order' does not exist", cela signifie
+-- que la colonne a déjà été renommée ou n'existe pas.
+-- 
+-- Dans ce cas, utilisez le script migrate_fix_reserved_words_safe.sql
+-- qui vérifie l'existence de la colonne avant de la renommer.
+-- ============================================================================
 

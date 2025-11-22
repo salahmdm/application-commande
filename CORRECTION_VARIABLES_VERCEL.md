@@ -1,14 +1,10 @@
 # 🔧 Correction : Variables d'environnement Vercel
 
-## ⚠️ Problème identifié
+## ✅ Configuration finale
 
-Vous avez configuré les variables dans Vercel, mais elles pointent vers l'**ancien compte Supabase** :
-- ❌ URL : `https://crkpunuoliiqyuxtgqlr.supabase.co` (ancien compte)
-- ❌ Clé : Clé du compte intermédiaire `brygzpxiemwthickhuqb`
-
-**Mais les données sont dans le nouveau compte** :
-- ✅ URL : `https://uvwvfotlvhsplahmnzll.supabase.co`
-- ✅ Clé : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg`
+**Compte Supabase à utiliser** :
+- ✅ URL : `https://brygzpxiemwthickhuqb.supabase.co`
+- ✅ Clé : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A`
 
 ## ✅ Solution : Mettre à jour les variables Vercel
 
@@ -18,27 +14,27 @@ Vous avez configuré les variables dans Vercel, mais elles pointent vers l'**anc
 
 2. **Modifiez `NEXT_PUBLIC_SUPABASE_URL`** :
    - Cliquez sur la variable existante
-   - Changez la valeur en : `https://uvwvfotlvhsplahmnzll.supabase.co`
+   - Changez la valeur en : `https://brygzpxiemwthickhuqb.supabase.co`
    - Vérifiez que c'est défini pour **Production**, **Preview** et **Development**
    - Cliquez sur **Save**
 
 3. **Modifiez `NEXT_PUBLIC_SUPABASE_ANON_KEY`** :
    - Cliquez sur la variable existante
-   - Changez la valeur en : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg`
+   - Changez la valeur en : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A`
    - Vérifiez que c'est défini pour **Production**, **Preview** et **Development**
    - Cliquez sur **Save**
 
 4. **Ajoutez `VITE_SUPABASE_URL`** (si elle n'existe pas) :
    - Cliquez sur **Add New**
    - Nom : `VITE_SUPABASE_URL`
-   - Valeur : `https://uvwvfotlvhsplahmnzll.supabase.co`
+   - Valeur : `https://brygzpxiemwthickhuqb.supabase.co`
    - Sélectionnez **Production**, **Preview** et **Development**
    - Cliquez sur **Save**
 
 5. **Ajoutez `VITE_SUPABASE_ANON_KEY`** (si elle n'existe pas) :
    - Cliquez sur **Add New**
    - Nom : `VITE_SUPABASE_ANON_KEY`
-   - Valeur : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg`
+   - Valeur : `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A`
    - Sélectionnez **Production**, **Preview** et **Development**
    - Cliquez sur **Save**
 
@@ -47,10 +43,10 @@ Vous avez configuré les variables dans Vercel, mais elles pointent vers l'**anc
 Après avoir modifié, vous devriez avoir **4 variables** :
 
 ```
-✅ NEXT_PUBLIC_SUPABASE_URL = https://uvwvfotlvhsplahmnzll.supabase.co
-✅ NEXT_PUBLIC_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg
-✅ VITE_SUPABASE_URL = https://uvwvfotlvhsplahmnzll.supabase.co
-✅ VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2d3Zmb3RsdmhzcGxhaG1uemxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MjkzNzEsImV4cCI6MjA3OTQwNTM3MX0.djKzu2ZNwJeSrv8DOGkl7_8WnkMnWFpbFYmPBZtLFgg
+✅ NEXT_PUBLIC_SUPABASE_URL = https://brygzpxiemwthickhuqb.supabase.co
+✅ NEXT_PUBLIC_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A
+✅ VITE_SUPABASE_URL = https://brygzpxiemwthickhuqb.supabase.co
+✅ VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A
 ```
 
 ### Étape 3 : Redéployer
@@ -92,8 +88,8 @@ Après le redéploiement :
 
 ## 📋 Checklist
 
-- [ ] `NEXT_PUBLIC_SUPABASE_URL` modifié vers `https://uvwvfotlvhsplahmnzll.supabase.co`
-- [ ] `NEXT_PUBLIC_SUPABASE_ANON_KEY` modifié vers la nouvelle clé
+- [ ] `NEXT_PUBLIC_SUPABASE_URL` modifié vers `https://brygzpxiemwthickhuqb.supabase.co`
+- [ ] `NEXT_PUBLIC_SUPABASE_ANON_KEY` modifié vers la bonne clé
 - [ ] `VITE_SUPABASE_URL` ajouté avec la nouvelle URL
 - [ ] `VITE_SUPABASE_ANON_KEY` ajouté avec la nouvelle clé
 - [ ] Toutes les variables définies pour **Production**, **Preview** et **Development**

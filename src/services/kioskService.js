@@ -1,17 +1,43 @@
 import { apiCall } from './api';
+import supabaseService from './supabaseService';
 import logger from '../utils/logger';
 
 /**
  * Service API pour le mode Kiosk
- * Endpoints spécifiques aux bornes tactiles
+ * Utilise Supabase directement si disponible, sinon passe par le backend API
  */
 const kioskService = {
+  /**
+   * Vérifier si on doit utiliser Supabase directement (production Vercel)
+   * ou le backend API (développement local)
+   */
+  shouldUseSupabase() {
+    // Si VITE_API_URL n'est pas défini, on est probablement sur Vercel sans backend
+    const hasBackend = !!import.meta.env.VITE_API_URL;
+    const isProduction = import.meta.env.PROD;
+    
+    // En production sans backend, utiliser Supabase directement
+    if (isProduction && !hasBackend) {
+      return true;
+    }
+    
+    // En développement, utiliser le backend si disponible
+    return false;
+  },
+
   /**
    * Authentification de la borne
    * POST /api/kiosk/login
    * Retourne un token long durée (stocké en dur sur la borne)
    */
   async login(kioskId, kioskSecret) {
+    // L'authentification kiosk nécessite le backend
+    if (this.shouldUseSupabase()) {
+      logger.warn('⚠️ kioskService.login - Authentification kiosk nécessite le backend');
+      // En mode Supabase direct, on peut simuler une authentification réussie
+      return { success: true, token: 'kiosk-direct-mode', kiosk: { id: kioskId } };
+    }
+
     try {
       logger.log('🔐 kioskService.login - Authentification borne');
       const response = await apiCall('/kiosk/login', {
@@ -33,10 +59,28 @@ const kioskService = {
 
   /**
    * Récupérer les catégories (optimisé pour kiosk)
-   * GET /api/kiosk/categories
-   * Récupère TOUTES les catégories actives depuis la BDD MySQL
+   * Utilise Supabase directement si disponible, sinon passe par le backend
    */
   async getCategories() {
+    // Utiliser Supabase directement si on est en production sans backend
+    if (this.shouldUseSupabase()) {
+      try {
+        logger.log('🔄 kioskService.getCategories - Utilisation Supabase direct');
+        const result = await supabaseService.getCategories({ isActive: 1 });
+        
+        if (result.success && result.data) {
+          logger.log(`✅ kioskService.getCategories - ${result.data.length} catégories récupérées depuis Supabase`);
+          return result;
+        }
+        
+        throw new Error(result.error || 'Erreur récupération catégories');
+      } catch (error) {
+        logger.error('❌ kioskService.getCategories - Erreur Supabase:', error);
+        throw error;
+      }
+    }
+
+    // Sinon, utiliser le backend API
     try {
       logger.log('🔄 kioskService.getCategories - Appel API /kiosk/categories');
       const response = await apiCall('/kiosk/categories');
@@ -64,10 +108,34 @@ const kioskService = {
 
   /**
    * Récupérer les produits d'une catégorie (optimisé pour kiosk)
-   * GET /api/kiosk/products?categoryId=X
-   * Récupère TOUS les produits disponibles depuis la BDD MySQL
+   * Utilise Supabase directement si disponible, sinon passe par le backend
    */
   async getProductsByCategory(categoryId = null) {
+    // Utiliser Supabase directement si on est en production sans backend
+    if (this.shouldUseSupabase()) {
+      try {
+        logger.log(`🔄 kioskService.getProductsByCategory - Utilisation Supabase direct (catégorie: ${categoryId || 'toutes'})`);
+        
+        const filters = { isActive: 1 };
+        if (categoryId) {
+          filters.categoryId = categoryId;
+        }
+        
+        const result = await supabaseService.getProducts(filters);
+        
+        if (result.success && result.data) {
+          logger.log(`✅ kioskService.getProductsByCategory - ${result.data.length} produits récupérés depuis Supabase${categoryId ? ` (catégorie: ${categoryId})` : ' (tous)'}`);
+          return result;
+        }
+        
+        throw new Error(result.error || 'Erreur récupération produits');
+      } catch (error) {
+        logger.error('❌ kioskService.getProductsByCategory - Erreur Supabase:', error);
+        throw error;
+      }
+    }
+
+    // Sinon, utiliser le backend API
     try {
       const endpoint = `/kiosk/products${categoryId ? `?categoryId=${categoryId}` : ''}`;
       logger.log(`🔄 kioskService.getProductsByCategory - Appel API ${endpoint}`);

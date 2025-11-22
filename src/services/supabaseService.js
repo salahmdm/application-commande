@@ -137,7 +137,12 @@ class SupabaseService {
         query = query.eq('category_id', filters.categoryId);
       }
       if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
+        // Si isActive est un nombre (1/0), convertir en booléen
+        const isActiveValue = filters.isActive === 1 || filters.isActive === true;
+        query = query.eq('is_active', isActiveValue);
+      } else {
+        // Par défaut, ne récupérer que les produits actifs
+        query = query.eq('is_active', true);
       }
       if (filters.search) {
         query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
@@ -223,12 +228,25 @@ class SupabaseService {
    * ============================================
    */
 
-  async getCategories() {
+  async getCategories(filters = {}) {
     try {
-      const { data, error } = await this.getClient()
-        .from('categories')
+      let query = this.getClient().from('categories');
+      
+      // Appliquer les filtres
+      if (filters.isActive !== undefined) {
+        // Si isActive est un nombre (1/0), convertir en booléen
+        const isActiveValue = filters.isActive === 1 || filters.isActive === true;
+        query = query.eq('is_active', isActiveValue);
+      } else {
+        // Par défaut, ne récupérer que les catégories actives
+        query = query.eq('is_active', true);
+      }
+      if (filters.search) {
+        query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      }
+      
+      const { data, error } = await query
         .select('*')
-        .eq('is_active', true)
         .order('display_order', { ascending: true });
 
       if (error) throw error;

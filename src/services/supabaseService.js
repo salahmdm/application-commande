@@ -136,11 +136,11 @@ class SupabaseService {
       if (filters.categoryId) {
         query = query.eq('category_id', filters.categoryId);
       }
-      // ✅ CORRECTION: Si isActive est undefined, ne pas filtrer (pour récupérer tous les produits)
+      // ✅ CORRECTION: Dans Supabase, la colonne s'appelle 'is_available' et non 'is_active'
       if (filters.isActive !== undefined) {
         // Si isActive est un nombre (1/0), convertir en booléen
         const isActiveValue = filters.isActive === 1 || filters.isActive === true;
-        query = query.eq('is_active', isActiveValue);
+        query = query.eq('is_available', isActiveValue);
       }
       // Si isActive est undefined, on ne filtre pas (pour l'admin qui veut tous les produits)
       if (filters.search) {

@@ -29,14 +29,24 @@ J'ai modifié `kioskService` pour utiliser **Supabase directement** depuis le fr
 
 ### 1. Variables Vercel (obligatoires)
 
-Dans **Vercel Dashboard → Settings → Environment Variables**, vérifiez que vous avez :
+Dans **Vercel Dashboard → Settings → Environment Variables**, vous pouvez utiliser **l'un des deux formats** :
 
+**Format Vite (recommandé)** :
 ```
 VITE_SUPABASE_URL=https://crkpunuoliiqyuxtgqlr.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-**Important** : Ces variables doivent être définies pour **Production**, **Preview** et **Development**.
+**Format Next.js (aussi supporté)** :
+```
+NEXT_PUBLIC_SUPABASE_URL=https://crkpunuoliiqyuxtgqlr.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Important** : 
+- Les deux formats fonctionnent (le code supporte les deux)
+- `VITE_*` est recommandé pour Vite, `NEXT_PUBLIC_*` fonctionne aussi
+- Ces variables doivent être définies pour **Production**, **Preview** et **Development**
 
 ### 2. Policies RLS Supabase
 
@@ -88,7 +98,9 @@ Si les données ne s'affichent toujours pas :
 Ouvrez la console du navigateur et tapez :
 ```javascript
 console.log('VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL);
+console.log('NEXT_PUBLIC_SUPABASE_URL:', import.meta.env.NEXT_PUBLIC_SUPABASE_URL);
 console.log('VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'défini' : 'non défini');
+console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'défini' : 'non défini');
 ```
 
 ### 2. Vérifier les erreurs Supabase

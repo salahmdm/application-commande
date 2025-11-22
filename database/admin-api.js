@@ -8,7 +8,9 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const mysql = require('mysql2/promise');
+// ✅ MIGRATION SUPABASE: Remplacé mysql2 par Supabase
+// const mysql = require('mysql2/promise');
+const supabaseService = require('./supabase-backend-service');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
@@ -22,7 +24,8 @@ const crypto = require('crypto');
 const logger = require('./utils/logger'); // ✅ SÉCURITÉ: Logger structuré
 const { errorHandler, asyncHandler, notFoundHandler } = require('./middleware/errorHandler'); // ✅ Gestion d'erreurs centralisée
 const { parsePaginationParams, getPaginationMetadata, formatPaginatedResponse } = require('./utils/pagination'); // ✅ Pagination
-const PoolMonitor = require('./utils/pool-monitor'); // ✅ OPTIMISATION: Monitoring du pool
+// ✅ MIGRATION SUPABASE: PoolMonitor désactivé (non nécessaire avec Supabase)
+// const PoolMonitor = require('./utils/pool-monitor');
 const cache = require('./utils/cache'); // ✅ OPTIMISATION: Cache pour données fréquentes
 
 /**
@@ -45,22 +48,24 @@ const generateClientIdentifier = () => {
 
 /**
  * ✅ Générer un identifiant client unique (vérifier qu'il n'existe pas déjà en base)
- * @param {Object} pool - Pool MySQL
+ * @param {Object} supabaseService - Service Supabase
  * @returns {Promise<string>} Identifiant unique
  */
-const generateUniqueClientIdentifier = async (pool) => {
+const generateUniqueClientIdentifier = async (supabaseService) => {
   let identifier;
   let attempts = 0;
   const maxAttempts = 10; // Limiter les tentatives pour éviter une boucle infinie
   
   do {
     identifier = generateClientIdentifier();
-    const [existing] = await pool.query(
-      'SELECT id FROM users WHERE client_identifier = ?',
-      [identifier]
-    );
+    // ✅ MIGRATION SUPABASE: Utiliser selectOne au lieu de pool.query
+    const [existing] = await supabaseService.select('users', {
+      where: { client_identifier: identifier },
+      select: 'id',
+      limit: 1
+    });
     
-    if (existing.length === 0) {
+    if (!existing || existing.length === 0) {
       // Identifiant unique trouvé
       return identifier;
     }
@@ -362,94 +367,16 @@ const config = require('./config');
 // Définir le PORT depuis la config
 const PORT = config.server.port;
 
-// ✅ OPTIMISATION: Pool MySQL optimisé avec configuration selon l'environnement
-const pool = mysql.createPool({
-  host: config.database.host,
-  port: config.database.port,
-  user: config.database.user,
-  password: config.database.password,
-  database: config.database.database,
-  waitForConnections: config.database.waitForConnections,
-  connectionLimit: config.database.connectionLimit,
-  queueLimit: config.database.queueLimit,
-  acquireTimeout: config.database.acquireTimeout,
-  // ✅ OPTIMISATION: Maintenir les connexions actives
-  enableKeepAlive: config.database.enableKeepAlive !== undefined ? config.database.enableKeepAlive : true,
-  keepAliveInitialDelay: config.database.keepAliveInitialDelay !== undefined ? config.database.keepAliveInitialDelay : 0,
-  // ✅ OPTIMISATION: Timeout pour établir la connexion
-  connectTimeout: config.database.connectTimeout,
-  // ✅ OPTIMISATION: Timeout pour les requêtes
-  timeout: config.database.timeout,
-  // ✅ SSL: Configuration SSL (désactivée en développement par défaut)
-  ssl: config.database.ssl || false,
-  // ✅ OPTIMISATION: Réessayer les connexions en cas d'échec
-  reconnect: config.database.reconnect !== undefined ? config.database.reconnect : true,
-  // Note: mysql2 gère automatiquement la reconnexion pour le pool
-});
+// ✅ MIGRATION SUPABASE: Pool MySQL remplacé par Supabase
+// Le service Supabase est déjà initialisé dans supabase-backend-service.js
+// Créer un alias 'pool' pour compatibilité temporaire pendant la migration
+const pool = supabaseService;
 
-// ✅ OPTIMISATION: Monitoring du pool MySQL
-const poolMonitor = new PoolMonitor(pool, {
-  logInterval: process.env.NODE_ENV === 'production' ? 600000 : 300000, // 10 min en prod, 5 min en dev
-  warnThreshold: 0.8 // Alerte à 80% d'utilisation
-});
-poolMonitor.start();
+// ✅ MIGRATION SUPABASE: PoolMonitor désactivé (non nécessaire avec Supabase)
+// const poolMonitor = ... (désactivé)
 
-// ✅ OPTIMISATION: Gestion des événements du pool pour la stabilité
-// Compteur pour limiter les logs (afficher seulement toutes les 10 connexions)
-let connectionCount = 0;
-pool.on('connection', (connection) => {
-  connectionCount++;
-  // Log seulement toutes les 10 connexions pour éviter la surcharge
-  if (connectionCount % 10 === 0 || connectionCount <= 5) {
-    logger.log('🔌 Nouvelle connexion MySQL établie (ID:', connection.threadId + ', Total:', connectionCount + ')');
-  }
-  
-  // ✅ STABILITÉ: Configurer les timeouts MySQL pour chaque nouvelle connexion
-  // Augmenter wait_timeout et interactive_timeout pour éviter les déconnexions
-  // Utiliser des promesses pour s'assurer que les requêtes sont exécutées
-  Promise.all([
-    new Promise((resolve) => {
-      connection.query('SET SESSION wait_timeout = 28800', (err) => {
-        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET wait_timeout:', err.message);
-        resolve();
-      });
-    }),
-    new Promise((resolve) => {
-      connection.query('SET SESSION interactive_timeout = 28800', (err) => {
-        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET interactive_timeout:', err.message);
-        resolve();
-      });
-    }),
-    new Promise((resolve) => {
-      connection.query('SET SESSION net_read_timeout = 60', (err) => {
-        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET net_read_timeout:', err.message);
-        resolve();
-      });
-    }),
-    new Promise((resolve) => {
-      connection.query('SET SESSION net_write_timeout = 60', (err) => {
-        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur SET net_write_timeout:', err.message);
-        resolve();
-      });
-    }),
-    new Promise((resolve) => {
-      // ✅ STABILITÉ: Exécuter une requête simple pour activer la connexion
-      connection.query('SELECT 1', (err) => {
-        if (err && connectionCount <= 5) logger.warn('⚠️ Erreur test connexion:', err.message);
-        resolve();
-      });
-    })
-  ]).then(() => {
-    // Log seulement pour les premières connexions
-    if (connectionCount <= 5) {
-      logger.log('   ✅ Timeouts MySQL configurés pour cette connexion (8h)');
-    }
-  }).catch((err) => {
-    if (connectionCount <= 5) {
-      logger.warn('⚠️ Erreur configuration timeouts MySQL:', err.message);
-    }
-  });
-});
+logger.log('✅ Backend configuré pour utiliser Supabase au lieu de MySQL');
+// ✅ MIGRATION SUPABASE: Code de configuration MySQL supprimé (non nécessaire avec Supabase)
 
 // ================================================================
 // ENDPOINT PUBLIC DEV: Statut de la base de données (sans auth)
@@ -484,149 +411,28 @@ if (process.env.NODE_ENV !== 'production' || process.env.SECURITY_MODE === 'rela
   });
 }
 
-pool.on('error', (err) => {
-  logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  logger.error('❌ Erreur pool MySQL:', err.message);
-  logger.error('   Code:', err.code);
-  logger.error('   Stack:', err.stack);
-  logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
-  if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-    logger.warn('⚠️ Connexion MySQL perdue, le pool va se reconnecter automatiquement');
-  } else if (err.code === 'ECONNREFUSED') {
-    logger.error('❌ MySQL refuse la connexion - Vérifiez que MySQL est démarré');
-  } else if (err.code === 'PROTOCOL_PACKETS_OUT_OF_ORDER') {
-    logger.warn('⚠️ Erreur de protocole MySQL, reconnexion en cours...');
-  } else if (err.code === 'ETIMEDOUT') {
-    logger.warn('⚠️ Timeout de connexion MySQL');
-  } else if (err.code === 'ECONNRESET') {
-    logger.warn('⚠️ Connexion MySQL réinitialisée par le serveur');
-  }
-});
+// ✅ MIGRATION SUPABASE: pool.on('error') supprimé (non nécessaire avec Supabase)
 
-// ✅ STABILITÉ: Ping périodique pour maintenir les connexions actives
-// Toutes les 20 secondes, vérifier et maintenir les connexions actives
-// CRITIQUE: Ce ping maintient les connexions actives et évite qu'elles soient fermées par MySQL
-// Intervalle réduit à 20 secondes pour éviter que MySQL ne ferme les connexions inactives trop rapidement
-let shuttingDown = false;
-let keepAliveInterval = setInterval(() => {
-  if (shuttingDown) return;
-  pool.getConnection((err, connection) => {
-    if (err) {
-      logger.error('❌ Erreur lors du ping de connexion:', err.message);
-      // Ne pas arrêter l'intervalle, continuer à essayer
-      return;
-    }
-    
-    // ✅ STABILITÉ: Faire un ping pour maintenir la connexion active
-    connection.ping((pingErr) => {
-      if (pingErr) {
-        logger.error('❌ Erreur ping MySQL:', pingErr.message);
-        connection.release();
-        return;
-      }
-      
-      // ✅ STABILITÉ: Rafraîchir les timeouts MySQL périodiquement pour éviter les déconnexions
-      // ET exécuter une requête SELECT pour maintenir la connexion active
-      Promise.all([
-        new Promise((resolve) => {
-          connection.query('SET SESSION wait_timeout = 28800', (err1) => {
-            if (err1) logger.warn('⚠️ Erreur SET wait_timeout:', err1.message);
-            resolve();
-          });
-        }),
-        new Promise((resolve) => {
-          connection.query('SET SESSION interactive_timeout = 28800', (err2) => {
-            if (err2) logger.warn('⚠️ Erreur SET interactive_timeout:', err2.message);
-            resolve();
-          });
-        }),
-        new Promise((resolve) => {
-          // ✅ STABILITÉ: Exécuter une requête SELECT simple pour maintenir la connexion active
-          // Cette requête active la connexion et empêche MySQL de la fermer
-          connection.query('SELECT 1 as keepalive, NOW() as current_time', (err3) => {
-            if (err3) logger.warn('⚠️ Erreur keepalive query:', err3.message);
-            resolve();
-          });
-        })
-      ]).then(() => {
-        connection.release();
-        // Log seulement toutes les 5 minutes pour ne pas surcharger les logs
-        const now = new Date();
-        if (now.getMinutes() % 5 === 0 && now.getSeconds() < 20) {
-          logger.log('💓 Ping MySQL réussi - Connexions actives et timeouts rafraîchis');
-        }
-      }).catch((keepAliveErr) => {
-        logger.error('❌ Erreur lors du keep-alive:', keepAliveErr.message);
-        connection.release();
-      });
-    });
-  });
-}, 20 * 1000); // Toutes les 20 secondes - CRITIQUE pour maintenir les connexions actives
-// Intervalle réduit à 20 secondes car MySQL peut fermer les connexions inactives après 30-60 secondes
+// ✅ MIGRATION SUPABASE: Code de keep-alive et gestion d'arrêt MySQL supprimé
+// Supabase gère automatiquement les connexions
 
-// ✅ OPTIMISATION: Nettoyer l'intervalle et le monitoring à l'arrêt du serveur
-process.on('SIGINT', async () => {
-  logger.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
-  shuttingDown = true;
-  clearInterval(keepAliveInterval);
-  poolMonitor.stop();
+// Test de connexion Supabase
+(async () => {
   try {
-    await pool.end();
-    logger.log('✅ Pool MySQL fermé proprement');
-  } catch (e) {
-    logger.error('⚠️ Erreur fermeture Pool:', e.message);
-  } finally {
-    process.exit(0);
-  }
-});
-
-process.on('SIGTERM', async () => {
-  logger.log('\n🛑 Arrêt du serveur - Nettoyage des connexions...');
-  shuttingDown = true;
-  clearInterval(keepAliveInterval);
-  poolMonitor.stop();
-  try {
-    await pool.end();
-    logger.log('✅ Pool MySQL fermé proprement');
-  } catch (e) {
-    logger.error('⚠️ Erreur fermeture Pool:', e.message);
-  } finally {
-    process.exit(0);
-  }
-});
-
-// Test de connexion avec gestion d'erreur améliorée et configuration des timeouts
-pool.getConnection()
-  .then(connection => {
-    logger.log('✅ Connexion MySQL réussie');
-    logger.log(`📊 Base de données: ${config.database.database}`);
-    logger.log(`🔌 Host: ${config.database.host}:${config.database.port}`);
-    
-    // ✅ STABILITÉ: Configurer les timeouts sur la connexion de test
-    return Promise.all([
-      connection.query('SET SESSION wait_timeout = 28800'),
-      connection.query('SET SESSION interactive_timeout = 28800'),
-      connection.query('SET SESSION net_read_timeout = 30'),
-      connection.query('SET SESSION net_write_timeout = 30')
-    ]).then(() => {
-      logger.log('✅ Timeouts MySQL configurés (8 heures)');
-      connection.release();
-    });
-  })
-  .catch(err => {
-    logger.error('❌ Erreur de connexion MySQL:', err.message);
-    logger.error('');
-    logger.error('🔍 Vérifications:');
-    logger.error('   1. MySQL est-il démarré ?');
-    logger.error('   2. Vérifiez votre fichier .env (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)');
-    logger.error('   3. Base de données existe-t-elle ?');
-    logger.error('   4. Copiez database/.env.example en database/.env et configurez vos valeurs');
-    logger.error('   4. Port 3306 accessible ?');
-    logger.error('');
-    logger.error('💡 Lancez: node verify-and-fix-db.js');
+    await supabaseService.ping();
+    logger.log('✅ Connexion Supabase réussie');
+  } catch (err) {
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('❌ ERREUR: Impossible de se connecter à Supabase');
+    logger.error('   Message:', err.message);
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.error('💡 Vérifiez que:');
+    logger.error('   1. Les variables SUPABASE_URL et SUPABASE_KEY sont définies dans database/.env');
+    logger.error('   2. Votre projet Supabase est actif');
+    logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     process.exit(1);
-  });
+  }
+})();
 
 // ================================================================
 // MIDDLEWARE D'AUTHENTIFICATION
@@ -1368,10 +1174,11 @@ app.post('/api/kiosk/login', authRateLimit, asyncHandler(async (req, res) => {
 // ✅ IMPORTANT: Récupère toutes les catégories actives depuis la BDD
 app.get('/api/kiosk/categories', asyncHandler(async (req, res) => {
   try {
-    // ✅ Récupérer toutes les catégories actives depuis MySQL
-    const [categories] = await pool.query(
-      'SELECT * FROM categories WHERE is_active = TRUE ORDER BY display_order ASC, name ASC'
-    );
+    // ✅ MIGRATION SUPABASE: Récupérer toutes les catégories actives depuis Supabase
+    const [categories] = await supabaseService.select('categories', {
+      where: { is_active: 1 }, // Supabase utilise 1 pour true (SMALLINT)
+      orderBy: ['display_order ASC', 'name ASC']
+    });
     
     logger.log(`✅ Kiosk - ${categories.length} catégories récupérées depuis la BDD`);
     res.json({ success: true, data: categories });
@@ -3815,19 +3622,20 @@ app.delete('/api/admin/loyalty-rewards/:id', authenticateToken, requireAdmin, cs
 // Vérification connexion DB et comptages basiques
 app.get('/api/health/db', async (req, res) => {
   try {
-    logger.log('🔌 GET /api/health/db - Vérification connexion MySQL et comptages');
-    const [ping] = await pool.query('SELECT 1 AS ok');
-    const [[ordersCountRow]] = await pool.query('SELECT COUNT(*) AS ordersCount FROM orders');
-    const [[itemsCountRow]] = await pool.query('SELECT COUNT(*) AS itemsCount FROM order_items');
-    const [[usersCountRow]] = await pool.query('SELECT COUNT(*) AS usersCount FROM users');
+    logger.log('🔌 GET /api/health/db - Vérification connexion Supabase et comptages');
+    // ✅ MIGRATION SUPABASE: Test de connexion et comptages
+    const [ping] = await supabaseService.ping();
+    const [ordersCountRow] = await supabaseService.count('orders');
+    const [itemsCountRow] = await supabaseService.count('order_items');
+    const [usersCountRow] = await supabaseService.count('users');
     res.json({
       success: true,
       db: true,
       ok: ping?.[0]?.ok === 1,
       counts: {
-        orders: Number(ordersCountRow?.ordersCount || 0),
-        order_items: Number(itemsCountRow?.itemsCount || 0),
-        users: Number(usersCountRow?.usersCount || 0),
+        orders: Number(ordersCountRow?.count || 0),
+        order_items: Number(itemsCountRow?.count || 0),
+        users: Number(usersCountRow?.count || 0),
       }
     });
   } catch (error) {

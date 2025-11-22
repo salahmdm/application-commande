@@ -19,8 +19,12 @@ const jwtDecode = (token) => {
   }
 };
 
-// URL du backend API (connecté à MySQL)
-const API_BASE_URL = 'http://localhost:5000/api';
+// ✅ VERCEL: URL du backend API depuis variable d'environnement
+// En production Vercel, utilisez VITE_API_URL
+// En développement local, utilise localhost:5000
+const API_BASE_URL = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : 'http://localhost:5000/api';
 
 // ✅ SÉCURITÉ: Cache pour le token CSRF
 let csrfTokenCache = null;
@@ -196,7 +200,7 @@ export const apiCall = async (endpoint, options = {}) => {
   
   try {
     // ✅ SÉCURITÉ: Masquer les tokens dans les URLs avant de logger
-    const sanitizedUrl = url.replace(/([?&]token=)[^&]*/gi, '$1***MASKED***').replace(/\/token\/[^\/\s]+/gi, '/token/***MASKED***');
+    const sanitizedUrl = url.replace(/([?&]token=)[^&]*/gi, '$1***MASKED***').replace(/\/token\/[^/\s]+/gi, '/token/***MASKED***');
     logger.debug('🌐 API Call:', options.method || 'GET', sanitizedUrl);
     
     // ✅ SÉCURITÉ: Récupérer le token CSRF pour les requêtes modifiantes

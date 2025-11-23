@@ -169,6 +169,7 @@ class SupabaseService {
           last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
           avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
           phone: additionalData.phone || null,
+          firebase_uid: firebaseUser.uid || firebaseUser.id || null, // Stocker l'UID Firebase
           updated_at: new Date().toISOString()
         };
 
@@ -200,15 +201,29 @@ class SupabaseService {
         // Créer un nouvel utilisateur dans Supabase
         // Note: password_hash est requis mais on ne peut pas le récupérer depuis Firebase
         // On utilise un hash spécial pour indiquer que c'est un utilisateur Firebase
+        // Déterminer le rôle selon l'email si non fourni
+        let role = additionalData.role;
+        if (!role) {
+          const emailLower = email.toLowerCase();
+          if (emailLower === 'admin@blossom.com') {
+            role = 'admin';
+          } else if (emailLower === 'manager@blossom.com' || emailLower.includes('manager@')) {
+            role = 'manager';
+          } else {
+            role = 'client';
+          }
+        }
+        
         const newUser = {
           email: email,
           password_hash: '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED', // Hash spécial pour Firebase
           first_name: additionalData.firstName || additionalData.first_name || firebaseUser.displayName?.split(' ')[0] || 'Utilisateur',
           last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || 'Firebase',
-          role: additionalData.role || 'client', // Rôle par défaut
+          role: role, // Rôle déterminé
           loyalty_points: additionalData.loyalty_points || additionalData.points || 0,
           avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
           phone: additionalData.phone || null,
+          firebase_uid: firebaseUser.uid || firebaseUser.id || null, // Stocker l'UID Firebase
           is_active: 1,
           email_verified: firebaseUser.emailVerified ? 1 : 0,
           created_at: new Date().toISOString(),

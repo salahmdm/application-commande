@@ -196,6 +196,13 @@ const firebaseService = {
       }
       return null;
     } catch (error) {
+      // ✅ CORRECTION: Gérer spécifiquement l'erreur "client is offline"
+      if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('Failed to get document because the client is offline')) {
+        logger.warn('⚠️ Firebase - Client hors ligne, impossible de récupérer le document');
+        // Ne pas throw, retourner null pour permettre l'utilisation du cache
+        return null;
+      }
+      
       logger.error('❌ Firebase - Erreur get document:', error);
       throw new Error(`Erreur lors de la récupération: ${error.message}`);
     }

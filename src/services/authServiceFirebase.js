@@ -40,15 +40,49 @@ const authServiceFirebase = {
         
         // Si pas de cache valide, récupérer depuis Firestore
         if (!userData) {
-          userData = await firebaseService.getDocument('users', uid);
-          
-          // Mettre en cache
-          if (userData) {
-            try {
-              localStorage.setItem(cacheKey, JSON.stringify(userData));
-              localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-            } catch (e) {
-              // Ignorer les erreurs de cache
+          try {
+            userData = await firebaseService.getDocument('users', uid);
+            
+            // Mettre en cache
+            if (userData) {
+              try {
+                localStorage.setItem(cacheKey, JSON.stringify(userData));
+                localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+              } catch (e) {
+                // Ignorer les erreurs de cache
+              }
+            }
+          } catch (firestoreError) {
+            // ✅ CORRECTION: Si Firestore est hors ligne, utiliser le cache localStorage 'user'
+            if (firestoreError.message?.includes('offline') || firestoreError.message?.includes('client is offline')) {
+              logger.warn('⚠️ authServiceFirebase.login - Firestore hors ligne, recherche dans localStorage');
+              try {
+                const cachedUserStr = localStorage.getItem('user');
+                if (cachedUserStr) {
+                  const cachedUser = JSON.parse(cachedUserStr);
+                  if (cachedUser && cachedUser.uid === uid) {
+                    // Utiliser les données du cache localStorage
+                    userData = {
+                      email: cachedUser.email,
+                      displayName: cachedUser.name || cachedUser.displayName || '',
+                      firstName: cachedUser.firstName || '',
+                      lastName: cachedUser.lastName || '',
+                      role: cachedUser.role || 'client',
+                      loyalty_points: cachedUser.loyalty_points || cachedUser.points || 0,
+                      points: cachedUser.points || cachedUser.loyalty_points || 0,
+                      photoURL: cachedUser.photoURL || null,
+                      phone: cachedUser.phone || null,
+                      address: cachedUser.address || null
+                    };
+                    logger.log('⚡ authServiceFirebase.login - Utilisation du cache localStorage (Firestore hors ligne)');
+                  }
+                }
+              } catch (e) {
+                logger.warn('⚠️ Erreur lors de la récupération du cache localStorage:', e);
+              }
+            } else {
+              // Pour les autres erreurs, relancer
+              throw firestoreError;
             }
           }
         }

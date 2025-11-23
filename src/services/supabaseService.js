@@ -581,21 +581,35 @@ class SupabaseService {
 
   async createOrder(orderData) {
     try {
-      // ✅ Récupérer l'utilisateur depuis localStorage
-      let userId = orderData.userId || null;
-      if (!userId && typeof window !== 'undefined') {
+      // ✅ IMPORTANT: Les utilisateurs Firebase ne sont PAS dans la table users de Supabase
+      // La table users de Supabase contient uniquement les utilisateurs MySQL (avec password_hash)
+      // Pour Firebase, on met user_id à NULL et on stocke l'UID dans les notes
+      let userId = null; // Toujours NULL pour Firebase (pas de mapping avec Supabase users)
+      let firebaseUid = null;
+      let userName = null;
+      
+      if (typeof window !== 'undefined') {
         try {
           const userStr = localStorage.getItem('user');
           if (userStr) {
             const user = JSON.parse(userStr);
-            // Ne pas utiliser user_id pour les invités
-            if (user && !user.isGuest && user.id) {
-              userId = user.id;
+            // Récupérer l'UID Firebase et le nom pour les notes
+            if (user && !user.isGuest) {
+              firebaseUid = user.uid || user.id; // UID Firebase (chaîne)
+              userName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Client';
+            } else if (user && user.isGuest) {
+              // Invité - pas d'UID Firebase
+              userName = user.name || user.firstName || 'Invité';
             }
           }
         } catch (e) {
           console.warn('⚠️ Erreur récupération user depuis localStorage:', e);
         }
+      }
+      
+      // Si un userId est fourni explicitement (pour compatibilité backend MySQL)
+      if (orderData.userId && typeof orderData.userId === 'number') {
+        userId = orderData.userId;
       }
 
       // ✅ Générer le numéro de commande si non fourni
@@ -690,11 +704,25 @@ class SupabaseService {
         }
       }
 
+      // ✅ Construire les notes avec les informations utilisateur Firebase si nécessaire
+      let orderNotes = orderData.notes || '';
+      if (firebaseUid) {
+        // Ajouter l'UID Firebase dans les notes pour traçabilité
+        const firebaseInfo = `[Firebase UID: ${firebaseUid}]`;
+        orderNotes = orderNotes ? `${orderNotes}\n${firebaseInfo}` : firebaseInfo;
+      }
+      if (userName && !orderNotes.includes(userName)) {
+        // Ajouter le nom du client si pas déjà présent
+        const clientInfo = `Client: ${userName}`;
+        orderNotes = orderNotes ? `${orderNotes}\n${clientInfo}` : clientInfo;
+      }
+      
       // ✅ Créer la commande
+      // user_id est NULL pour Firebase (pas de mapping avec Supabase users)
       const { data: order, error: orderError } = await this.getClient()
         .from('orders')
         .insert({
-          user_id: userId,
+          user_id: userId, // NULL pour Firebase, INTEGER pour utilisateurs MySQL
           order_number: orderNumber,
           order_type: orderData.orderType || 'dine-in',
           status: orderData.status || 'pending',
@@ -704,7 +732,7 @@ class SupabaseService {
           total_amount: totalAmount,
           payment_method: orderData.paymentMethod || 'cash',
           payment_status: orderData.paymentStatus || 'pending',
-          notes: orderData.notes || null,
+          notes: orderNotes || null,
           table_number: orderData.tableNumber || null,
           delivery_address: orderData.deliveryAddress || null
         })

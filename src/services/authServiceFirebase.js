@@ -239,7 +239,7 @@ const authServiceFirebase = {
       );
       
       if (result.success && result.user) {
-        // Créer le profil utilisateur dans Firestore
+        // ✅ NOUVEAU: Synchroniser avec Supabase au lieu de Firestore
         const userProfile = {
           email: result.user.email,
           displayName: displayName,
@@ -248,14 +248,21 @@ const authServiceFirebase = {
           role: 'client', // Rôle par défaut pour les nouveaux utilisateurs
           loyalty_points: 0,
           points: 0,
-          phone: userData.phone || null,
-          address: userData.address || null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          emailVerified: false
+          photoURL: result.user.photoURL || null,
+          phone: userData.phone || null
         };
         
-        await firebaseService.setDocument('users', result.user.uid, userProfile);
+        // Synchroniser avec Supabase
+        const syncResult = await supabaseService.syncFirebaseUser(result.user, userProfile);
+        
+        if (!syncResult.success) {
+          logger.warn('⚠️ Erreur synchronisation Supabase lors de l\'inscription:', syncResult.error);
+          // Continuer quand même avec les données minimales
+        }
+        
+        // Récupérer les données depuis Supabase (pour avoir le rôle correct)
+        const supabaseUser = await supabaseService.getUserByEmail(result.user.email);
+        const finalRole = supabaseUser.success && supabaseUser.data ? supabaseUser.data.role : 'client';
         
         // Construire l'objet utilisateur
         const user = {
@@ -265,17 +272,18 @@ const authServiceFirebase = {
           firstName: userData.firstName || '',
           lastName: userData.lastName || '',
           name: displayName,
-          role: 'client',
+          role: finalRole, // ✅ Rôle depuis Supabase
           loyalty_points: 0,
           points: 0,
           emailVerified: false,
+          photoURL: result.user.photoURL || null,
           phone: userData.phone || null
         };
         
         // Stocker dans localStorage
         localStorage.setItem('user', JSON.stringify(user));
         
-        logger.log('✅ authServiceFirebase.register - Inscription réussie');
+        logger.log('✅ authServiceFirebase.register - Inscription réussie et synchronisée avec Supabase');
         return {
           success: true,
           user,
@@ -400,7 +408,7 @@ const authServiceFirebase = {
   },
 
   /**
-   * Update profile - Mettre à jour le profil dans Firestore
+   * Update profile - Mettre à jour le profil dans Supabase
    */
   async updateProfile(userId, updates) {
     try {
@@ -411,13 +419,39 @@ const authServiceFirebase = {
         throw new Error('Utilisateur non connecté');
       }
       
-      // Mettre à jour dans Firestore
-      const updatedData = {
-        ...updates,
-        updatedAt: new Date().toISOString()
+      // ✅ NOUVEAU: Mettre à jour dans Supabase au lieu de Firestore
+      // Récupérer l'utilisateur depuis Supabase
+      const supabaseUser = await supabaseService.getUserByEmail(firebaseUser.email);
+      
+      if (!supabaseUser.success || !supabaseUser.data) {
+        throw new Error('Utilisateur non trouvé dans Supabase');
+      }
+      
+      // Préparer les mises à jour pour Supabase
+      const supabaseUpdates = {
+        first_name: updates.firstName || updates.first_name || supabaseUser.data.first_name,
+        last_name: updates.lastName || updates.last_name || supabaseUser.data.last_name,
+        avatar_url: updates.photoURL || updates.avatar_url || supabaseUser.data.avatar_url,
+        phone: updates.phone !== undefined ? updates.phone : supabaseUser.data.phone,
+        updated_at: new Date().toISOString()
       };
       
-      await firebaseService.updateDocument('users', firebaseUser.uid, updatedData);
+      // Ne mettre à jour le rôle que si explicitement fourni
+      if (updates.role) {
+        supabaseUpdates.role = updates.role;
+      }
+      
+      // Ne mettre à jour les points que si explicitement fournis
+      if (updates.loyalty_points !== undefined || updates.points !== undefined) {
+        supabaseUpdates.loyalty_points = updates.loyalty_points || updates.points || supabaseUser.data.loyalty_points;
+      }
+      
+      // Mettre à jour dans Supabase
+      const updateResult = await supabaseService.updateUser(supabaseUser.data.id, supabaseUpdates);
+      
+      if (!updateResult.success) {
+        throw new Error(updateResult.error || 'Erreur mise à jour Supabase');
+      }
       
       // Mettre à jour le profil Firebase Auth si nécessaire
       if (updates.displayName || (updates.firstName && updates.lastName)) {
@@ -428,8 +462,8 @@ const authServiceFirebase = {
         }
       }
       
-      // Récupérer les données mises à jour
-      const updatedUserData = await firebaseService.getDocument('users', firebaseUser.uid);
+      // Récupérer les données mises à jour depuis Supabase
+      const updatedUserData = updateResult.data;
       
       // Construire l'objet utilisateur depuis Supabase
       const user = {
@@ -451,7 +485,7 @@ const authServiceFirebase = {
       // Mettre à jour localStorage
       localStorage.setItem('user', JSON.stringify(user));
       
-      logger.log('✅ authServiceFirebase.updateProfile - Profil mis à jour');
+      logger.log('✅ authServiceFirebase.updateProfile - Profil mis à jour dans Supabase');
       return {
         success: true,
         user

@@ -80,3 +80,4 @@ Le script va :
 3. **Exécutez les policies RLS** : `SUPABASE_RLS_POLICIES_SIMPLE.sql`
 4. **Configurez les variables Vercel** avec les nouvelles informations
 
+

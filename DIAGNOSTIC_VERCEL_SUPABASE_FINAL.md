@@ -130,3 +130,4 @@ Si vous voyez des erreurs :
 - Sur Vercel, il n'y a pas de backend Express, donc le code utilise Supabase directement
 - Les logs de débogage ne s'affichent qu'en développement pour ne pas polluer la console en production
 
+

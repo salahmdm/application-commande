@@ -446,3 +446,4 @@ CREATE TABLE IF NOT EXISTS "reviews" (
 -- Vous pouvez maintenant exécuter les scripts RLS (Row Level Security)
 -- ============================================================================
 
+

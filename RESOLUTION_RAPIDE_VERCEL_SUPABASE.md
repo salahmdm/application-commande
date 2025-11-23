@@ -87,3 +87,4 @@ Partagez avec moi :
 2. Les erreurs affichées dans la console (F12)
 3. Une capture d'écran des variables d'environnement Vercel
 
+

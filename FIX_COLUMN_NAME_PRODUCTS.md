@@ -39,3 +39,4 @@ Après cette correction :
 2. **Testez** avec `testSupabaseConnection()` dans la console
 3. **Vérifiez** que les produits s'affichent correctement
 
+

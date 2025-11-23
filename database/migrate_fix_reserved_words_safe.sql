@@ -48,3 +48,4 @@ WHERE table_schema = 'public'
   AND column_name IN ('order', 'display_order')
 ORDER BY column_name;
 
+

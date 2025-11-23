@@ -62,3 +62,4 @@ Produits : Y
 - [ ] Données présentes dans Supabase (vérifier dans Table Editor)
 - [ ] Test `testSupabaseConnection()` réussi
 
+

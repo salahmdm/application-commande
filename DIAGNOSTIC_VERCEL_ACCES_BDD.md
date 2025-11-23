@@ -87,3 +87,4 @@ VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 - [ ] Test `testSupabaseConnection()` réussi
 - [ ] URL de requête contient `is_available` (pas `is_active`)
 
+

@@ -63,3 +63,4 @@ VITE_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 - [ ] Variables d'environnement configurées dans Vercel
 - [ ] Test de l'application
 
+

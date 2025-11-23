@@ -88,3 +88,4 @@ Donc votre configuration `NEXT_PUBLIC_*` sera utilis√©e si `VITE_*` n'est pas d√
 
 Les deux options fonctionnent, mais `VITE_*` est plus standard pour Vite.
 
+

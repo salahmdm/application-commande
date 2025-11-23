@@ -95,3 +95,4 @@ console.log('Key:', import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NE
 2. **Tester** avec `testSupabaseConnection()` dans la console
 3. **Vérifier** que les produits s'affichent correctement
 
+

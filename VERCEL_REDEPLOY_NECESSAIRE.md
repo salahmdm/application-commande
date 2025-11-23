@@ -37,3 +37,4 @@ Dans la console du navigateur, vérifiez l'URL de la requête :
 - [ ] URL de requête contient `is_available` (pas `is_active`)
 - [ ] Produits s'affichent correctement
 
+

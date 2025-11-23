@@ -34,3 +34,4 @@ ORDER BY ordinal_position;
 -- Dans ce cas, vous devrez peut-être migrer les données vers "categories" avant.
 -- ============================================================================
 
+

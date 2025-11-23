@@ -216,8 +216,16 @@ const firebaseService = {
         return null;
       }
       
+      // ✅ CORRECTION: Gérer spécifiquement l'erreur "permission-denied" (non-bloquant)
+      if (error.code === 'permission-denied') {
+        logger.warn('⚠️ Firebase - Permission refusée pour getDocument (non-bloquant, utilisation de Supabase)');
+        // Ne pas throw, retourner null pour permettre l'utilisation de Supabase
+        return null;
+      }
+      
       logger.error('❌ Firebase - Erreur get document:', error);
-      throw new Error(`Erreur lors de la récupération: ${error.message}`);
+      // Ne pas throw pour les erreurs non-critiques, retourner null
+      return null;
     }
   },
 

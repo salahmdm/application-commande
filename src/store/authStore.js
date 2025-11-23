@@ -331,42 +331,50 @@ const useAuthStore = create(
         }
       },
       
-      // Rafraîchir les points depuis Firestore
+      // Rafraîchir les points depuis Supabase (source de vérité)
       refreshPoints: async () => {
         try {
           const currentUser = get().user;
-          if (!currentUser || !currentUser.uid || currentUser.isGuest) {
+          if (!currentUser || !currentUser.email || currentUser.isGuest) {
             return null;
           }
           
-          // Récupérer le profil utilisateur depuis Firestore
-          const userData = await firebaseService.getDocument('users', currentUser.uid);
+          // ✅ NOUVEAU: Récupérer depuis Supabase au lieu de Firestore
+          const supabaseService = await import('../services/supabaseService');
+          const supabaseResult = await supabaseService.default.getUserByEmail(currentUser.email);
           
-          if (userData) {
-            // Mettre à jour les points avec les valeurs de Firestore
-            const loyaltyPoints = userData.loyalty_points || userData.points || 0;
+          if (supabaseResult.success && supabaseResult.data) {
+            const supabaseData = supabaseResult.data;
+            const loyaltyPoints = supabaseData.loyalty_points || 0;
             
-            // ✅ Mettre à jour avec toutes les données utilisateur
+            // ✅ Mettre à jour avec toutes les données utilisateur depuis Supabase
             const updatedUser = {
               ...currentUser,
-              ...userData,
+              id: supabaseData.id || currentUser.id,
+              firstName: supabaseData.first_name || currentUser.firstName,
+              lastName: supabaseData.last_name || currentUser.lastName,
+              name: `${supabaseData.first_name || ''} ${supabaseData.last_name || ''}`.trim() || currentUser.name,
+              role: supabaseData.role || currentUser.role,
               points: loyaltyPoints,
-              loyalty_points: loyaltyPoints
+              loyalty_points: loyaltyPoints,
+              phone: supabaseData.phone || currentUser.phone
             };
             set({ user: updatedUser });
             // Mettre à jour aussi localStorage
             localStorage.setItem('user', JSON.stringify(updatedUser));
+            logger.log('✅ refreshPoints - Points mis à jour depuis Supabase:', loyaltyPoints);
             return updatedUser;
           } else {
-            logger.warn('⚠️ refreshPoints - Utilisateur non trouvé dans Firestore');
-            return null;
+            logger.warn('⚠️ refreshPoints - Utilisateur non trouvé dans Supabase');
+            // Ne pas propager l'erreur pour éviter de bloquer l'interface
+            return currentUser;
           }
         } catch (error) {
           logger.error('❌ Erreur refreshPoints:', error);
           logger.error('   Message:', error.message);
-          logger.error('   Stack:', error.stack);
           // Ne pas propager l'erreur pour éviter de bloquer l'interface
-          return null;
+          const currentUser = get().user;
+          return currentUser;
         }
       },
       

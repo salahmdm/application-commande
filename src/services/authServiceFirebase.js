@@ -202,7 +202,7 @@ const authServiceFirebase = {
       }
       
       if (error.code === 'auth/invalid-credential') {
-        const improvedError = new Error('Email ou mot de passe incorrect. Si l\'utilisateur n\'existe pas: npm run create-firebase-user <email> <password>');
+        const improvedError = new Error('Email ou mot de passe incorrect. Solutions: 1) Vérifiez vos identifiants, 2) L\'utilisateur n\'existe peut-être pas - créez-le avec: npm run create-firebase-user <email> <password>, 3) Réinitialisez le mot de passe avec: npm run reset-firebase-password <email>');
         improvedError.code = error.code;
         throw improvedError;
       }

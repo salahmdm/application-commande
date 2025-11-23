@@ -231,9 +231,28 @@ const syncFirebaseUsersToSupabase = async () => {
     console.error('   Message:', error.message);
     
     if (error.code === 'permission-denied') {
-      console.error('\n⚠️ Erreur de permissions Firestore.');
-      console.log('   → Vérifiez les règles de sécurité Firestore.');
-      console.log('   → Assurez-vous que les règles permettent la lecture des documents users.');
+      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('⚠️ ERREUR DE PERMISSIONS FIRESTORE');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      console.error('Les règles Firestore bloquent l\'accès à la collection "users".');
+      console.error('\n📋 SOLUTION RAPIDE :\n');
+      console.error('1. Ouvrez ce lien : https://console.firebase.google.com/project/prise-de-commande-pos/firestore/rules');
+      console.error('2. Remplacez les règles par (temporairement) :');
+      console.error('\n   rules_version = \'2\';');
+      console.error('   service cloud.firestore {');
+      console.error('     match /databases/{database}/documents {');
+      console.error('       match /users/{userId} {');
+      console.error('         allow read, write: if true;');
+      console.error('       }');
+      console.error('       match /{document=**} {');
+      console.error('         allow read, write: if false;');
+      console.error('       }');
+      console.error('     }');
+      console.error('   }');
+      console.error('\n3. Cliquez sur "Publier"');
+      console.error('4. Réessayez : npm run sync-firebase-users');
+      console.error('\n📖 Guide détaillé : GUIDE_RAPIDE_SYNCHRONISATION.md');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
     
     return { success: false, error: error.message };

@@ -416,7 +416,7 @@ const firebaseService = {
           errorMessage = 'Ce domaine n\'est pas autorisé. Ajoutez ce domaine dans Firebase Console > Authentication > Settings > Authorized domains.';
           break;
         case 'auth/invalid-credential':
-          errorMessage = 'Email ou mot de passe incorrect. Vérifiez vos identifiants et réessayez.';
+          errorMessage = 'Email ou mot de passe incorrect. Solutions: 1) Vérifiez vos identifiants, 2) L\'utilisateur n\'existe peut-être pas - créez-le avec: npm run create-firebase-user <email> <password>, 3) Réinitialisez le mot de passe avec: npm run reset-firebase-password <email>';
           break;
         case 'auth/network-request-failed':
           errorMessage = 'Erreur de connexion réseau. Vérifiez votre connexion internet.';

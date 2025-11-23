@@ -34,17 +34,20 @@ Voir aussi : `ACTIVER_FIRESTORE.md`
 
 ### 2. Configurer les règles Firestore
 
-Pour que le script puisse lire les utilisateurs, vous devez configurer les règles Firestore :
+Pour que le script puisse lire les utilisateurs, vous devez configurer les règles Firestore **temporairement**.
 
-1. Dans Firebase Console → Firestore Database → Règles
-2. Utilisez ces règles temporaires pour permettre la lecture (⚠️ **UNIQUEMENT POUR LE DÉVELOPPEMENT**) :
+**📖 Guide détaillé** : Voir `CONFIGURER_REGLES_FIRESTORE_TEMPORAIRE.md`
+
+**Résumé rapide** :
+
+1. Allez sur [Firebase Console](https://console.firebase.google.com) → Firestore Database → Règles
+2. Remplacez les règles par ces règles temporaires (⚠️ **UNIQUEMENT POUR LA SYNCHRONISATION**) :
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ⚠️ RÈGLES PERMISSIVES POUR LE DÉVELOPPEMENT UNIQUEMENT
-    // ⚠️ NE PAS UTILISER EN PRODUCTION
+    // ⚠️ RÈGLES PERMISSIVES TEMPORAIRES POUR LA SYNCHRONISATION
     match /users/{userId} {
       allow read, write: if true;
     }
@@ -57,8 +60,8 @@ service cloud.firestore {
 ```
 
 3. Cliquez sur **"Publier"**
-
-⚠️ **IMPORTANT** : Ces règles sont très permissives et ne doivent être utilisées que temporairement pour la synchronisation. Après la synchronisation, remplacez-les par des règles plus strictes (voir `CONFIGURER_REGLES_FIRESTORE.md`).
+4. Exécutez le script : `npm run sync-firebase-users`
+5. **⚠️ IMPORTANT** : Remettez immédiatement des règles sécurisées après la synchronisation (voir `CONFIGURER_REGLES_FIRESTORE_TEMPORAIRE.md`)
 
 ### 3. Vérifier les variables d'environnement Supabase
 

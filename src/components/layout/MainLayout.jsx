@@ -8,7 +8,6 @@ import { NotificationContainer } from '../common/Notification';
 import ConfirmLogoutModal from '../common/ConfirmLogoutModal';
 import { CheckCircle } from 'lucide-react';
 import useNotifications from '../../hooks/useNotifications';
-import useResponsive from '../../hooks/useResponsive';
 import useUIStore from '../../store/uiStore';
 
 /**
@@ -18,7 +17,6 @@ import useUIStore from '../../store/uiStore';
 const MainLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true); // true par défaut pour desktop
   const { notifications, dismiss } = useNotifications();
-  const { isMobile } = useResponsive();
   const showCart = useUIStore((state) => state.showCart);
   const setShowCart = useUIStore((state) => state.setShowCart);
   const showOrderSuccessModal = useUIStore((state) => state.showOrderSuccessModal);
@@ -52,8 +50,8 @@ const MainLayout = ({ children }) => {
         </main>
       </div>
       
-      {/* Navigation mobile bottom bar - visible uniquement sur mobile */}
-      {isMobile && <MobileNav />}
+      {/* Navigation mobile bottom bar - toujours rendu, caché sur desktop via CSS (lg:hidden) */}
+      <MobileNav />
       
       {/* Notifications - adaptées mobile */}
       <NotificationContainer 

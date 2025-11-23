@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Image as ImageIcon, Info } from 'lucide-react';
+import { Plus, Search, Image as ImageIcon, Info, X } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -53,6 +53,7 @@ const ProductsView = () => {
   const { currentView } = useUIStore();
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   
   // État local pour la recherche avec debounce
   // Permet une saisie fluide sans déclencher le filtrage à chaque frappe
@@ -170,23 +171,48 @@ const ProductsView = () => {
     <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8 animate-fade-in">
       {/* En-tête avec recherche */}
       <div className="space-y-4">
-        <h1 className="text-4xl font-heading font-bold text-black mb-4 animate-slide-in">
-          Nos Produits
-        </h1>
-        
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Recherche */}
-          <div className="flex-1">
-            <Input
-              type="text"
-              placeholder="Rechercher un produit..."
-              value={localSearchQuery}
-              onChange={(e) => setLocalSearchQuery(e.target.value)}
-              icon={<Search className="w-5 h-5" />}
-            />
-          </div>
-          
-          <div className="hidden" />
+        <div className="flex flex-col md:flex-row gap-4 items-start justify-end">
+          {/* Recherche - Loupe seule ou champ complet selon l'état */}
+          {!isSearchOpen ? (
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="p-2 rounded-lg bg-white border-2 border-neutral-300 hover:border-neutral-400 transition-all duration-200 hover:scale-105 active:scale-95 shadow-soft ml-auto md:ml-0 -mt-2"
+              aria-label="Ouvrir la recherche"
+            >
+              <Search className="w-4 h-4 text-neutral-600" />
+            </button>
+          ) : (
+            <div className="flex-1 flex items-center gap-2 w-full md:w-auto">
+              <Input
+                type="text"
+                placeholder="Rechercher un produit..."
+                value={localSearchQuery}
+                onChange={(e) => setLocalSearchQuery(e.target.value)}
+                icon={<Search className="w-5 h-5" />}
+                autoFocus
+                onBlur={() => {
+                  // Ne fermer que si le champ est vide
+                  if (!localSearchQuery.trim()) {
+                    setIsSearchOpen(false);
+                  }
+                }}
+                className="flex-1"
+              />
+              {localSearchQuery && (
+                <button
+                  onClick={() => {
+                    setLocalSearchQuery('');
+                    search('');
+                    setIsSearchOpen(false);
+                  }}
+                  className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 transition-all duration-200"
+                  aria-label="Effacer la recherche"
+                >
+                  <X className="w-5 h-5 text-neutral-600" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
         
         {/* Filtres actifs */}
@@ -309,12 +335,12 @@ const ProductsView = () => {
                       {/* Bouton Ajouter - Noir, pleine largeur */}
                       <div className="flex-1">
                         <Button
-                          variant="primary"
+                          variant="secondary"
                           size="md"
                           fullWidth
                           onClick={() => handleAddToCart(product)}
                           icon={<Plus className="w-5 h-5" />}
-                          className="!bg-black !hover:bg-neutral-800 text-white !border-none font-semibold shadow-lg hover:shadow-xl"
+                          className="!bg-black !hover:bg-neutral-800 !from-black !to-black !text-white !border-none font-semibold shadow-lg hover:shadow-xl"
                         >
                           Ajouter
                         </Button>
@@ -381,14 +407,14 @@ const ProductsView = () => {
             </div>
             
             <Button
-              variant="primary"
+              variant="secondary"
               fullWidth
               onClick={() => {
                 handleAddToCart(selectedProduct);
                 setSelectedProduct(null);
               }}
               icon={<Plus className="w-5 h-5" />}
-              className="!bg-black !hover:bg-neutral-800 text-white !border-none font-semibold shadow-lg hover:shadow-xl"
+              className="!bg-black !hover:bg-neutral-800 !from-black !to-black !text-white !border-none font-semibold shadow-lg hover:shadow-xl"
             >
               Ajouter au panier
             </Button>

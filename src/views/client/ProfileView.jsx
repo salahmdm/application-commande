@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Phone, Gift, Edit2, Save, Trash2 } from 'lucide-react';
+import { User, Mail, Phone, Gift, Edit2, Save, Trash2, LogOut } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -20,7 +20,7 @@ const ProfileView = () => {
   const { refreshPoints } = useAuthStore();
   const userFromStore = useAuthStore(state => state.user);
   const { applyLoyaltyReward } = useCartStore();
-  const { setShowCart } = useUIStore();
+  const { setShowCart, setShowLogoutConfirm } = useUIStore();
   const { success, error: showError } = useNotifications();
   const [isEditing, setIsEditing] = useState(false);
   const [loyaltyRewards, setLoyaltyRewards] = useState([]);
@@ -336,26 +336,44 @@ const ProfileView = () => {
   const maxRewardPoints = sortedRewards.length > 0 ? (sortedRewards[sortedRewards.length - 1].pointsRequired || 0) : currentPoints || 1;
   const progress = maxRewardPoints > 0 ? Math.min((currentPoints / maxRewardPoints) * 100, 100) : 0;
   
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
   return (
     <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8">
       <h1 className="text-4xl font-serif font-bold">👤 Mon Profil</h1>
       
       <div className="space-y-6">
+        {/* Bouton Déconnexion */}
+        <Card padding="lg">
+          <Button
+            variant="danger"
+            icon={<LogOut className="w-5 h-5" />}
+            onClick={handleLogout}
+            fullWidth
+            className="!bg-gradient-to-r !from-red-600 !to-red-700 !text-white !hover:from-red-700 !hover:to-red-800 shadow-lg hover:shadow-xl"
+          >
+            Déconnexion
+          </Button>
+        </Card>
+
         {/* Informations principales */}
         <div className="space-y-6">
           <Card padding="lg">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <h2 className="text-2xl font-bold">Informations personnelles</h2>
               {!isEditing ? (
                 <Button
                   variant="outline"
                   icon={<Edit2 className="w-4 h-4" />}
                   onClick={() => setIsEditing(true)}
+                  className="w-full sm:w-auto"
                 >
                   Modifier
                 </Button>
               ) : (
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <Button
                     variant="ghost"
                     onClick={() => {
@@ -366,6 +384,7 @@ const ProfileView = () => {
                       setPhone(currentUser?.phone || '');
                       setIsEditing(false);
                     }}
+                    className="w-full sm:w-auto"
                   >
                     Annuler
                   </Button>
@@ -373,6 +392,7 @@ const ProfileView = () => {
                     variant="success"
                     icon={<Save className="w-4 h-4" />}
                     onClick={handleSave}
+                    className="w-full sm:w-auto"
                   >
                     Enregistrer
                   </Button>

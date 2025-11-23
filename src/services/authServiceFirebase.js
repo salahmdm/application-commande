@@ -150,27 +150,60 @@ const authServiceFirebase = {
           });
         }
         
-        // Construire l'objet utilisateur avec les données Firestore
+        // ✅ NOUVEAU: Récupérer les données depuis Supabase (source de vérité pour les rôles)
+        let supabaseUserData = null;
+        try {
+          const supabaseResult = await supabaseService.getUserByEmail(result.user.email);
+          if (supabaseResult.success && supabaseResult.data) {
+            supabaseUserData = supabaseResult.data;
+            logger.log('✅ authServiceFirebase.login - Données Supabase récupérées');
+          } else {
+            // ✅ SYNCHRONISATION AUTOMATIQUE: Si l'utilisateur n'existe pas dans Supabase, le créer
+            logger.warn('⚠️ authServiceFirebase.login - Utilisateur non trouvé dans Supabase, synchronisation automatique...');
+            const syncResult = await supabaseService.syncFirebaseUser(result.user, {
+              firstName: userData?.firstName || result.user.displayName?.split(' ')[0] || '',
+              lastName: userData?.lastName || result.user.displayName?.split(' ').slice(1).join(' ') || '',
+              role: userData?.role || 'client',
+              loyalty_points: userData?.loyalty_points || userData?.points || 0
+            });
+            
+            if (syncResult.success) {
+              logger.log('✅ authServiceFirebase.login - Utilisateur créé dans Supabase:', result.user.email);
+              supabaseUserData = syncResult.data;
+              // Récupérer les données complètes depuis Supabase
+              const updatedSupabaseResult = await supabaseService.getUserByEmail(result.user.email);
+              if (updatedSupabaseResult.success && updatedSupabaseResult.data) {
+                supabaseUserData = updatedSupabaseResult.data;
+              }
+            } else {
+              logger.error('❌ authServiceFirebase.login - Erreur synchronisation Supabase:', syncResult.error);
+            }
+          }
+        } catch (supabaseError) {
+          logger.warn('⚠️ authServiceFirebase.login - Erreur récupération Supabase (non bloquant):', supabaseError);
+        }
+        
+        // Construire l'objet utilisateur avec les données Supabase (priorité) ou Firestore (fallback)
         const user = {
-          id: uid,
+          id: supabaseUserData?.id || uid,
           uid: uid,
           email: result.user.email,
-          firstName: userData.firstName || userData.displayName?.split(' ')[0] || '',
-          lastName: userData.lastName || userData.displayName?.split(' ').slice(1).join(' ') || '',
-          name: userData.displayName || result.user.displayName || '',
-          role: userData.role || 'client',
-          loyalty_points: userData.loyalty_points || userData.points || 0,
-          points: userData.points || userData.loyalty_points || 0,
+          firstName: supabaseUserData?.first_name || userData?.firstName || result.user.displayName?.split(' ')[0] || '',
+          lastName: supabaseUserData?.last_name || userData?.lastName || result.user.displayName?.split(' ').slice(1).join(' ') || '',
+          name: supabaseUserData ? `${supabaseUserData.first_name || ''} ${supabaseUserData.last_name || ''}`.trim() : (userData?.displayName || result.user.displayName || ''),
+          role: supabaseUserData?.role || userData?.role || 'client', // ✅ Rôle depuis Supabase
+          loyalty_points: supabaseUserData?.loyalty_points || userData?.loyalty_points || userData?.points || 0,
+          points: supabaseUserData?.loyalty_points || userData?.points || userData?.loyalty_points || 0,
           emailVerified: result.user.emailVerified,
-          photoURL: result.user.photoURL || userData.photoURL,
-          phone: userData.phone || null,
-          address: userData.address || null
+          photoURL: supabaseUserData?.avatar_url || result.user.photoURL || userData?.photoURL,
+          phone: supabaseUserData?.phone || userData?.phone || null,
+          address: userData?.address || null
         };
         
         // Stocker dans localStorage pour compatibilité
         localStorage.setItem('user', JSON.stringify(user));
         
-        logger.log('✅ authServiceFirebase.login - Connexion réussie');
+        logger.log('✅ authServiceFirebase.login - Connexion réussie (données Supabase)');
         return {
           success: true,
           user
@@ -252,32 +285,37 @@ const authServiceFirebase = {
           phone: userData.phone || null
         };
         
-        // Synchroniser avec Supabase
+        // ✅ SYNCHRONISATION AUTOMATIQUE: Créer l'utilisateur dans Supabase
+        logger.log('🔄 authServiceFirebase.register - Synchronisation automatique Firebase → Supabase...');
         const syncResult = await supabaseService.syncFirebaseUser(result.user, userProfile);
         
         if (!syncResult.success) {
-          logger.warn('⚠️ Erreur synchronisation Supabase lors de l\'inscription:', syncResult.error);
-          // Continuer quand même avec les données minimales
+          logger.error('❌ Erreur synchronisation Supabase lors de l\'inscription:', syncResult.error);
+          // Continuer quand même avec les données minimales, mais réessayer plus tard
+          logger.warn('⚠️ L\'utilisateur sera synchronisé automatiquement lors de la prochaine connexion');
+        } else {
+          logger.log('✅ authServiceFirebase.register - Utilisateur créé avec succès dans Supabase:', result.user.email);
         }
         
-        // Récupérer les données depuis Supabase (pour avoir le rôle correct)
+        // Récupérer les données depuis Supabase (pour avoir le rôle correct et l'ID Supabase)
         const supabaseUser = await supabaseService.getUserByEmail(result.user.email);
         const finalRole = supabaseUser.success && supabaseUser.data ? supabaseUser.data.role : 'client';
+        const supabaseId = supabaseUser.success && supabaseUser.data ? supabaseUser.data.id : null;
         
-        // Construire l'objet utilisateur
+        // Construire l'objet utilisateur avec les données Supabase si disponibles
         const user = {
-          id: result.user.uid,
+          id: supabaseId || result.user.uid, // ID Supabase si disponible, sinon UID Firebase
           uid: result.user.uid,
           email: result.user.email,
-          firstName: userData.firstName || '',
-          lastName: userData.lastName || '',
+          firstName: supabaseUser.success && supabaseUser.data ? (supabaseUser.data.first_name || userData.firstName || '') : (userData.firstName || ''),
+          lastName: supabaseUser.success && supabaseUser.data ? (supabaseUser.data.last_name || userData.lastName || '') : (userData.lastName || ''),
           name: displayName,
           role: finalRole, // ✅ Rôle depuis Supabase
-          loyalty_points: 0,
-          points: 0,
+          loyalty_points: supabaseUser.success && supabaseUser.data ? (supabaseUser.data.loyalty_points || 0) : 0,
+          points: supabaseUser.success && supabaseUser.data ? (supabaseUser.data.loyalty_points || 0) : 0,
           emailVerified: false,
           photoURL: result.user.photoURL || null,
-          phone: userData.phone || null
+          phone: supabaseUser.success && supabaseUser.data ? (supabaseUser.data.phone || userData.phone || null) : (userData.phone || null)
         };
         
         // Stocker dans localStorage

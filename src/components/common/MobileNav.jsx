@@ -46,8 +46,8 @@ const MobileNav = () => {
   };
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-neutral-200 z-40 shadow-elegant safe-area-inset-bottom">
-      <div className={`grid h-16 ${role === 'client' ? 'grid-cols-5' : 'grid-cols-4'}`}>
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t-2 border-neutral-300 z-[60] shadow-2xl shadow-black/10 safe-area-inset-bottom">
+      <div className={`grid h-20 ${role === 'client' ? 'grid-cols-5' : 'grid-cols-4'}`}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.action === 'cart' ? false : currentView === item.id;
@@ -58,23 +58,41 @@ const MobileNav = () => {
               key={item.id}
               onClick={() => handleItemClick(item)}
               className={`
-                flex flex-col items-center justify-center gap-1 relative
-                transition-all duration-200 active:scale-95
+                flex flex-col items-center justify-center gap-1.5 relative
+                transition-all duration-300 active:scale-95 group
                 ${isActive 
-                  ? 'text-black bg-neutral-100' 
-                  : 'text-neutral-600 active:bg-neutral-50'
+                  ? 'text-black' 
+                  : 'text-neutral-500 active:text-black'
                 }
               `}
             >
               <div className="relative">
-                <Icon className={`w-6 h-6 transition-transform duration-200 ${isActive ? 'scale-125' : ''}`} />
+                {/* Fond actif avec effet de brillance */}
+                {isActive && (
+                  <div className="absolute inset-0 -m-2 bg-gradient-to-br from-black/10 to-black/5 rounded-2xl blur-sm"></div>
+                )}
+                <div className={`
+                  relative p-2.5 rounded-xl transition-all duration-300
+                  ${isActive 
+                    ? 'bg-black text-white shadow-lg scale-110' 
+                    : 'bg-transparent group-hover:bg-neutral-100 group-active:bg-neutral-200'
+                  }
+                `}>
+                  <Icon className={`w-5 h-5 transition-all duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
+                </div>
                 {showBadge && (
-                  <div className="absolute -top-2 -right-2 bg-black text-white text-xs min-w-[20px] h-5 rounded-full flex items-center justify-center font-bold shadow-lg px-1">
+                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs min-w-[20px] h-5 rounded-full flex items-center justify-center font-bold shadow-lg px-1.5 animate-pulse">
                     {totalItems > 99 ? '99+' : totalItems}
                   </div>
                 )}
               </div>
-              <span className={`text-xs font-sans transition-all duration-200 ${isActive ? 'font-bold' : 'font-medium'}`}>
+              <span className={`
+                text-[10px] font-heading transition-all duration-300
+                ${isActive 
+                  ? 'font-bold text-black' 
+                  : 'font-semibold group-hover:font-bold group-hover:text-black'
+                }
+              `}>
                 {item.label}
               </span>
             </button>

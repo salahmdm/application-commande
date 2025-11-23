@@ -4712,7 +4712,7 @@ app.get('/api/restaurant-info', async (req, res) => {
     let openingHours = {};
     try { openingHours = map.opening_hours ? JSON.parse(map.opening_hours) : {}; } catch { openingHours = {}; }
     const businessDefaults = {
-      name: 'SUPERMARCHÉ DUPONT',
+      name: 'BLOSSOM CAFE',
       address: '15 Avenue des Champs-Élysées, 75008 PARIS',
       phone: '01 42 56 78 90',
       siret: '123 456 789 00012',

@@ -552,7 +552,7 @@ const CartDrawer = ({ isOpen, onClose }) => {
       />
       
       {/* Drawer */}
-      <div className="fixed right-0 top-0 pt-20 md:pt-24 lg:pt-28 h-full w-full md:w-96 bg-white shadow-elegant z-50 overflow-y-auto animate-slide-in">
+      <div className="fixed right-0 top-0 pt-20 md:pt-24 lg:pt-28 h-full lg:h-full pb-20 lg:pb-0 w-full md:w-96 bg-white shadow-elegant z-50 overflow-y-auto animate-slide-in">
         <div className="p-6">
           {/* En-tête */}
           <div className="flex items-center justify-between p-3 border-b border-gray-200">

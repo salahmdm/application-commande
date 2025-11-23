@@ -1311,7 +1311,7 @@ const AdminSettings = () => {
               type="text"
               value={getSetting('business_name')}
               onChange={(e) => handleChange('business_name', e.target.value)}
-              placeholder="SUPERMARCHÉ DUPONT"
+              placeholder="BLOSSOM CAFE"
                     className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
             />
           </div>
@@ -1344,7 +1344,7 @@ const AdminSettings = () => {
               type="text"
               value={getSetting('business_website')}
               onChange={(e) => handleChange('business_website', e.target.value)}
-              placeholder="www.supermarche-dupont.fr"
+              placeholder=""
                     className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
             />
           </div>
@@ -1366,7 +1366,7 @@ const AdminSettings = () => {
               type="email"
               value={getSetting('business_email')}
               onChange={(e) => handleChange('business_email', e.target.value)}
-              placeholder="contact@supermarche-dupont.fr"
+              placeholder=""
                     className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
             />
           </div>

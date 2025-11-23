@@ -1,5 +1,5 @@
 // Import React non nécessaire avec JSX transform automatique
-import { Home, ShoppingBag, User, Package, Settings, Clock, X, PlusCircle, DollarSign, Warehouse, Palette, Users, LogOut } from 'lucide-react';
+import { Home, ShoppingBag, Package, Settings, X, PlusCircle, DollarSign, Warehouse, Palette, Users, LogOut } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useUIStore from '../../store/uiStore';
 
@@ -27,16 +27,15 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (onClose) onClose();
   };
   
-  // Menu selon le rôle
+  // Menu selon le rôle - Pas de menu pour les clients (ils ont la navigation en bas)
   const getMenuItems = () => {
-    const baseItems = [
-      { id: 'home', label: 'Accueil', icon: Home, roles: ['client', 'manager', 'admin'] },
-    ];
+    // Si c'est un client, retourner un tableau vide (pas de menu)
+    if (role === 'client') {
+      return [];
+    }
     
-    const clientItems = [
-      { id: 'products', label: 'Nos Produits', icon: ShoppingBag, roles: ['client'] },
-      { id: 'orders', label: 'Mes Commandes', icon: Clock, roles: ['client'] },
-      { id: 'profile', label: 'Mon Profil', icon: User, roles: ['client'] },
+    const baseItems = [
+      { id: 'home', label: 'Accueil', icon: Home, roles: ['manager', 'admin'] },
     ];
     
     const managerItems = [
@@ -53,12 +52,17 @@ const Sidebar = ({ isOpen, onClose }) => {
     { id: 'admin-settings', label: 'Paramètres', icon: Settings, roles: ['admin'] },
     ];
     
-    const allItems = [...baseItems, ...clientItems, ...managerItems, ...adminItems];
+    const allItems = [...baseItems, ...managerItems, ...adminItems];
     
     return allItems.filter(item => item.roles.includes(role));
   };
   
   const menuItems = isAuthenticated ? getMenuItems() : [];
+  
+  // Si c'est un client, ne pas afficher la sidebar
+  if (role === 'client') {
+    return null;
+  }
   
   return (
     <>

@@ -19,7 +19,7 @@ export const DEFAULT_TICKET_DISPLAY = {
 };
 
 export const DEFAULT_BUSINESS_INFO = {
-  name: 'SUPERMARCHÉ DUPONT',
+  name: 'BLOSSOM CAFE',
   address: '15 Avenue des Champs-Élysées, 75008 PARIS',
   phone: '01 42 56 78 90',
   siret: '123 456 789 00012',

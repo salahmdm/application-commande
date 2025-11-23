@@ -1,5 +1,5 @@
 // Import React non nécessaire avec JSX transform automatique
-import { ShoppingCart, Menu, LogOut } from 'lucide-react';
+import { ShoppingCart, Menu } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import useUIStore from '../../store/uiStore';
@@ -11,22 +11,15 @@ import { formatPrice } from '../../constants/pricing';
  * Design avec gradients, effets de verre et animations fluides
  */
 const Header = ({ onMenuClick, sidebarOpen }) => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user } = useAuth();
   const { totalItems, total } = useCart();
-  const { showCart, setShowCart, toggleCart } = useUIStore((state) => ({
-    showCart: state.showCart,
+  const { setShowCart, toggleCart } = useUIStore((state) => ({
     setShowCart: state.setShowCart,
     toggleCart: state.toggleCart
   }));
   const setCurrentView = useUIStore((state) => state.setCurrentView);
-  const setShowLogoutConfirm = useUIStore((state) => state.setShowLogoutConfirm);
   
   const isManager = user?.role === 'manager' || user?.role === 'admin';
-  
-  const handleLogout = async () => {
-    // Afficher la modale de confirmation pour tous les rôles
-    setShowLogoutConfirm(true);
-  };
 
   const handleMenuClick = () => {
     // Fermer le panier si ouvert
@@ -48,21 +41,23 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
         <div className="flex items-center justify-between gap-2 md:gap-6 min-w-0">
           {/* Logo avec effet moderne */}
           <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Bouton menu avec effet de verre */}
-            <button
-              onClick={handleMenuClick}
-              className="p-3 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200/50 hover:bg-white/80 transition-all duration-300 flex-shrink-0 active:scale-95 group"
-              aria-label={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
-              title={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
-            >
-              <Menu className="w-6 h-6 text-slate-700 group-hover:text-purple-600 transition-colors duration-200" />
-            </button>
+            {/* Bouton menu avec effet de verre - Visible uniquement pour managers/admins */}
+            {isManager && (
+              <button
+                onClick={handleMenuClick}
+                className="p-3 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200/50 hover:bg-white/80 transition-all duration-300 flex-shrink-0 active:scale-95 group"
+                aria-label={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
+                title={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
+              >
+                <Menu className="w-6 h-6 text-slate-700 group-hover:text-purple-600 transition-colors duration-200" />
+              </button>
+            )}
             
             <div className="flex items-center gap-3 sm:gap-6 md:gap-8">
               {/* Logo avec gradient - Bouton vers page d'accueil */}
               <button
                 onClick={handleHomeClick}
-                className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent whitespace-nowrap animate-pulse-slow hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg px-2 py-1"
+                className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-black via-neutral-800 to-black bg-clip-text text-transparent whitespace-nowrap hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-0 rounded-lg px-2 py-1"
                 aria-label="Aller à la page d'accueil"
                 title="Accueil"
               >
@@ -185,18 +180,6 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
                     {totalItems}
                   </div>
                 )}
-              </button>
-            )}
-            
-            {/* Bouton déconnexion avec effet moderne – toujours visible, en premier plan */}
-            {isAuthenticated && (
-              <button
-                onClick={handleLogout}
-                className="flex p-3 rounded-2xl hover:bg-red-50 text-red-600 transition-all duration-300 flex-shrink-0 hover:scale-105 active:scale-95 group z-50"
-                aria-label="Déconnexion"
-                title="Déconnexion"
-              >
-                <LogOut className="w-5 h-5 group-hover:text-red-700 transition-colors duration-200" />
               </button>
             )}
           </div>

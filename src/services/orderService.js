@@ -52,6 +52,19 @@ const orderService = {
    */
   async updateOrderStatus(orderId, status) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 orderService.updateOrderStatus - Utilisation Supabase direct');
+        const result = await supabaseService.updateOrder(orderId, { status });
+        if (result.success) {
+          logger.log('✅ orderService.updateOrderStatus - Statut mis à jour via Supabase');
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur mise à jour statut Supabase');
+        }
+      }
+      
+      // Backend API disponible
       const response = await apiCall(`/admin/orders/${orderId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status })
@@ -69,6 +82,19 @@ const orderService = {
    */
   async getOrderById(orderId) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 orderService.getOrderById - Utilisation Supabase direct');
+        const result = await supabaseService.getOrderById(orderId);
+        if (result.success) {
+          logger.log('✅ orderService.getOrderById - Commande récupérée via Supabase');
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur récupération commande Supabase');
+        }
+      }
+      
+      // Backend API disponible
       const response = await apiCall(`/admin/orders/${orderId}`);
       return response;
     } catch (error) {
@@ -83,6 +109,57 @@ const orderService = {
    */
   async getUserOrders(options = {}) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 orderService.getUserOrders - Utilisation Supabase direct');
+        
+        // Récupérer l'UID Firebase depuis localStorage
+        let firebaseUid = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              if (user && !user.isGuest) {
+                firebaseUid = user.uid || user.id;
+              }
+            }
+          } catch (e) {
+            logger.warn('⚠️ Erreur récupération user depuis localStorage:', e);
+          }
+        }
+        
+        // Filtrer les commandes par UID Firebase dans les notes
+        const filters = {};
+        if (firebaseUid) {
+          // Note: Supabase ne peut pas filtrer directement dans les notes JSON
+          // On récupère toutes les commandes et on filtre côté client
+          // Ou on utilise user_id NULL pour Firebase
+        }
+        
+        const result = await supabaseService.getOrders(filters);
+        if (result.success) {
+          // Filtrer par UID Firebase si nécessaire
+          let orders = result.data || [];
+          if (firebaseUid) {
+            orders = orders.filter(order => 
+              !order.user_id && 
+              order.notes && 
+              order.notes.includes(`[Firebase UID: ${firebaseUid}]`)
+            );
+          } else {
+            // Pour les invités, récupérer les commandes sans user_id
+            orders = orders.filter(order => !order.user_id);
+          }
+          
+          logger.log(`✅ orderService.getUserOrders - ${orders.length} commandes récupérées via Supabase`);
+          return { success: true, data: orders };
+        } else {
+          throw new Error(result.error || 'Erreur récupération commandes Supabase');
+        }
+      }
+      
+      // Backend API disponible
       const response = await apiCall('/orders', { ...(options || {}) });
       return response;
     } catch (error) {
@@ -101,6 +178,19 @@ const orderService = {
    */
   async getAllOrders(filters = {}, options = {}) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 orderService.getAllOrders - Utilisation Supabase direct');
+        const result = await supabaseService.getOrders(filters);
+        if (result.success) {
+          logger.log(`✅ orderService.getAllOrders - ${result.data?.length || 0} commandes récupérées via Supabase`);
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur récupération commandes Supabase');
+        }
+      }
+      
+      // Backend API disponible
       let endpoint = '/admin/orders';
       const params = new URLSearchParams();
 

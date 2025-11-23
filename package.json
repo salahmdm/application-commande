@@ -16,6 +16,7 @@
           "reset-firebase-password": "node scripts/reset-firebase-password.js",
           "update-user-role": "node scripts/update-user-role.js",
           "verify-user-role": "node scripts/verify-user-role.js",
+          "diagnostic-admin": "node scripts/diagnostic-admin-access.js",
     "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\"",
     "start:all": "concurrently -k -n \"BACKEND,FRONTEND,KIOSK\" -c \"blue,green,yellow\" \"npm run backend\" \"npm run dev\" \"npm run dev:kiosk\""
   },

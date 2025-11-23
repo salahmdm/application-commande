@@ -379,10 +379,14 @@ const CartDrawer = ({ isOpen, onClose }) => {
       const paymentMethodLabel = paymentMethod === 'cash' ? 'en caisse' : 'par carte bancaire';
       logger.debug(`💵 Paiement ${paymentMethodLabel} - Création de la commande`);
       
-      // Préparer les items de la commande
+      // Préparer les items de la commande avec toutes les informations nécessaires
       let orderItems = Array.isArray(items) ? items.map(item => ({
         productId: item?.id || item?.productId,
-        quantity: item?.quantity || 1
+        quantity: item?.quantity || 1,
+        price: item?.price || 0,
+        productName: item?.name || item?.productName || 'Produit',
+        subtotal: (item?.price || 0) * (item?.quantity || 1),
+        notes: item?.notes || null
       })) : [];
 
       // Utiliser la récompense appliquée depuis HomeView ou celle sélectionnée dans le panier
@@ -390,13 +394,22 @@ const CartDrawer = ({ isOpen, onClose }) => {
       
       // Si une récompense de type produit est sélectionnée, ajouter le produit offert
       if (rewardToUse && rewardToUse.type === 'product' && rewardToUse.productId) {
+        // Récupérer les informations du produit depuis les items du panier ou utiliser des valeurs par défaut
+        const rewardProduct = items.find(item => (item?.id || item?.productId) === rewardToUse.productId);
         orderItems.push({
           productId: rewardToUse.productId,
           quantity: 1,
-          isReward: true // Marquer comme produit offert
+          price: rewardProduct?.price || 0,
+          productName: rewardProduct?.name || rewardToUse.name || 'Produit offert',
+          subtotal: 0, // Produit offert, donc subtotal = 0
+          isReward: true, // Marquer comme produit offert
+          notes: 'Produit offert via programme de fidélité'
         });
       }
 
+      // Calculer les totaux pour la commande
+      const orderTotal = calculateOrderTotal(subtotal, discountAmount);
+      
       const orderData = {
         orderType: orderType,
         items: orderItems,
@@ -412,11 +425,16 @@ const CartDrawer = ({ isOpen, onClose }) => {
           type: 'tier',
           tier: selectedLoyaltyTier.points,
           reward: selectedLoyaltyTier.reward,
-          discount: loyaltyDiscount
+          discount: loyaltyDiscountAmount || 0
         } : null,
         paymentMethod: paymentMethod,
         notes: `Commande client ${clientName || finalGuestName || user?.first_name || user?.name || 'Invité'} - Paiement ${paymentMethodLabel}`,
-        tableNumber: (tableNumberEnabled && orderType === 'dine-in' && tableNumber) ? tableNumber : null
+        tableNumber: (tableNumberEnabled && orderType === 'dine-in' && tableNumber) ? tableNumber : null,
+        // ✅ Ajouter les totaux pour Supabase
+        subtotal: subtotal,
+        discountAmount: discountAmount,
+        taxAmount: orderTotal.tva,
+        totalAmount: orderTotal.totalTTC
       };
         
       // Toujours envoyer un guestName pour s'assurer que le backend accepte la requête

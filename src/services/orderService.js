@@ -1,18 +1,40 @@
 import { apiCall } from './api';
 import logger from '../utils/logger';
+import supabaseService from './supabaseService';
+
+/**
+ * Vérifier si on doit utiliser Supabase directement (sur Vercel sans backend)
+ */
+const shouldUseSupabase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  return !apiUrl || apiUrl === '';
+};
 
 /**
  * Service de commandes
- * Connecté à MySQL via API Backend (endpoints réels uniquement)
+ * Connecté à MySQL via API Backend ou directement à Supabase (sur Vercel)
  */
 
 const orderService = {
   /**
-   * Créer une commande - Sauvegardée dans MySQL
+   * Créer une commande - Sauvegardée dans MySQL ou Supabase
    * POST /api/orders
    */
   async createOrder(orderData) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 orderService.createOrder - Utilisation Supabase direct');
+        const result = await supabaseService.createOrder(orderData);
+        if (result.success) {
+          logger.log('✅ orderService.createOrder - Commande créée via Supabase:', result.data?.order_number);
+          return { success: true, order: result.data, data: result.data };
+        } else {
+          throw new Error(result.error || 'Erreur création commande Supabase');
+        }
+      }
+
+      // Backend API disponible
       const response = await apiCall('/orders', {
         method: 'POST',
         body: JSON.stringify(orderData)

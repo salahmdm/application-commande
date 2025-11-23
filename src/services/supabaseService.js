@@ -581,35 +581,143 @@ class SupabaseService {
 
   async createOrder(orderData) {
     try {
-      // Créer la commande
+      // ✅ Récupérer l'utilisateur depuis localStorage
+      let userId = orderData.userId || null;
+      if (!userId && typeof window !== 'undefined') {
+        try {
+          const userStr = localStorage.getItem('user');
+          if (userStr) {
+            const user = JSON.parse(userStr);
+            // Ne pas utiliser user_id pour les invités
+            if (user && !user.isGuest && user.id) {
+              userId = user.id;
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Erreur récupération user depuis localStorage:', e);
+        }
+      }
+
+      // ✅ Générer le numéro de commande si non fourni
+      let orderNumber = orderData.orderNumber;
+      if (!orderNumber) {
+        // Récupérer la dernière commande pour générer le numéro suivant
+        const { data: lastOrders, error: lastOrderError } = await this.getClient()
+          .from('orders')
+          .select('order_number')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        if (lastOrderError) {
+          console.warn('⚠️ Erreur récupération dernière commande:', lastOrderError);
+        }
+
+        let nextNumber = 1;
+        if (lastOrders && lastOrders.length > 0 && lastOrders[0].order_number) {
+          const lastNumStr = lastOrders[0].order_number.replace('CMD-', '');
+          const lastNum = parseInt(lastNumStr, 10);
+          if (!isNaN(lastNum)) {
+            nextNumber = lastNum + 1;
+          }
+        }
+
+        orderNumber = `CMD-${String(nextNumber).padStart(4, '0')}`;
+      }
+
+      // ✅ Calculer les totaux si non fournis
+      let subtotal = orderData.subtotal || 0;
+      let discountAmount = orderData.discountAmount || 0;
+      let taxAmount = orderData.taxAmount || 0;
+      let totalAmount = orderData.totalAmount || 0;
+
+      // Si les totaux ne sont pas fournis, les calculer depuis les items
+      if (!subtotal && orderData.items && orderData.items.length > 0) {
+        subtotal = orderData.items.reduce((sum, item) => {
+          const itemPrice = item.price || 0;
+          const itemQuantity = item.quantity || 1;
+          return sum + (itemPrice * itemQuantity);
+        }, 0);
+      }
+
+      // Calculer la TVA (10%) sur le montant après réduction
+      if (!taxAmount && subtotal > 0) {
+        const baseTaxable = subtotal - discountAmount;
+        taxAmount = Math.round(baseTaxable * 0.1 * 100) / 100; // TVA 10%
+      }
+
+      // Calculer le total si non fourni
+      if (!totalAmount && subtotal > 0) {
+        totalAmount = subtotal - discountAmount + taxAmount;
+      }
+
+      // ✅ Récupérer les noms des produits pour les items
+      const orderItemsToInsert = [];
+      if (orderData.items && orderData.items.length > 0) {
+        for (const item of orderData.items) {
+          // Récupérer le produit pour obtenir son nom et prix
+          let productName = item.productName || item.name || 'Produit';
+          let unitPrice = item.price || item.unitPrice || 0;
+          let itemSubtotal = item.subtotal || (unitPrice * (item.quantity || 1));
+
+          // Si le nom ou prix n'est pas fourni, essayer de récupérer depuis Supabase
+          if (!item.productName || !item.price) {
+            try {
+              const { data: product, error: productError } = await this.getClient()
+                .from('products')
+                .select('name, price')
+                .eq('id', item.productId)
+                .single();
+
+              if (!productError && product) {
+                productName = product.name || productName;
+                unitPrice = product.price || unitPrice;
+                itemSubtotal = unitPrice * (item.quantity || 1);
+              }
+            } catch (e) {
+              console.warn('⚠️ Erreur récupération produit:', e);
+            }
+          }
+
+          orderItemsToInsert.push({
+            order_id: null, // Sera mis à jour après création de la commande
+            product_id: item.productId,
+            product_name: productName,
+            quantity: item.quantity || 1,
+            unit_price: unitPrice,
+            subtotal: itemSubtotal,
+            special_instructions: item.notes || item.special_instructions || null
+          });
+        }
+      }
+
+      // ✅ Créer la commande
       const { data: order, error: orderError } = await this.getClient()
         .from('orders')
         .insert({
-          user_id: orderData.userId,
-          order_number: orderData.orderNumber,
-          order_type: orderData.orderType,
+          user_id: userId,
+          order_number: orderNumber,
+          order_type: orderData.orderType || 'dine-in',
           status: orderData.status || 'pending',
-          subtotal: orderData.subtotal,
-          discount_amount: orderData.discountAmount || 0,
-          tax_amount: orderData.taxAmount || 0,
-          total_amount: orderData.totalAmount,
-          payment_method: orderData.paymentMethod,
+          subtotal: subtotal,
+          discount_amount: discountAmount,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          payment_method: orderData.paymentMethod || 'cash',
           payment_status: orderData.paymentStatus || 'pending',
-          notes: orderData.notes,
+          notes: orderData.notes || null,
+          table_number: orderData.tableNumber || null,
+          delivery_address: orderData.deliveryAddress || null
         })
         .select()
         .single();
 
       if (orderError) throw orderError;
 
-      // Créer les items de commande
-      if (orderData.items && orderData.items.length > 0) {
-        const orderItems = orderData.items.map(item => ({
-          order_id: order.id,
-          product_id: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-          subtotal: item.subtotal,
+      // ✅ Créer les items de commande avec l'ID de la commande
+      if (orderItemsToInsert.length > 0) {
+        const orderItems = orderItemsToInsert.map(item => ({
+          ...item,
+          order_id: order.id
         }));
 
         const { error: itemsError } = await this.getClient()
@@ -619,10 +727,11 @@ class SupabaseService {
         if (itemsError) throw itemsError;
       }
 
+      console.log('✅ Supabase createOrder - Commande créée:', orderNumber);
       return { success: true, data: order };
     } catch (error) {
       console.error('❌ Supabase - Erreur createOrder:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || 'Erreur lors de la création de la commande' };
     }
   }
 

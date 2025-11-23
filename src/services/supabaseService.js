@@ -131,11 +131,30 @@ class SupabaseService {
 
   async getProducts(filters = {}) {
     try {
-      let query = this.getClient().from('products').select('*, categories(*)');
+      // ✅ CORRECTION: Sélectionner les champs nécessaires avec la relation categories
+      // Utiliser select explicite pour s'assurer que category_id et les données de catégorie sont incluses
+      let query = this.getClient()
+        .from('products')
+        .select(`
+          *,
+          categories (
+            id,
+            name,
+            slug,
+            description,
+            icon,
+            display_order,
+            is_active
+          )
+        `);
 
       if (filters.categoryId) {
-        query = query.eq('category_id', filters.categoryId);
+        // ✅ CORRECTION: Filtrer par category_id (convertir en nombre pour éviter les problèmes de type)
+        const categoryIdNum = typeof filters.categoryId === 'string' ? parseInt(filters.categoryId, 10) : filters.categoryId;
+        query = query.eq('category_id', categoryIdNum);
+        console.log(`🔍 Supabase getProducts - Filtrage par catégorie ID: ${categoryIdNum}`);
       }
+      
       // ✅ CORRECTION: Dans Supabase, la colonne s'appelle 'is_available' et non 'is_active'
       // ✅ CORRECTION: Supabase attend un smallint (0 ou 1), pas un boolean
       if (filters.isActive !== undefined) {
@@ -158,12 +177,46 @@ class SupabaseService {
         throw error;
       }
       
+      // ✅ CORRECTION: Enrichir les produits avec les données de catégorie pour compatibilité
+      const enrichedData = (data || []).map(product => {
+        // Si categories est un tableau (relation Supabase), prendre le premier élément
+        const category = Array.isArray(product.categories) && product.categories.length > 0
+          ? product.categories[0]
+          : product.categories || null;
+        
+        return {
+          ...product,
+          // ✅ CORRECTION: S'assurer que category_id est toujours présent
+          category_id: product.category_id || (category ? category.id : null),
+          // ✅ CORRECTION: Ajouter category_name et category_slug pour compatibilité
+          category_name: category?.name || product.category_name || null,
+          category_slug: category?.slug || product.category_slug || null,
+          // Garder l'objet categories pour référence
+          categories: category
+        };
+      });
+      
       // ✅ Log de débogage pour Vercel
       if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
-        console.log(`✅ Supabase getProducts - ${data?.length || 0} produits récupérés`);
+        console.log(`✅ Supabase getProducts - ${enrichedData.length} produits récupérés`);
+        if (filters.categoryId) {
+          const productsInCategory = enrichedData.filter(p => 
+            p.category_id === (typeof filters.categoryId === 'string' ? parseInt(filters.categoryId, 10) : filters.categoryId)
+          );
+          console.log(`   → ${productsInCategory.length} produits dans la catégorie ${filters.categoryId}`);
+        }
+        // Afficher les premiers produits pour debug
+        if (enrichedData.length > 0) {
+          console.log('   → Exemple produits:', enrichedData.slice(0, 3).map(p => ({
+            id: p.id,
+            name: p.name,
+            category_id: p.category_id,
+            category_name: p.category_name
+          })));
+        }
       }
       
-      return { success: true, data };
+      return { success: true, data: enrichedData };
     } catch (error) {
       console.error('❌ Supabase - Erreur getProducts:', error);
       return { success: false, error: error.message || error.toString() };

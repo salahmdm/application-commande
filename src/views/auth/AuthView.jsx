@@ -256,8 +256,21 @@ const AuthView = () => {
       
       const result = await register(userData);
       if (result.success) {
-        // ✅ Vérifier si la connexion automatique a échoué
-        if (result.warning) {
+        // ✅ Vérifier si l'email doit être confirmé
+        if (result.requiresEmailConfirmation) {
+          success(result.message || 'Compte créé avec succès ! Vérifiez votre boîte email et cliquez sur le lien de confirmation avant de vous connecter.');
+          setIsLogin(true); // Revenir à la page de connexion
+          setRegisterData({
+            firstName: '',
+            lastName: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            phone: ''
+          });
+          setPasswordErrors([]);
+          setConfirmPasswordError('');
+        } else if (result.warning) {
           // Afficher un message de succès avec un avertissement
           success('Compte créé avec succès ! Veuillez vous connecter.');
           showError(result.warning);
@@ -486,7 +499,10 @@ const AuthView = () => {
                 type="email"
                 placeholder="votre@email.com"
                 value={loginData.email}
-                onChange={(e) => setLoginData({...loginData, email: e.target.value})}
+                onChange={(e) => {
+                  setLoginData({...loginData, email: e.target.value});
+                  setLoginError(null); // ✅ Réinitialiser l'erreur quand l'utilisateur modifie l'email
+                }}
                 icon={<Mail className="w-5 h-5" />}
                 required
               />
@@ -496,7 +512,10 @@ const AuthView = () => {
                 type="password"
                 placeholder="••••••••"
                 value={loginData.password}
-                onChange={(e) => setLoginData({...loginData, password: e.target.value})}
+                onChange={(e) => {
+                  setLoginData({...loginData, password: e.target.value});
+                  setLoginError(null); // ✅ Réinitialiser l'erreur quand l'utilisateur modifie le mot de passe
+                }}
                 icon={<Lock className="w-5 h-5" />}
                 required
               />
@@ -515,22 +534,46 @@ const AuthView = () => {
                 </button>
               </div>
               
-              {/* Message d'erreur avec suggestion de réinitialisation */}
-              {loginError && loginError.includes('trop de tentatives') && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <p className="text-sm text-amber-800 mb-2">
-                    {loginError}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetPasswordEmail(loginData.email);
-                      setShowResetPasswordModal(true);
-                    }}
-                    className="text-sm text-amber-700 hover:text-amber-900 font-semibold underline"
-                  >
-                    Réinitialiser mon mot de passe maintenant
-                  </button>
+              {/* ✅ Message d'erreur général pour toutes les erreurs de connexion */}
+              {loginError && (
+                <div className={`rounded-lg p-4 border ${
+                  loginError.includes('trop de tentatives') || loginError.includes('too-many-requests')
+                    ? 'bg-amber-50 border-amber-200'
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <span className={`text-lg ${
+                      loginError.includes('trop de tentatives') || loginError.includes('too-many-requests')
+                        ? 'text-amber-600'
+                        : 'text-red-600'
+                    }`}>
+                      {loginError.includes('trop de tentatives') || loginError.includes('too-many-requests')
+                        ? '⚠️'
+                        : '❌'}
+                    </span>
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${
+                        loginError.includes('trop de tentatives') || loginError.includes('too-many-requests')
+                          ? 'text-amber-800'
+                          : 'text-red-800'
+                      }`}>
+                        {loginError}
+                      </p>
+                      {/* Bouton de réinitialisation pour les erreurs "trop de tentatives" */}
+                      {(loginError.includes('trop de tentatives') || loginError.includes('too-many-requests')) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setResetPasswordEmail(loginData.email);
+                            setShowResetPasswordModal(true);
+                          }}
+                          className="text-sm text-amber-700 hover:text-amber-900 font-semibold underline mt-2"
+                        >
+                          Réinitialiser mon mot de passe maintenant
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
               

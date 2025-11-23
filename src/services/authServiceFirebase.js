@@ -158,17 +158,35 @@ const authServiceFirebase = {
             supabaseUserData = supabaseResult.data;
             logger.log('✅ authServiceFirebase.login - Données Supabase récupérées');
           } else {
-            // ✅ SYNCHRONISATION AUTOMATIQUE: Si l'utilisateur n'existe pas dans Supabase, le créer
+            // ✅ SYNCHRONISATION AUTOMATIQUE: Si l'utilisateur n'existe pas dans Supabase, le créer avec TOUTES les informations
             logger.warn('⚠️ authServiceFirebase.login - Utilisateur non trouvé dans Supabase, synchronisation automatique...');
-            const syncResult = await supabaseService.syncFirebaseUser(result.user, {
+            logger.log('   📋 Données à synchroniser:', {
+              email: result.user.email,
               firstName: userData?.firstName || result.user.displayName?.split(' ')[0] || '',
               lastName: userData?.lastName || result.user.displayName?.split(' ').slice(1).join(' ') || '',
+              phone: userData?.phone || null,
               role: userData?.role || 'client',
               loyalty_points: userData?.loyalty_points || userData?.points || 0
             });
             
+            const syncResult = await supabaseService.syncFirebaseUser(result.user, {
+              firstName: userData?.firstName || result.user.displayName?.split(' ')[0] || '',
+              lastName: userData?.lastName || result.user.displayName?.split(' ').slice(1).join(' ') || '',
+              phone: userData?.phone || null,
+              role: userData?.role || 'client',
+              loyalty_points: userData?.loyalty_points || userData?.points || 0,
+              photoURL: result.user.photoURL || userData?.photoURL || null
+            });
+            
             if (syncResult.success) {
               logger.log('✅ authServiceFirebase.login - Utilisateur créé dans Supabase:', result.user.email);
+              logger.log('   ✅ Toutes les informations ont été transférées:', {
+                email: syncResult.data?.email,
+                first_name: syncResult.data?.first_name,
+                last_name: syncResult.data?.last_name,
+                phone: syncResult.data?.phone,
+                role: syncResult.data?.role
+              });
               supabaseUserData = syncResult.data;
               // Récupérer les données complètes depuis Supabase
               const updatedSupabaseResult = await supabaseService.getUserByEmail(result.user.email);
@@ -177,6 +195,23 @@ const authServiceFirebase = {
               }
             } else {
               logger.error('❌ authServiceFirebase.login - Erreur synchronisation Supabase:', syncResult.error);
+              // ✅ NOUVEAU: Réessayer une fois avec un délai court
+              logger.log('🔄 Tentative de resynchronisation...');
+              await new Promise(resolve => setTimeout(resolve, 500)); // Attendre 500ms
+              const retrySync = await supabaseService.syncFirebaseUser(result.user, {
+                firstName: userData?.firstName || result.user.displayName?.split(' ')[0] || '',
+                lastName: userData?.lastName || result.user.displayName?.split(' ').slice(1).join(' ') || '',
+                phone: userData?.phone || null,
+                role: userData?.role || 'client',
+                loyalty_points: userData?.loyalty_points || userData?.points || 0,
+                photoURL: result.user.photoURL || userData?.photoURL || null
+              });
+              if (retrySync.success) {
+                logger.log('✅ authServiceFirebase.login - Synchronisation réussie après réessai');
+                supabaseUserData = retrySync.data;
+              } else {
+                logger.error('❌ Échec de la resynchronisation:', retrySync.error);
+              }
             }
           }
         } catch (supabaseError) {
@@ -221,21 +256,27 @@ const authServiceFirebase = {
         throw improvedError;
       }
       
-      // ✅ Améliorer les autres messages d'erreur courants
+      // ✅ Améliorer les autres messages d'erreur courants pour l'interface utilisateur
       if (error.code === 'auth/user-not-found') {
-        const improvedError = new Error('Aucun compte trouvé avec cet email. Créez-le: npm run create-firebase-user <email> <password>');
+        const improvedError = new Error('Aucun compte trouvé avec cet email. Vérifiez votre adresse email.');
         improvedError.code = error.code;
         throw improvedError;
       }
       
       if (error.code === 'auth/wrong-password') {
-        const improvedError = new Error('Mot de passe incorrect. Utilisez "Mot de passe oublié ?" ou: npm run reset-firebase-password <email>');
+        const improvedError = new Error('Mot de passe incorrect. Vérifiez votre mot de passe ou utilisez "Mot de passe oublié ?".');
         improvedError.code = error.code;
         throw improvedError;
       }
       
       if (error.code === 'auth/invalid-credential') {
-        const improvedError = new Error('Email ou mot de passe incorrect. Solutions: 1) Vérifiez vos identifiants, 2) L\'utilisateur n\'existe peut-être pas - créez-le avec: npm run create-firebase-user <email> <password>, 3) Réinitialisez le mot de passe avec: npm run reset-firebase-password <email>');
+        const improvedError = new Error('Email ou mot de passe incorrect. Vérifiez vos identifiants.');
+        improvedError.code = error.code;
+        throw improvedError;
+      }
+      
+      if (error.code === 'auth/invalid-email') {
+        const improvedError = new Error('Email invalide. Vérifiez le format de votre adresse email.');
         improvedError.code = error.code;
         throw improvedError;
       }
@@ -285,16 +326,39 @@ const authServiceFirebase = {
           phone: userData.phone || null
         };
         
-        // ✅ SYNCHRONISATION AUTOMATIQUE: Créer l'utilisateur dans Supabase
+        // ✅ SYNCHRONISATION AUTOMATIQUE: Créer l'utilisateur dans Supabase avec TOUTES les informations
         logger.log('🔄 authServiceFirebase.register - Synchronisation automatique Firebase → Supabase...');
+        logger.log('   📋 Données à synchroniser:', {
+          email: result.user.email,
+          firstName: userProfile.firstName,
+          lastName: userProfile.lastName,
+          phone: userProfile.phone,
+          role: userProfile.role
+        });
+        
         const syncResult = await supabaseService.syncFirebaseUser(result.user, userProfile);
         
         if (!syncResult.success) {
           logger.error('❌ Erreur synchronisation Supabase lors de l\'inscription:', syncResult.error);
-          // Continuer quand même avec les données minimales, mais réessayer plus tard
-          logger.warn('⚠️ L\'utilisateur sera synchronisé automatiquement lors de la prochaine connexion');
+          // ✅ NOUVEAU: Réessayer une fois avec un délai court
+          logger.log('🔄 Tentative de resynchronisation...');
+          await new Promise(resolve => setTimeout(resolve, 500)); // Attendre 500ms
+          const retrySync = await supabaseService.syncFirebaseUser(result.user, userProfile);
+          if (retrySync.success) {
+            logger.log('✅ authServiceFirebase.register - Synchronisation réussie après réessai');
+          } else {
+            logger.error('❌ Échec de la resynchronisation:', retrySync.error);
+            logger.warn('⚠️ L\'utilisateur sera synchronisé automatiquement lors de la prochaine connexion');
+          }
         } else {
           logger.log('✅ authServiceFirebase.register - Utilisateur créé avec succès dans Supabase:', result.user.email);
+          logger.log('   ✅ Toutes les informations ont été transférées:', {
+            email: syncResult.data?.email,
+            first_name: syncResult.data?.first_name,
+            last_name: syncResult.data?.last_name,
+            phone: syncResult.data?.phone,
+            role: syncResult.data?.role
+          });
         }
         
         // Récupérer les données depuis Supabase (pour avoir le rôle correct et l'ID Supabase)

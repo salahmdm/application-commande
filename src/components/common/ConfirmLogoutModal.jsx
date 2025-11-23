@@ -16,7 +16,17 @@ const ConfirmLogoutModal = () => {
 
   const handleConfirm = async () => {
     setShowLogoutConfirm(false);
-    await logout();
+    try {
+      const result = await logout();
+      if (!result.success) {
+        console.error('❌ Erreur lors de la déconnexion:', result.error);
+        // Afficher un message d'erreur si nécessaire
+        alert('Erreur lors de la déconnexion. Veuillez rafraîchir la page.');
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors de la déconnexion:', error);
+      alert('Erreur lors de la déconnexion. Veuillez rafraîchir la page.');
+    }
   };
 
   const handleCancel = () => {

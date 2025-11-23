@@ -25,6 +25,7 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false, // Désactivé pour la production
     minify: 'terser',
+    cssCodeSplit: false, // ✅ Forcer un seul fichier CSS pour éviter les problèmes de chargement
     rollupOptions: {
       output: {
         manualChunks: {
@@ -33,6 +34,13 @@ export default defineConfig({
           'ui-vendor': ['lucide-react'],
           'charts-vendor': ['recharts'],
           'pdf-vendor': ['pdfmake']
+        },
+        // ✅ S'assurer que les assets CSS sont correctement nommés
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith('.css')) {
+            return 'assets/[name][extname]';
+          }
+          return 'assets/[name]-[hash][extname]';
         }
       }
     },

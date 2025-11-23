@@ -395,28 +395,28 @@ const firebaseService = {
       
       switch (error.code) {
         case 'auth/user-not-found':
-          errorMessage = 'Aucun compte trouvé avec cet email. Créez-le: npm run create-firebase-user <email> <password>';
+          errorMessage = 'Aucun compte trouvé avec cet email. Vérifiez votre adresse email.';
           break;
         case 'auth/wrong-password':
-          errorMessage = 'Mot de passe incorrect. Utilisez "Mot de passe oublié ?" ou: npm run reset-firebase-password <email>';
+          errorMessage = 'Mot de passe incorrect. Vérifiez votre mot de passe ou utilisez "Mot de passe oublié ?".';
           break;
         case 'auth/invalid-email':
-          errorMessage = 'Email invalide. Vérifiez le format de l\'email.';
+          errorMessage = 'Email invalide. Vérifiez le format de votre adresse email.';
           break;
         case 'auth/user-disabled':
           errorMessage = 'Ce compte a été désactivé. Contactez l\'administrateur.';
           break;
         case 'auth/too-many-requests':
-          errorMessage = 'Trop de tentatives. Solutions: 1) Attendez 15-30 min, 2) "Mot de passe oublié ?", 3) Créez l\'utilisateur: npm run create-firebase-user <email> <password>';
+          errorMessage = 'Trop de tentatives de connexion. Veuillez attendre quelques minutes ou utilisez "Mot de passe oublié ?".';
           break;
         case 'auth/operation-not-allowed':
-          errorMessage = 'L\'authentification par email/mot de passe n\'est pas activée dans Firebase. Activez-la dans Firebase Console > Authentication > Sign-in method.';
+          errorMessage = 'L\'authentification par email/mot de passe n\'est pas activée. Contactez l\'administrateur.';
           break;
         case 'auth/unauthorized-domain':
-          errorMessage = 'Ce domaine n\'est pas autorisé. Ajoutez ce domaine dans Firebase Console > Authentication > Settings > Authorized domains.';
+          errorMessage = 'Ce domaine n\'est pas autorisé. Contactez l\'administrateur.';
           break;
         case 'auth/invalid-credential':
-          errorMessage = 'Email ou mot de passe incorrect. Solutions: 1) Vérifiez vos identifiants, 2) L\'utilisateur n\'existe peut-être pas - créez-le avec: npm run create-firebase-user <email> <password>, 3) Réinitialisez le mot de passe avec: npm run reset-firebase-password <email>';
+          errorMessage = 'Email ou mot de passe incorrect. Vérifiez vos identifiants.';
           break;
         case 'auth/network-request-failed':
           errorMessage = 'Erreur de connexion réseau. Vérifiez votre connexion internet.';

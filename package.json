@@ -21,6 +21,12 @@
           "sync-firebase-users": "node scripts/sync-firebase-users-to-supabase.js",
           "sync-firebase-auth": "node scripts/sync-firebase-auth-to-supabase.js",
           "sync-emails": "node scripts/sync-emails-to-supabase.js",
+          "sync-all-firebase": "node scripts/sync-all-firebase-to-supabase.js",
+          "migrate-firebase-auth": "node scripts/migrate-firebase-users-to-supabase-auth.js",
+          "list-firebase-users": "node scripts/list-firebase-users.js",
+          "list-supabase-users": "node scripts/list-supabase-users.js",
+          "verify-sync": "node scripts/verify-supabase-firebase-sync.js",
+          "diagnostic-vercel": "node scripts/diagnostic-vercel.js",
     "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\"",
     "start:all": "concurrently -k -n \"BACKEND,FRONTEND,KIOSK\" -c \"blue,green,yellow\" \"npm run backend\" \"npm run dev\" \"npm run dev:kiosk\""
   },

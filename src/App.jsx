@@ -8,6 +8,7 @@ import useAuthStore from './store/authStore';
 import useServerDisconnection from './hooks/useServerDisconnection';
 import authServiceFirebase from './services/authServiceFirebase';
 import firebaseService from './services/firebaseService';
+import supabaseService from './services/supabaseService';
 import logger from './utils/logger';
 import { testSupabaseConnection } from './utils/testSupabaseConnection';
 import { testFirebaseConnection, testFirebaseLogin } from './utils/testFirebaseConnection';
@@ -249,21 +250,26 @@ function App() {
                   setRole(fullUser.role);
                   localStorage.setItem('user', JSON.stringify(fullUser));
                   
-                  // Mettre à jour depuis Firestore en arrière-plan (sans bloquer)
-                  firebaseService.getDocument('users', user.uid || user.id).then(userData => {
-                    if (userData && isMounted) {
-                      localStorage.setItem(`firestore_user_${user.uid}`, JSON.stringify(userData));
+                  // ✅ NOUVEAU: Mettre à jour depuis Supabase en arrière-plan (sans bloquer)
+                  supabaseService.getUserByEmail(user.email).then(supabaseResult => {
+                    if (supabaseResult.success && supabaseResult.data && isMounted) {
+                      const supabaseData = supabaseResult.data;
                       const updatedUser = {
                         ...fullUser,
-                        ...userData,
-                        points: userData.loyalty_points || userData.points || 0,
-                        loyalty_points: userData.loyalty_points || userData.points || 0
+                        firstName: supabaseData.first_name || fullUser.firstName,
+                        lastName: supabaseData.last_name || fullUser.lastName,
+                        role: supabaseData.role || fullUser.role, // ✅ Rôle depuis Supabase
+                        loyalty_points: supabaseData.loyalty_points || fullUser.loyalty_points,
+                        points: supabaseData.loyalty_points || fullUser.points,
+                        photoURL: supabaseData.avatar_url || fullUser.photoURL,
+                        phone: supabaseData.phone || fullUser.phone
                       };
                       setUser(updatedUser);
+                      setRole(updatedUser.role);
                       localStorage.setItem('user', JSON.stringify(updatedUser));
                     }
                   }).catch(err => {
-                    logger.warn('⚠️ Erreur mise à jour Firestore en arrière-plan:', err);
+                    logger.warn('⚠️ Erreur mise à jour Supabase en arrière-plan:', err);
                   });
                   
                   return;
@@ -272,21 +278,31 @@ function App() {
                 }
               }
               
-              // Récupérer depuis Firestore (seulement si pas de cache)
+              // ✅ NOUVEAU: Récupérer depuis Supabase (source de vérité pour les rôles)
               try {
-                const userData = await firebaseService.getDocument('users', user.uid || user.id);
+                const supabaseResult = await supabaseService.getUserByEmail(user.email);
                 
-                if (!userData) {
-                  // ✅ CORRECTION: Si Firestore ne retourne pas de données, utiliser le cache localStorage
+                if (!supabaseResult.success || !supabaseResult.data) {
+                  // ✅ Si Supabase ne retourne pas de données, utiliser le cache localStorage
                   const cachedUserStr = localStorage.getItem('user');
                   if (cachedUserStr) {
                     try {
                       const cachedUser = JSON.parse(cachedUserStr);
                       if (cachedUser && cachedUser.uid === (user.uid || user.id)) {
-                        logger.warn('⚠️ App - Firestore vide, utilisation du cache localStorage');
+                        logger.warn('⚠️ App - Utilisateur non trouvé dans Supabase, utilisation du cache localStorage');
                         setUser(cachedUser);
                         setAuthenticated(true);
                         setRole(cachedUser.role);
+                        
+                        // Synchroniser avec Supabase en arrière-plan
+                        supabaseService.syncFirebaseUser(user, {
+                          firstName: cachedUser.firstName,
+                          lastName: cachedUser.lastName,
+                          role: cachedUser.role || 'client',
+                          loyalty_points: cachedUser.loyalty_points || 0
+                        }).catch(err => {
+                          logger.warn('⚠️ Erreur synchronisation Supabase (non bloquant):', err);
+                        });
                         return;
                       }
                     } catch (e) {
@@ -294,8 +310,8 @@ function App() {
                     }
                   }
                   
-                  logger.warn('⚠️ App - Utilisateur Firebase connecté mais pas dans Firestore');
-                  // Ne pas déconnecter, créer un utilisateur minimal
+                  logger.warn('⚠️ App - Utilisateur Firebase connecté mais pas dans Supabase');
+                  // Créer un utilisateur minimal et synchroniser avec Supabase
                   const minimalUser = {
                     id: user.uid || user.id,
                     uid: user.uid || user.id,
@@ -317,11 +333,23 @@ function App() {
                   } catch (err) {
                     // Ignorer
                   }
+                  
+                  // Synchroniser avec Supabase en arrière-plan
+                  supabaseService.syncFirebaseUser(user, {
+                    firstName: minimalUser.firstName,
+                    lastName: minimalUser.lastName,
+                    role: 'client',
+                    loyalty_points: 0
+                  }).catch(err => {
+                    logger.warn('⚠️ Erreur synchronisation Supabase (non bloquant):', err);
+                  });
                   return;
                 }
                 
+                const supabaseData = supabaseResult.data;
+                
                 // ✅ SÉCURITÉ: Ne pas autoriser les comptes kiosk
-                if (userData.role === 'kiosk') {
+                if (supabaseData.role === 'kiosk') {
                   logger.warn('⚠️ App - Compte kiosk détecté, déconnexion');
                   try {
                     await authServiceFirebase.logout();
@@ -334,28 +362,21 @@ function App() {
                   return;
                 }
                 
-                // Mettre en cache les données Firestore
-                try {
-                  localStorage.setItem(`firestore_user_${user.uid}`, JSON.stringify(userData));
-                } catch (e) {
-                  // Ignorer les erreurs de cache
-                }
-                
-                // Construire l'objet utilisateur
+                // Construire l'objet utilisateur depuis Supabase
                 const fullUser = {
                   id: user.uid || user.id,
                   uid: user.uid || user.id,
                   email: user.email,
-                  firstName: userData.firstName || '',
-                  lastName: userData.lastName || '',
-                  name: userData.displayName || user.displayName || '',
-                  role: userData.role || 'client',
-                  loyalty_points: userData.loyalty_points || userData.points || 0,
-                  points: userData.points || userData.loyalty_points || 0,
+                  firstName: supabaseData.first_name || '',
+                  lastName: supabaseData.last_name || '',
+                  name: `${supabaseData.first_name || ''} ${supabaseData.last_name || ''}`.trim() || user.displayName || user.email,
+                  role: supabaseData.role || 'client', // ✅ Rôle depuis Supabase
+                  loyalty_points: supabaseData.loyalty_points || 0,
+                  points: supabaseData.loyalty_points || 0,
                   emailVerified: user.emailVerified || false,
-                  photoURL: user.photoURL || userData.photoURL,
-                  phone: userData.phone || null,
-                  address: userData.address || null
+                  photoURL: supabaseData.avatar_url || user.photoURL,
+                  phone: supabaseData.phone || null,
+                  address: null // Supabase n'a pas de champ address dans users
                 };
                 
                 // Mettre à jour le store

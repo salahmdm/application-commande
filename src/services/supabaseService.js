@@ -124,6 +124,121 @@ class SupabaseService {
   }
 
   /**
+   * Récupérer un utilisateur par email (pour synchronisation Firebase)
+   * @param {string} email - Email de l'utilisateur
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+   */
+  async getUserByEmail(email) {
+    try {
+      const { data, error } = await this.getClient()
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .maybeSingle(); // Utiliser maybeSingle pour éviter erreur si non trouvé
+
+      if (error) throw error;
+      return { success: true, data: data || null };
+    } catch (error) {
+      console.error('❌ Supabase - Erreur getUserByEmail:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Créer ou mettre à jour un utilisateur Firebase dans Supabase
+   * Synchronise les données Firebase avec Supabase
+   * @param {object} firebaseUser - Données utilisateur Firebase
+   * @param {object} additionalData - Données supplémentaires (rôle, etc.)
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+   */
+  async syncFirebaseUser(firebaseUser, additionalData = {}) {
+    try {
+      const email = firebaseUser.email;
+      if (!email) {
+        throw new Error('Email requis pour la synchronisation');
+      }
+
+      // Vérifier si l'utilisateur existe déjà dans Supabase
+      const existingUser = await this.getUserByEmail(email);
+      
+      if (existingUser.success && existingUser.data) {
+        // Mettre à jour l'utilisateur existant
+        const updates = {
+          email: email,
+          first_name: additionalData.firstName || additionalData.first_name || firebaseUser.displayName?.split(' ')[0] || '',
+          last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+          avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
+          phone: additionalData.phone || null,
+          updated_at: new Date().toISOString()
+        };
+
+        // Ne pas écraser le rôle s'il existe déjà dans Supabase
+        if (existingUser.data.role) {
+          updates.role = existingUser.data.role; // Garder le rôle existant
+        } else if (additionalData.role) {
+          updates.role = additionalData.role; // Utiliser le nouveau rôle si pas de rôle existant
+        }
+
+        // Ne pas écraser les points de fidélité s'ils existent
+        if (existingUser.data.loyalty_points !== undefined && existingUser.data.loyalty_points !== null) {
+          updates.loyalty_points = existingUser.data.loyalty_points;
+        } else if (additionalData.loyalty_points !== undefined) {
+          updates.loyalty_points = additionalData.loyalty_points;
+        }
+
+        const { data, error } = await this.getClient()
+          .from('users')
+          .update(updates)
+          .eq('email', email)
+          .select()
+          .single();
+
+        if (error) throw error;
+        console.log('✅ Supabase - Utilisateur synchronisé (mis à jour):', email);
+        return { success: true, data, isNew: false };
+      } else {
+        // Créer un nouvel utilisateur dans Supabase
+        // Note: password_hash est requis mais on ne peut pas le récupérer depuis Firebase
+        // On utilise un hash spécial pour indiquer que c'est un utilisateur Firebase
+        const newUser = {
+          email: email,
+          password_hash: '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED', // Hash spécial pour Firebase
+          first_name: additionalData.firstName || additionalData.first_name || firebaseUser.displayName?.split(' ')[0] || 'Utilisateur',
+          last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || 'Firebase',
+          role: additionalData.role || 'client', // Rôle par défaut
+          loyalty_points: additionalData.loyalty_points || additionalData.points || 0,
+          avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
+          phone: additionalData.phone || null,
+          is_active: 1,
+          email_verified: firebaseUser.emailVerified ? 1 : 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await this.getClient()
+          .from('users')
+          .insert(newUser)
+          .select()
+          .single();
+
+        if (error) {
+          // Si erreur de contrainte unique (email déjà existant), essayer de mettre à jour
+          if (error.code === '23505') {
+            console.log('⚠️ Supabase - Email déjà existant, tentative de mise à jour...');
+            return await this.syncFirebaseUser(firebaseUser, additionalData);
+          }
+          throw error;
+        }
+        console.log('✅ Supabase - Utilisateur synchronisé (créé):', email);
+        return { success: true, data, isNew: true };
+      }
+    } catch (error) {
+      console.error('❌ Supabase - Erreur syncFirebaseUser:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * ============================================
    * PRODUITS (PRODUCTS)
    * ============================================

@@ -1,8 +1,10 @@
 /**
  * Service d'authentification Firebase
  * Remplace le système MySQL par Firebase Authentication + Firestore
+ * ✅ SYNCHRONISATION: Les rôles sont maintenant récupérés depuis Supabase
  */
 import firebaseService from './firebaseService';
+import supabaseService from './supabaseService';
 import logger from '../utils/logger';
 
 const authServiceFirebase = {
@@ -429,21 +431,21 @@ const authServiceFirebase = {
       // Récupérer les données mises à jour
       const updatedUserData = await firebaseService.getDocument('users', firebaseUser.uid);
       
-      // Construire l'objet utilisateur
+      // Construire l'objet utilisateur depuis Supabase
       const user = {
         id: firebaseUser.uid,
         uid: firebaseUser.uid,
         email: firebaseUser.email,
-        firstName: updatedUserData.firstName || '',
-        lastName: updatedUserData.lastName || '',
-        name: updatedUserData.displayName || firebaseUser.displayName || '',
-        role: updatedUserData.role || 'client',
-        loyalty_points: updatedUserData.loyalty_points || updatedUserData.points || 0,
-        points: updatedUserData.points || updatedUserData.loyalty_points || 0,
+        firstName: updatedUserData.first_name || '',
+        lastName: updatedUserData.last_name || '',
+        name: `${updatedUserData.first_name || ''} ${updatedUserData.last_name || ''}`.trim() || firebaseUser.displayName || firebaseUser.email,
+        role: updatedUserData.role || 'client', // ✅ Rôle depuis Supabase
+        loyalty_points: updatedUserData.loyalty_points || 0,
+        points: updatedUserData.loyalty_points || 0,
         emailVerified: firebaseUser.emailVerified,
-        photoURL: firebaseUser.photoURL || updatedUserData.photoURL,
+        photoURL: updatedUserData.avatar_url || firebaseUser.photoURL,
         phone: updatedUserData.phone || null,
-        address: updatedUserData.address || null
+        address: null // Supabase n'a pas de champ address dans users
       };
       
       // Mettre à jour localStorage
@@ -519,31 +521,71 @@ const authServiceFirebase = {
   onAuthStateChange(callback) {
     return firebaseService.onAuthStateChange(async (firebaseUser) => {
       if (firebaseUser) {
-        // Récupérer les données depuis Firestore
+        // ✅ NOUVEAU: Récupérer les données depuis Supabase (source de vérité pour les rôles)
         try {
-          const userData = await firebaseService.getDocument('users', firebaseUser.uid);
-          if (userData) {
+          const supabaseUser = await supabaseService.getUserByEmail(firebaseUser.email);
+          if (supabaseUser.success && supabaseUser.data) {
+            const supabaseData = supabaseUser.data;
             const user = {
               id: firebaseUser.uid,
               uid: firebaseUser.uid,
               email: firebaseUser.email,
-              firstName: userData.firstName || '',
-              lastName: userData.lastName || '',
-              name: userData.displayName || firebaseUser.displayName || '',
-              role: userData.role || 'client',
-              loyalty_points: userData.loyalty_points || userData.points || 0,
-              points: userData.points || userData.loyalty_points || 0,
+              firstName: supabaseData.first_name || '',
+              lastName: supabaseData.last_name || '',
+              name: `${supabaseData.first_name || ''} ${supabaseData.last_name || ''}`.trim() || firebaseUser.displayName || firebaseUser.email,
+              role: supabaseData.role || 'client', // ✅ Rôle depuis Supabase
+              loyalty_points: supabaseData.loyalty_points || 0,
+              points: supabaseData.loyalty_points || 0,
               emailVerified: firebaseUser.emailVerified,
-              photoURL: firebaseUser.photoURL || userData.photoURL
+              photoURL: supabaseData.avatar_url || firebaseUser.photoURL
             };
             localStorage.setItem('user', JSON.stringify(user));
             callback(user);
           } else {
-            callback(firebaseUser);
+            // Utilisateur non trouvé dans Supabase, utiliser données Firebase minimales
+            const user = {
+              id: firebaseUser.uid,
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              firstName: firebaseUser.displayName?.split(' ')[0] || '',
+              lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+              name: firebaseUser.displayName || firebaseUser.email,
+              role: 'client', // Rôle par défaut
+              loyalty_points: 0,
+              points: 0,
+              emailVerified: firebaseUser.emailVerified,
+              photoURL: firebaseUser.photoURL
+            };
+            localStorage.setItem('user', JSON.stringify(user));
+            callback(user);
+            
+            // Synchroniser avec Supabase en arrière-plan
+            supabaseService.syncFirebaseUser(firebaseUser, {
+              firstName: user.firstName,
+              lastName: user.lastName,
+              role: user.role
+            }).catch(err => {
+              logger.warn('⚠️ Erreur synchronisation Supabase (non bloquant):', err);
+            });
           }
         } catch (error) {
-          logger.error('❌ Erreur récupération données Firestore:', error);
-          callback(firebaseUser);
+          logger.error('❌ Erreur récupération données Supabase:', error);
+          // Fallback: utiliser données Firebase minimales
+          const user = {
+            id: firebaseUser.uid,
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            firstName: firebaseUser.displayName?.split(' ')[0] || '',
+            lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+            name: firebaseUser.displayName || firebaseUser.email,
+            role: 'client',
+            loyalty_points: 0,
+            points: 0,
+            emailVerified: firebaseUser.emailVerified,
+            photoURL: firebaseUser.photoURL
+          };
+          localStorage.setItem('user', JSON.stringify(user));
+          callback(user);
         }
       } else {
         localStorage.removeItem('user');

@@ -181,24 +181,37 @@ const firebaseService = {
    * @param {string} docId - ID du document
    * @returns {Promise<Object|null>} Document ou null
    */
-  async getDocument(collectionName, docId) {
+  async getDocument(collectionName, docId, options = {}) {
     if (!isFirebaseAvailable() || !db) {
       logger.warn('⚠️ Firebase non disponible pour getDocument');
       return null;
     }
     
+    // ✅ OPTIMISATION: Timeout optionnel pour éviter les attentes trop longues
+    const timeout = options.timeout || 5000; // 5 secondes par défaut
+    
     try {
       const docRef = doc(db, collectionName, docId);
-      const docSnap = await getDoc(docRef);
+      
+      // ✅ OPTIMISATION: Créer une promesse avec timeout
+      const getDocPromise = getDoc(docRef);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: Firestore prend trop de temps')), timeout);
+      });
+      
+      const docSnap = await Promise.race([getDocPromise, timeoutPromise]);
       
       if (docSnap.exists()) {
         return { id: docSnap.id, ...docSnap.data() };
       }
       return null;
     } catch (error) {
-      // ✅ CORRECTION: Gérer spécifiquement l'erreur "client is offline"
-      if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('Failed to get document because the client is offline')) {
-        logger.warn('⚠️ Firebase - Client hors ligne, impossible de récupérer le document');
+      // ✅ CORRECTION: Gérer spécifiquement l'erreur "client is offline" et timeout
+      if (error.code === 'unavailable' || 
+          error.message?.includes('offline') || 
+          error.message?.includes('Failed to get document because the client is offline') ||
+          error.message?.includes('Timeout')) {
+        logger.warn('⚠️ Firebase - Client hors ligne ou timeout, impossible de récupérer le document');
         // Ne pas throw, retourner null pour permettre l'utilisation du cache
         return null;
       }

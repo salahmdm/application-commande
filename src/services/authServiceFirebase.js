@@ -19,93 +19,133 @@ const authServiceFirebase = {
       if (result.success && result.user) {
         const uid = result.user.uid;
         
-        // ✅ OPTIMISATION: Vérifier le cache Firestore d'abord (instantané)
-        const cacheKey = `firestore_user_${uid}`;
+        // ✅ OPTIMISATION INSTANTANÉE: Vérifier d'abord le cache localStorage 'user' (le plus rapide)
         let userData = null;
         try {
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
-            userData = JSON.parse(cached);
-            // Vérifier que le cache n'est pas trop ancien (max 5 minutes)
-            const cacheTime = localStorage.getItem(`${cacheKey}_time`);
-            if (cacheTime && Date.now() - parseInt(cacheTime) < 300000) {
-              logger.log('⚡ authServiceFirebase.login - Utilisation du cache Firestore');
-            } else {
-              userData = null; // Cache expiré
+          const cachedUserStr = localStorage.getItem('user');
+          if (cachedUserStr) {
+            const cachedUser = JSON.parse(cachedUserStr);
+            if (cachedUser && cachedUser.uid === uid) {
+              // Utiliser immédiatement les données du cache
+              userData = {
+                email: cachedUser.email,
+                displayName: cachedUser.name || cachedUser.displayName || '',
+                firstName: cachedUser.firstName || '',
+                lastName: cachedUser.lastName || '',
+                role: cachedUser.role || 'client',
+                loyalty_points: cachedUser.loyalty_points || cachedUser.points || 0,
+                points: cachedUser.points || cachedUser.loyalty_points || 0,
+                photoURL: cachedUser.photoURL || null,
+                phone: cachedUser.phone || null,
+                address: cachedUser.address || null
+              };
+              logger.log('⚡ authServiceFirebase.login - Utilisation IMMÉDIATE du cache localStorage');
             }
           }
         } catch (e) {
           // Ignorer les erreurs de cache
         }
         
-        // Si pas de cache valide, récupérer depuis Firestore
+        // ✅ Si pas de cache 'user', vérifier le cache Firestore (instantané aussi)
         if (!userData) {
+          const cacheKey = `firestore_user_${uid}`;
           try {
-            userData = await firebaseService.getDocument('users', uid);
-            
-            // Mettre en cache
-            if (userData) {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+              const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+              // Cache valide jusqu'à 30 minutes (au lieu de 5)
+              if (cacheTime && Date.now() - parseInt(cacheTime) < 1800000) {
+                userData = JSON.parse(cached);
+                logger.log('⚡ authServiceFirebase.login - Utilisation du cache Firestore');
+              }
+            }
+          } catch (e) {
+            // Ignorer les erreurs de cache
+          }
+        }
+        
+        // ✅ OPTIMISATION: Synchroniser Firestore en arrière-plan (sans bloquer la connexion)
+        // Ne pas attendre Firestore pour la connexion initiale
+        const syncFirestore = async () => {
+          try {
+            const firestoreData = await firebaseService.getDocument('users', uid);
+            if (firestoreData) {
+              // Mettre à jour le cache
               try {
-                localStorage.setItem(cacheKey, JSON.stringify(userData));
+                const cacheKey = `firestore_user_${uid}`;
+                localStorage.setItem(cacheKey, JSON.stringify(firestoreData));
                 localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+                
+                // Mettre à jour localStorage 'user' aussi
+                const updatedUser = {
+                  id: uid,
+                  uid: uid,
+                  email: result.user.email,
+                  firstName: firestoreData.firstName || firestoreData.displayName?.split(' ')[0] || '',
+                  lastName: firestoreData.lastName || firestoreData.displayName?.split(' ').slice(1).join(' ') || '',
+                  name: firestoreData.displayName || result.user.displayName || '',
+                  role: firestoreData.role || 'client',
+                  loyalty_points: firestoreData.loyalty_points || firestoreData.points || 0,
+                  points: firestoreData.points || firestoreData.loyalty_points || 0,
+                  emailVerified: result.user.emailVerified || false,
+                  photoURL: result.user.photoURL || firestoreData.photoURL,
+                  phone: firestoreData.phone || null,
+                  address: firestoreData.address || null
+                };
+                localStorage.setItem('user', JSON.stringify(updatedUser));
+                logger.log('✅ authServiceFirebase.login - Firestore synchronisé en arrière-plan');
               } catch (e) {
                 // Ignorer les erreurs de cache
               }
             }
           } catch (firestoreError) {
-            // ✅ CORRECTION: Si Firestore est hors ligne, utiliser le cache localStorage 'user'
-            if (firestoreError.message?.includes('offline') || firestoreError.message?.includes('client is offline')) {
-              logger.warn('⚠️ authServiceFirebase.login - Firestore hors ligne, recherche dans localStorage');
-              try {
-                const cachedUserStr = localStorage.getItem('user');
-                if (cachedUserStr) {
-                  const cachedUser = JSON.parse(cachedUserStr);
-                  if (cachedUser && cachedUser.uid === uid) {
-                    // Utiliser les données du cache localStorage
-                    userData = {
-                      email: cachedUser.email,
-                      displayName: cachedUser.name || cachedUser.displayName || '',
-                      firstName: cachedUser.firstName || '',
-                      lastName: cachedUser.lastName || '',
-                      role: cachedUser.role || 'client',
-                      loyalty_points: cachedUser.loyalty_points || cachedUser.points || 0,
-                      points: cachedUser.points || cachedUser.loyalty_points || 0,
-                      photoURL: cachedUser.photoURL || null,
-                      phone: cachedUser.phone || null,
-                      address: cachedUser.address || null
-                    };
-                    logger.log('⚡ authServiceFirebase.login - Utilisation du cache localStorage (Firestore hors ligne)');
-                  }
-                }
-              } catch (e) {
-                logger.warn('⚠️ Erreur lors de la récupération du cache localStorage:', e);
-              }
-            } else {
-              // Pour les autres erreurs, relancer
-              throw firestoreError;
-            }
+            // Ignorer les erreurs Firestore (hors ligne, timeout, etc.)
+            logger.warn('⚠️ authServiceFirebase.login - Firestore non disponible (synchronisation en arrière-plan ignorée)');
           }
-        }
+        };
         
-        // Si l'utilisateur n'existe pas dans Firestore, créer un profil par défaut
+        // Lancer la synchronisation en arrière-plan (non bloquante)
+        syncFirestore().catch(() => {
+          // Ignorer les erreurs
+        });
+        
+        // Si pas de données utilisateur trouvées, créer un profil minimal (instantané)
         if (!userData) {
-          logger.warn('⚠️ Utilisateur non trouvé dans Firestore, création du profil par défaut');
-          const defaultProfile = {
+          logger.warn('⚠️ Utilisateur non trouvé dans les caches, création du profil minimal');
+          userData = {
             email: result.user.email,
             displayName: result.user.displayName || '',
+            firstName: result.user.displayName?.split(' ')[0] || '',
+            lastName: result.user.displayName?.split(' ').slice(1).join(' ') || '',
             role: 'client',
             loyalty_points: 0,
             points: 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            photoURL: result.user.photoURL || null,
+            phone: null,
+            address: null
           };
           
-          // ✅ OPTIMISATION: Créer le profil sans attendre la confirmation
-          firebaseService.setDocument('users', uid, defaultProfile).catch(err => {
-            logger.warn('⚠️ Erreur création profil Firestore:', err);
+          // ✅ OPTIMISATION: Créer le profil Firestore en arrière-plan (sans bloquer)
+          const createProfile = async () => {
+            try {
+              const defaultProfile = {
+                email: result.user.email,
+                displayName: result.user.displayName || '',
+                role: 'client',
+                loyalty_points: 0,
+                points: 0,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+              await firebaseService.setDocument('users', uid, defaultProfile);
+              logger.log('✅ Profil Firestore créé en arrière-plan');
+            } catch (err) {
+              logger.warn('⚠️ Erreur création profil Firestore (non bloquant):', err);
+            }
+          };
+          createProfile().catch(() => {
+            // Ignorer
           });
-          
-          userData = defaultProfile;
         }
         
         // Construire l'objet utilisateur avec les données Firestore

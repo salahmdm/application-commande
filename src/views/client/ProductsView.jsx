@@ -130,11 +130,28 @@ const ProductsView = () => {
   
   if (selectedCategory) {
     displayedProducts = filteredProducts.filter(p => {
+      // ✅ CORRECTION: Vérifier category_id (convertir en nombre pour comparaison)
+      const productCategoryId = p.category_id || (p.categories?.id) || null;
+      const selectedCategoryId = typeof selectedCategory === 'string' 
+        ? parseInt(selectedCategory, 10) 
+        : selectedCategory;
+      
       // Vérifier si le produit correspond à la catégorie sélectionnée
-      const matchesSlug = p.category_slug === selectedCategory;
-      const matchesId = p.category_id === parseInt(selectedCategory) || p.category_id === selectedCategory;
-      return matchesSlug || matchesId;
+      const matchesId = productCategoryId !== null && (
+        Number(productCategoryId) === Number(selectedCategoryId) ||
+        productCategoryId === selectedCategoryId
+      );
+      const matchesSlug = p.category_slug === selectedCategory || 
+                         (p.categories?.slug === selectedCategory);
+      
+      if (matchesId || matchesSlug) {
+        logger.log(`✅ Produit "${p.name}" correspond à la catégorie ${selectedCategory} (category_id: ${productCategoryId})`);
+      }
+      
+      return matchesId || matchesSlug;
     });
+    
+    logger.log(`🔍 Filtrage par catégorie ${selectedCategory}: ${displayedProducts.length} produits trouvés`);
   }
   
   // Debug: afficher les informations de chargement

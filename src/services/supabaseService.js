@@ -227,12 +227,37 @@ class SupabaseService {
     try {
       const { data, error } = await this.getClient()
         .from('products')
-        .select('*, categories(*)')
+        .select(`
+          *,
+          categories (
+            id,
+            name,
+            slug,
+            description,
+            icon,
+            display_order,
+            is_active
+          )
+        `)
         .eq('id', productId)
         .single();
 
       if (error) throw error;
-      return { success: true, data };
+      
+      // ✅ CORRECTION: Enrichir le produit avec les données de catégorie
+      const category = Array.isArray(data.categories) && data.categories.length > 0
+        ? data.categories[0]
+        : data.categories || null;
+      
+      const enrichedData = {
+        ...data,
+        category_id: data.category_id || (category ? category.id : null),
+        category_name: category?.name || data.category_name || null,
+        category_slug: category?.slug || data.category_slug || null,
+        categories: category
+      };
+      
+      return { success: true, data: enrichedData };
     } catch (error) {
       console.error('❌ Supabase - Erreur getProductById:', error);
       return { success: false, error: error.message };

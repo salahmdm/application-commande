@@ -327,12 +327,24 @@ const useProductStore = create((set, get) => ({
     // Filtre par catégorie (seulement si un filtre de catégorie est activé dans le store)
     // Note: Le filtre de catégorie dans ProductsView est géré séparément via selectedCategory
     if (filters.category) {
-      filteredProducts = filteredProducts.filter(p => 
-        p.category_id === parseInt(filters.category) ||
-        p.category_id === filters.category ||
-        (p.category_name && p.category_name.toLowerCase() === String(filters.category).toLowerCase()) ||
-        (p.category_slug && p.category_slug === filters.category)
-      );
+      filteredProducts = filteredProducts.filter(p => {
+        // ✅ CORRECTION: Vérifier category_id (gérer les différents formats)
+        const productCategoryId = p.category_id || (p.categories?.id) || null;
+        const filterCategoryId = typeof filters.category === 'string' 
+          ? parseInt(filters.category, 10) 
+          : filters.category;
+        
+        const matchesId = productCategoryId !== null && (
+          Number(productCategoryId) === Number(filterCategoryId) ||
+          productCategoryId === filterCategoryId
+        );
+        const matchesName = p.category_name && 
+          p.category_name.toLowerCase() === String(filters.category).toLowerCase();
+        const matchesSlug = p.category_slug === filters.category ||
+          (p.categories?.slug === filters.category);
+        
+        return matchesId || matchesName || matchesSlug;
+      });
       logger.log('🔍 Après filtre catégorie:', filteredProducts.length, 'produits');
     }
     

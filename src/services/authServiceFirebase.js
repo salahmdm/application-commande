@@ -104,6 +104,33 @@ const authServiceFirebase = {
       throw new Error('Échec de la connexion');
     } catch (error) {
       logger.error('❌ authServiceFirebase.login - Erreur:', error);
+      
+      // ✅ Améliorer les messages d'erreur avec instructions pour les scripts
+      if (error.code === 'auth/too-many-requests') {
+        const improvedError = new Error('Trop de tentatives. Solutions: 1) Attendez 15-30 min, 2) "Mot de passe oublié ?", 3) Créez l\'utilisateur: npm run create-firebase-user <email> <password>');
+        improvedError.code = error.code;
+        throw improvedError;
+      }
+      
+      // ✅ Améliorer les autres messages d'erreur courants
+      if (error.code === 'auth/user-not-found') {
+        const improvedError = new Error('Aucun compte trouvé avec cet email. Créez-le: npm run create-firebase-user <email> <password>');
+        improvedError.code = error.code;
+        throw improvedError;
+      }
+      
+      if (error.code === 'auth/wrong-password') {
+        const improvedError = new Error('Mot de passe incorrect. Utilisez "Mot de passe oublié ?" ou: npm run reset-firebase-password <email>');
+        improvedError.code = error.code;
+        throw improvedError;
+      }
+      
+      if (error.code === 'auth/invalid-credential') {
+        const improvedError = new Error('Email ou mot de passe incorrect. Si l\'utilisateur n\'existe pas: npm run create-firebase-user <email> <password>');
+        improvedError.code = error.code;
+        throw improvedError;
+      }
+      
       throw error;
     }
   },

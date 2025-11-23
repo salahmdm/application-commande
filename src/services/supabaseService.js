@@ -137,9 +137,10 @@ class SupabaseService {
         query = query.eq('category_id', filters.categoryId);
       }
       // ✅ CORRECTION: Dans Supabase, la colonne s'appelle 'is_available' et non 'is_active'
+      // ✅ CORRECTION: Supabase attend un smallint (0 ou 1), pas un boolean
       if (filters.isActive !== undefined) {
-        // Si isActive est un nombre (1/0), convertir en booléen
-        const isActiveValue = filters.isActive === 1 || filters.isActive === true;
+        // Convertir en smallint (0 ou 1) pour Supabase
+        const isActiveValue = (filters.isActive === 1 || filters.isActive === true) ? 1 : 0;
         query = query.eq('is_available', isActiveValue);
       }
       // Si isActive est undefined, on ne filtre pas (pour l'admin qui veut tous les produits)
@@ -241,12 +242,12 @@ class SupabaseService {
 
   async getCategories(filters = {}) {
     try {
-      let query = this.getClient().from('categories');
+      let query = this.getClient().from('categories').select('*');
       
       // ✅ CORRECTION: Appliquer les filtres seulement si spécifiés
       if (filters.isActive !== undefined) {
-        // Si isActive est un nombre (1/0), convertir en booléen
-        const isActiveValue = filters.isActive === 1 || filters.isActive === true;
+        // ✅ CORRECTION: Supabase attend un smallint (0 ou 1), pas un boolean
+        const isActiveValue = (filters.isActive === 1 || filters.isActive === true) ? 1 : 0;
         query = query.eq('is_active', isActiveValue);
       }
       // ✅ Si isActive n'est pas défini, ne pas filtrer (récupérer toutes les catégories)
@@ -255,9 +256,9 @@ class SupabaseService {
         query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
       
-      const { data, error } = await query
-        .select('*')
-        .order('display_order', { ascending: true });
+      query = query.order('display_order', { ascending: true });
+      
+      const { data, error } = await query;
 
       if (error) {
         console.error('❌ Supabase - Erreur getCategories:', error);
@@ -275,6 +276,179 @@ class SupabaseService {
       return { success: true, data };
     } catch (error) {
       console.error('❌ Supabase - Erreur getCategories:', error);
+      return { success: false, error: error.message || error.toString() };
+    }
+  }
+
+  /**
+   * ============================================
+   * ACTUALITÉS (NEWS)
+   * ============================================
+   */
+
+  async getNews(filters = {}) {
+    try {
+      let query = this.getClient().from('news').select('*');
+
+      // Filtrer par is_active si spécifié
+      if (filters.isActive !== undefined) {
+        const isActiveValue = (filters.isActive === 1 || filters.isActive === true) ? 1 : 0;
+        query = query.eq('is_active', isActiveValue);
+      } else {
+        // Par défaut, seulement les actualités actives
+        query = query.eq('is_active', 1);
+      }
+
+      // Trier par display_order puis par date
+      const { data, error } = await query
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Supabase - Erreur getNews:', error);
+        throw error;
+      }
+
+      if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
+        console.log(`✅ Supabase getNews - ${data?.length || 0} actualités récupérées`);
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('❌ Supabase - Erreur getNews:', error);
+      return { success: false, error: error.message || error.toString() };
+    }
+  }
+
+  /**
+   * ============================================
+   * PARAMÈTRES (SETTINGS)
+   * ============================================
+   */
+
+  async getSetting(key) {
+    try {
+      // ✅ Essayer d'abord la table 'settings'
+      let { data, error } = await this.getClient()
+        .from('settings')
+        .select('*')
+        .eq('setting_key', key)
+        .single();
+
+      // ✅ Si erreur 406 (RLS bloqué) ou table n'existe pas, essayer 'app_settings'
+      if (error && (error.code === 'PGRST301' || error.status === 406)) {
+        console.warn(`⚠️ Supabase - Table 'settings' inaccessible, essai avec 'app_settings' pour ${key}`);
+        
+        // Essayer avec app_settings
+        const result = await this.getClient()
+          .from('app_settings')
+          .select('*')
+          .eq('setting_key', key)
+          .single();
+        
+        if (result.error) {
+          // Si le paramètre n'existe pas, ce n'est pas une erreur critique
+          if (result.error.code === 'PGRST116') {
+            return { success: false, error: 'Paramètre non trouvé', data: null };
+          }
+          // Si RLS bloque aussi app_settings, retourner une erreur gracieuse
+          if (result.error.code === 'PGRST301' || result.error.status === 406) {
+            console.warn(`⚠️ Supabase - Accès refusé à app_settings pour ${key} (RLS probablement activé)`);
+            return { success: false, error: 'Paramètre non accessible (RLS)', data: null };
+          }
+          throw result.error;
+        }
+        
+        // Vérifier que result.data existe
+        if (!result.data) {
+          return { success: false, error: 'Paramètre non trouvé', data: null };
+        }
+        
+        // Convertir app_settings vers le format settings
+        return { 
+          success: true, 
+          data: {
+            id: result.data.id,
+            setting_key: result.data.setting_key,
+            setting_value: result.data.setting_value,
+            value: result.data.setting_value, // Alias pour compatibilité
+            description: result.data.description,
+            setting_type: result.data.setting_type
+          }
+        };
+      }
+
+      if (error) {
+        // Si le paramètre n'existe pas, ce n'est pas une erreur critique
+        if (error.code === 'PGRST116') {
+          return { success: false, error: 'Paramètre non trouvé', data: null };
+        }
+        // Si RLS bloque ou autre erreur, retourner une erreur gracieuse
+        if (error.code === 'PGRST301' || error.status === 406) {
+          console.warn(`⚠️ Supabase - Accès refusé à settings pour ${key} (RLS probablement activé)`);
+          return { success: false, error: 'Paramètre non accessible (RLS)', data: null };
+        }
+        throw error;
+      }
+
+      // Convertir vers le format attendu
+      return { 
+        success: true, 
+        data: {
+          ...data,
+          value: data.setting_value // Alias pour compatibilité
+        }
+      };
+    } catch (error) {
+      console.error(`❌ Supabase - Erreur getSetting ${key}:`, error);
+      // ✅ Gestion gracieuse : retourner une erreur non-bloquante
+      return { success: false, error: error.message || error.toString(), data: null };
+    }
+  }
+
+  async getAllSettings() {
+    try {
+      // ✅ Essayer d'abord la table 'settings'
+      let { data, error } = await this.getClient()
+        .from('settings')
+        .select('*')
+        .order('setting_key', { ascending: true });
+
+      // ✅ Si erreur 406 (RLS bloqué), essayer 'app_settings'
+      if (error && (error.code === 'PGRST301' || error.status === 406)) {
+        console.warn('⚠️ Supabase - Table \'settings\' inaccessible, essai avec \'app_settings\'');
+        
+        const result = await this.getClient()
+          .from('app_settings')
+          .select('*')
+          .order('setting_key', { ascending: true });
+        
+        if (result.error) {
+          throw result.error;
+        }
+        
+        // Convertir app_settings vers le format settings
+        data = result.data.map(item => ({
+          id: item.id,
+          setting_key: item.setting_key,
+          setting_value: item.setting_value,
+          value: item.setting_value, // Alias pour compatibilité
+          description: item.description,
+          setting_type: item.setting_type
+        }));
+      } else if (error) {
+        throw error;
+      } else {
+        // Convertir vers le format attendu
+        data = data.map(item => ({
+          ...item,
+          value: item.setting_value // Alias pour compatibilité
+        }));
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('❌ Supabase - Erreur getAllSettings:', error);
       return { success: false, error: error.message || error.toString() };
     }
   }
@@ -404,7 +578,7 @@ class SupabaseService {
         .from('users')
         .select('*')
         .eq('email', email)
-        .eq('is_active', true)
+        .eq('is_active', 1) // ✅ CORRECTION: Supabase attend un smallint (0 ou 1)
         .single();
 
       if (userError || !user) {

@@ -10,6 +10,8 @@ import authServiceFirebase from './services/authServiceFirebase';
 import firebaseService from './services/firebaseService';
 import logger from './utils/logger';
 import { testSupabaseConnection } from './utils/testSupabaseConnection';
+import { testFirebaseConnection, testFirebaseLogin } from './utils/testFirebaseConnection';
+import './utils/diagnosticFirebase'; // Import pour exposer les fonctions de diagnostic
 
 // Client views
 import HomeView from './views/client/HomeView';
@@ -49,6 +51,16 @@ function App() {
     window.testSupabaseConnection = testSupabaseConnection;
     if (import.meta.env.DEV) {
       logger.log('💡 Pour tester la connexion Supabase, tapez dans la console : testSupabaseConnection()');
+    }
+  }, []);
+
+  // ✅ Diagnostic Firebase : Exposer les fonctions de test dans la console
+  useEffect(() => {
+    window.testFirebaseConnection = testFirebaseConnection;
+    window.testFirebaseLogin = testFirebaseLogin;
+    if (import.meta.env.DEV) {
+      logger.log('💡 Pour tester Firebase, tapez : testFirebaseConnection()');
+      logger.log('💡 Pour tester la connexion, tapez : testFirebaseLogin("email@example.com", "password")');
     }
   }, []);
   
@@ -180,10 +192,46 @@ function App() {
                 const userData = await firebaseService.getDocument('users', user.uid || user.id);
                 
                 if (!userData) {
+                  // ✅ CORRECTION: Si Firestore ne retourne pas de données, utiliser le cache localStorage
+                  const cachedUserStr = localStorage.getItem('user');
+                  if (cachedUserStr) {
+                    try {
+                      const cachedUser = JSON.parse(cachedUserStr);
+                      if (cachedUser && cachedUser.uid === (user.uid || user.id)) {
+                        logger.warn('⚠️ App - Firestore vide, utilisation du cache localStorage');
+                        setUser(cachedUser);
+                        setAuthenticated(true);
+                        setRole(cachedUser.role);
+                        return;
+                      }
+                    } catch (e) {
+                      // Ignorer
+                    }
+                  }
+                  
                   logger.warn('⚠️ App - Utilisateur Firebase connecté mais pas dans Firestore');
-                  setUser(null);
-                  setAuthenticated(false);
-                  setRole(null);
+                  // Ne pas déconnecter, créer un utilisateur minimal
+                  const minimalUser = {
+                    id: user.uid || user.id,
+                    uid: user.uid || user.id,
+                    email: user.email,
+                    firstName: user.displayName?.split(' ')[0] || '',
+                    lastName: user.displayName?.split(' ').slice(1).join(' ') || '',
+                    name: user.displayName || '',
+                    role: 'client',
+                    loyalty_points: 0,
+                    points: 0,
+                    emailVerified: user.emailVerified || false,
+                    photoURL: user.photoURL || null
+                  };
+                  setUser(minimalUser);
+                  setAuthenticated(true);
+                  setRole('client');
+                  try {
+                    localStorage.setItem('user', JSON.stringify(minimalUser));
+                  } catch (err) {
+                    // Ignorer
+                  }
                   return;
                 }
                 
@@ -236,15 +284,46 @@ function App() {
                 }
               } catch (firestoreError) {
                 logger.error('❌ Erreur lors de la récupération Firestore:', firestoreError);
-                // Utiliser les données de base Firebase si Firestore échoue
-                setUser({
+                
+                // ✅ CORRECTION: Si Firestore est hors ligne, utiliser le cache localStorage
+                const cachedUserStr = localStorage.getItem('user');
+                if (cachedUserStr) {
+                  try {
+                    const cachedUser = JSON.parse(cachedUserStr);
+                    if (cachedUser && cachedUser.uid === (user.uid || user.id)) {
+                      logger.warn('⚠️ App - Firestore hors ligne, utilisation du cache localStorage');
+                      setUser(cachedUser);
+                      setAuthenticated(true);
+                      setRole(cachedUser.role);
+                      return;
+                    }
+                  } catch (e) {
+                    // Ignorer
+                  }
+                }
+                
+                // Si pas de cache, utiliser les données de base Firebase
+                const minimalUser = {
                   id: user.uid || user.id,
                   uid: user.uid || user.id,
                   email: user.email,
-                  role: 'client'
-                });
+                  firstName: user.displayName?.split(' ')[0] || '',
+                  lastName: user.displayName?.split(' ').slice(1).join(' ') || '',
+                  name: user.displayName || '',
+                  role: 'client',
+                  loyalty_points: 0,
+                  points: 0,
+                  emailVerified: user.emailVerified || false,
+                  photoURL: user.photoURL || null
+                };
+                setUser(minimalUser);
                 setAuthenticated(true);
                 setRole('client');
+                try {
+                  localStorage.setItem('user', JSON.stringify(minimalUser));
+                } catch (err) {
+                  // Ignorer
+                }
               }
             } else {
               setUser(null);

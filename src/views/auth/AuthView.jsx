@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Mail, Lock, User, Phone, UserCircle, X } from 'lucide-react';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -13,9 +13,34 @@ import logger from '../../utils/logger';
 const AuthView = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [showGuestModal, setShowGuestModal] = useState(false);
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordEmail, setResetPasswordEmail] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [loginError, setLoginError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { login, register, loginAsGuest } = useAuth();
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockUntil, setBlockUntil] = useState(null);
+  const { login, register, loginAsGuest, resetPassword } = useAuth();
   const { success, error: showError } = useNotifications();
+  
+  // ✅ Vérifier si le compte est bloqué
+  useEffect(() => {
+    const checkBlock = () => {
+      if (blockUntil && new Date() < new Date(blockUntil)) {
+        setIsBlocked(true);
+        const remaining = Math.ceil((new Date(blockUntil) - new Date()) / 1000 / 60);
+        setLoginError(`Trop de tentatives. Veuillez attendre ${remaining} minute(s) ou réinitialisez votre mot de passe.`);
+      } else {
+        setIsBlocked(false);
+        setBlockUntil(null);
+      }
+    };
+    
+    checkBlock();
+    const interval = setInterval(checkBlock, 60000); // Vérifier toutes les minutes
+    
+    return () => clearInterval(interval);
+  }, [blockUntil]);
   
   const [guestName, setGuestName] = useState('');
   
@@ -108,10 +133,19 @@ const AuthView = () => {
   
   const handleLogin = async (e) => {
     e.preventDefault();
+    
+    // ✅ Empêcher les tentatives si le compte est bloqué
+    if (isBlocked && blockUntil && new Date() < new Date(blockUntil)) {
+      const remaining = Math.ceil((new Date(blockUntil) - new Date()) / 1000 / 60);
+      showError(`Trop de tentatives. Veuillez attendre ${remaining} minute(s) ou réinitialisez votre mot de passe.`);
+      return;
+    }
+    
     logger.log('📝 AuthView.handleLogin - Début');
     logger.log('   Email:', loginData.email);
     logger.log('   Password:', loginData.password ? '***' : 'vide');
     setIsLoading(true);
+    setLoginError(null); // Réinitialiser l'erreur
     
     try {
       logger.log('🔄 AuthView - Appel de login()...');
@@ -121,16 +155,55 @@ const AuthView = () => {
       if (result.success) {
         logger.log('✅ AuthView - Connexion réussie !');
         success('Connexion réussie !');
+        setLoginError(null);
       } else {
         logger.log('❌ AuthView - Connexion échouée:', result.error);
-        showError(result.error || 'Erreur de connexion');
+        const errorMsg = result.error || 'Erreur de connexion';
+        setLoginError(errorMsg);
+        showError(errorMsg);
+        
+        // ✅ Si erreur too-many-requests, bloquer les tentatives pendant 15 minutes
+        if (errorMsg.includes('trop de tentatives') || errorMsg.includes('too-many-requests')) {
+          const blockTime = new Date();
+          blockTime.setMinutes(blockTime.getMinutes() + 15); // Bloquer pendant 15 minutes
+          setBlockUntil(blockTime);
+          setIsBlocked(true);
+          logger.warn('⚠️ AuthView - Compte bloqué jusqu\'à:', blockTime);
+        }
       }
     } catch (err) {
       logger.error('❌ AuthView - Exception:', err);
+      setLoginError(err.message || 'Erreur inattendue');
       showError(err.message || 'Erreur inattendue');
     } finally {
       setIsLoading(false);
       logger.log('🏁 AuthView.handleLogin - Fin');
+    }
+  };
+  
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    
+    if (!resetPasswordEmail.trim()) {
+      showError('Veuillez entrer votre adresse email');
+      return;
+    }
+    
+    setIsResettingPassword(true);
+    
+    try {
+      const result = await resetPassword(resetPasswordEmail.trim());
+      if (result.success) {
+        success('Email de réinitialisation envoyé ! Vérifiez votre boîte de réception.');
+        setShowResetPasswordModal(false);
+        setResetPasswordEmail('');
+      } else {
+        showError(result.error || 'Erreur lors de l\'envoi de l\'email');
+      }
+    } catch (err) {
+      showError(err.message || 'Erreur inattendue');
+    } finally {
+      setIsResettingPassword(false);
     }
   };
   
@@ -428,14 +501,48 @@ const AuthView = () => {
                 required
               />
               
+              {/* Lien "Mot de passe oublié" */}
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetPasswordEmail(loginData.email);
+                    setShowResetPasswordModal(true);
+                  }}
+                  className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline transition"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
+              
+              {/* Message d'erreur avec suggestion de réinitialisation */}
+              {loginError && loginError.includes('trop de tentatives') && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <p className="text-sm text-amber-800 mb-2">
+                    {loginError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPasswordEmail(loginData.email);
+                      setShowResetPasswordModal(true);
+                    }}
+                    className="text-sm text-amber-700 hover:text-amber-900 font-semibold underline"
+                  >
+                    Réinitialiser mon mot de passe maintenant
+                  </button>
+                </div>
+              )}
+              
               <Button
                 type="submit"
                 variant="primary"
                 size="lg"
                 fullWidth
                 loading={isLoading}
+                disabled={isBlocked}
               >
-                Se connecter
+                {isBlocked ? 'Compte temporairement bloqué' : 'Se connecter'}
               </Button>
               
               {/* ✅ SÉCURITÉ: Ne pas afficher les mots de passe en production */}
@@ -554,6 +661,67 @@ const AuthView = () => {
             </p>
           </div>
         </Card>
+        
+        {/* Modal pour réinitialisation de mot de passe */}
+        {showResetPasswordModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <Card padding="lg" className="max-w-md w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-gray-900">Réinitialiser le mot de passe</h3>
+                <button
+                  onClick={() => {
+                    setShowResetPasswordModal(false);
+                    setResetPasswordEmail('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <p className="text-gray-600 mb-4">
+                Entrez votre adresse email et nous vous enverrons un lien pour réinitialiser votre mot de passe.
+              </p>
+              
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <Input
+                  label="Email"
+                  type="email"
+                  placeholder="votre@email.com"
+                  value={resetPasswordEmail}
+                  onChange={(e) => setResetPasswordEmail(e.target.value)}
+                  icon={<Mail className="w-5 h-5" />}
+                  required
+                />
+                
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    fullWidth
+                    onClick={() => {
+                      setShowResetPasswordModal(false);
+                      setResetPasswordEmail('');
+                    }}
+                    disabled={isResettingPassword}
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="md"
+                    fullWidth
+                    loading={isResettingPassword}
+                  >
+                    Envoyer
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        )}
         
         {/* Modal pour connexion invité */}
         {showGuestModal && (

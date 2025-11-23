@@ -19,12 +19,20 @@ const useSettings = () => {
         // Charger la devise
         try {
           const currencyResponse = await settingsService.getSetting('currency_symbol');
-          if (currencyResponse.success && currencyResponse.data?.value) {
-            setCurrencySymbol(currencyResponse.data.value);
-            // Stocker dans localStorage pour accès rapide
-            localStorage.setItem('currency_symbol', currencyResponse.data.value);
+          if (currencyResponse.success && currencyResponse.data) {
+            // Gérer les différents formats (setting_value ou value)
+            const value = currencyResponse.data.setting_value || currencyResponse.data.value;
+            if (value) {
+              setCurrencySymbol(value);
+              // Stocker dans localStorage pour accès rapide
+              localStorage.setItem('currency_symbol', value);
+            } else {
+              // Utiliser la valeur depuis localStorage ou défaut
+              const stored = localStorage.getItem('currency_symbol');
+              setCurrencySymbol(stored || '€');
+            }
           } else {
-            // Utiliser la valeur depuis localStorage ou défaut
+            // Paramètre non trouvé, utiliser la valeur depuis localStorage ou défaut
             const stored = localStorage.getItem('currency_symbol');
             setCurrencySymbol(stored || '€');
           }

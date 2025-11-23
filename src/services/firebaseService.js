@@ -42,7 +42,13 @@ import logger from '../utils/logger';
 
 // Vérifier que Firebase est initialisé
 const isFirebaseAvailable = () => {
-  return auth !== null && db !== null;
+  const available = auth !== null && db !== null;
+  if (!available) {
+    logger.warn('⚠️ Firebase - Services non disponibles');
+    logger.warn('   - Auth:', auth !== null ? '✅' : '❌');
+    logger.warn('   - Firestore:', db !== null ? '✅' : '❌');
+  }
+  return available;
 };
 
 const firebaseService = {
@@ -307,7 +313,21 @@ const firebaseService = {
    */
   async signInWithEmail(email, password) {
     try {
+      // ✅ Vérifier que Firebase Auth est initialisé
+      if (!auth) {
+        logger.error('❌ Firebase Auth - Non initialisé');
+        throw new Error('Firebase Authentication n\'est pas initialisé. Vérifiez la configuration Firebase.');
+      }
+      
+      // ✅ Vérifier que l'email et le mot de passe sont fournis
+      if (!email || !password) {
+        throw new Error('Email et mot de passe requis');
+      }
+      
       logger.log(`🔐 Firebase Auth - Connexion: ${email}`);
+      logger.log(`   - Auth Domain: ${auth.config?.authDomain || 'non défini'}`);
+      logger.log(`   - API Key: ${auth.config?.apiKey ? 'définie' : 'non définie'}`);
+      
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
@@ -317,6 +337,9 @@ const firebaseService = {
       });
       
       logger.log(`✅ Firebase Auth - Connexion réussie: ${user.email}`);
+      logger.log(`   - UID: ${user.uid}`);
+      logger.log(`   - Email vérifié: ${user.emailVerified}`);
+      
       return {
         success: true,
         user: {
@@ -329,23 +352,54 @@ const firebaseService = {
       };
     } catch (error) {
       logger.error('❌ Firebase Auth - Erreur connexion:', error);
+      logger.error('   - Code:', error.code);
+      logger.error('   - Message:', error.message);
+      
+      // ✅ Diagnostic supplémentaire pour les erreurs de configuration
+      if (error.code === 'auth/api-key-not-valid' || error.code === 'auth/invalid-api-key') {
+        logger.error('❌ Firebase Auth - Clé API invalide. Vérifiez la configuration dans Firebase Console.');
+        throw new Error('Configuration Firebase invalide. Contactez l\'administrateur.');
+      }
+      
+      if (error.code === 'auth/operation-not-allowed') {
+        logger.error('❌ Firebase Auth - Méthode d\'authentification non autorisée. Activez l\'authentification par email/mot de passe dans Firebase Console.');
+        throw new Error('L\'authentification par email/mot de passe n\'est pas activée. Contactez l\'administrateur.');
+      }
+      
+      if (error.code === 'auth/unauthorized-domain') {
+        logger.error('❌ Firebase Auth - Domaine non autorisé. Ajoutez ce domaine dans Firebase Console > Authentication > Settings > Authorized domains.');
+        throw new Error('Ce domaine n\'est pas autorisé pour l\'authentification. Contactez l\'administrateur.');
+      }
+      
       let errorMessage = 'Erreur de connexion';
       
       switch (error.code) {
         case 'auth/user-not-found':
-          errorMessage = 'Aucun compte trouvé avec cet email';
+          errorMessage = 'Aucun compte trouvé avec cet email. Créez-le: npm run create-firebase-user <email> <password>';
           break;
         case 'auth/wrong-password':
-          errorMessage = 'Mot de passe incorrect';
+          errorMessage = 'Mot de passe incorrect. Utilisez "Mot de passe oublié ?" ou: npm run reset-firebase-password <email>';
           break;
         case 'auth/invalid-email':
-          errorMessage = 'Email invalide';
+          errorMessage = 'Email invalide. Vérifiez le format de l\'email.';
           break;
         case 'auth/user-disabled':
-          errorMessage = 'Ce compte a été désactivé';
+          errorMessage = 'Ce compte a été désactivé. Contactez l\'administrateur.';
           break;
         case 'auth/too-many-requests':
-          errorMessage = 'Trop de tentatives. Veuillez réessayer plus tard';
+          errorMessage = 'Trop de tentatives. Solutions: 1) Attendez 15-30 min, 2) "Mot de passe oublié ?", 3) Créez l\'utilisateur: npm run create-firebase-user <email> <password>';
+          break;
+        case 'auth/operation-not-allowed':
+          errorMessage = 'L\'authentification par email/mot de passe n\'est pas activée dans Firebase. Activez-la dans Firebase Console > Authentication > Sign-in method.';
+          break;
+        case 'auth/unauthorized-domain':
+          errorMessage = 'Ce domaine n\'est pas autorisé. Ajoutez ce domaine dans Firebase Console > Authentication > Settings > Authorized domains.';
+          break;
+        case 'auth/invalid-credential':
+          errorMessage = 'Email ou mot de passe incorrect. Vérifiez vos identifiants et réessayez.';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Erreur de connexion réseau. Vérifiez votre connexion internet.';
           break;
         default:
           errorMessage = error.message || 'Erreur de connexion';

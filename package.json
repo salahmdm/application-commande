@@ -12,6 +12,8 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "backend": "node database/admin-api.js",
     "diagnostic": "node diagnostic-server.js",
+    "create-firebase-user": "node scripts/create-firebase-user.js",
+    "reset-firebase-password": "node scripts/reset-firebase-password.js",
     "start": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"npm run backend\" \"npm run dev\"",
     "start:all": "concurrently -k -n \"BACKEND,FRONTEND,KIOSK\" -c \"blue,green,yellow\" \"npm run backend\" \"npm run dev\" \"npm run dev:kiosk\""
   },

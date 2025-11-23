@@ -25,7 +25,7 @@ const productService = {
       if (shouldUseSupabase()) {
         logger.log('🔄 productService.getAllProducts - Utilisation Supabase direct');
         const supabaseFilters = {
-          isActive: filters.featured ? undefined : true, // Par défaut, seulement actifs
+          isActive: filters.featured ? undefined : 1, // Par défaut, seulement actifs (1 = true en smallint)
         };
         if (filters.category) {
           supabaseFilters.categoryId = filters.category;
@@ -177,7 +177,7 @@ const productService = {
       // ✅ VERCEL: Utiliser Supabase directement si pas de backend
       if (shouldUseSupabase()) {
         logger.log('🔄 productService.getCategories - Utilisation Supabase direct');
-        const result = await supabaseService.getCategories({ isActive: true });
+        const result = await supabaseService.getCategories({ isActive: 1 }); // 1 = true en smallint
         if (result.success) {
           logger.log(`✅ productService.getCategories - ${result.data.length} catégories récupérées depuis Supabase`);
           return result;

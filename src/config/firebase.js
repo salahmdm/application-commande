@@ -41,8 +41,25 @@ try {
     storage = getStorage(app);
     auth = getAuth(app);
     db = getFirestore(app);
+    
+    // ✅ Configuration de la persistance de session pour l'authentification
+    if (auth) {
+      // La persistance locale est activée par défaut dans Firebase v9+
+      // Cela permet de garder l'utilisateur connecté même après un rafraîchissement
+      console.log('✅ Firebase Auth - Initialisé avec persistance de session');
+    }
+    
+    // ✅ Vérification de la configuration
+    if (auth && db) {
+      console.log('✅ Firebase - Services initialisés correctement');
+      console.log('   - Auth Domain:', firebaseConfig.authDomain);
+      console.log('   - Project ID:', firebaseConfig.projectId);
+    } else {
+      console.warn('⚠️ Firebase - Certains services ne sont pas initialisés');
+    }
   } catch (error) {
     console.error('❌ Erreur lors de l\'initialisation des services Firebase:', error);
+    console.error('   Détails:', error.message);
   }
 } catch (error) {
   console.error('❌ Erreur lors de l\'initialisation de Firebase:', error);

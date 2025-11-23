@@ -1,6 +1,15 @@
 import { apiCall } from './api';
+import supabaseService from './supabaseService';
 import { transformSettingsToBusinessInfo } from '../utils/businessInfo';
 import logger from '../utils/logger';
+
+/**
+ * Déterminer si on doit utiliser Supabase directement
+ */
+const shouldUseSupabase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  return !apiUrl || apiUrl === '';
+};
 
 /**
  * Service de gestion des paramètres de l'application
@@ -12,6 +21,18 @@ const settingsService = {
    */
   async getAllSettings() {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log('🔄 settingsService.getAllSettings - Utilisation Supabase direct');
+        const result = await supabaseService.getAllSettings();
+        if (result.success) {
+          logger.log(`✅ settingsService.getAllSettings - ${result.data.length} paramètres récupérés depuis Supabase`);
+          return result;
+        } else {
+          throw new Error(result.error || 'Erreur Supabase');
+        }
+      }
+
       const response = await apiCall('/admin/settings');
       return response;
     } catch (error) {
@@ -25,11 +46,26 @@ const settingsService = {
    */
   async getSetting(key) {
     try {
+      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
+      if (shouldUseSupabase()) {
+        logger.log(`🔄 settingsService.getSetting - Utilisation Supabase direct (${key})`);
+        const result = await supabaseService.getSetting(key);
+        if (result.success) {
+          logger.log(`✅ settingsService.getSetting - Paramètre ${key} récupéré depuis Supabase`);
+          return result;
+        } else {
+          // Si le paramètre n'existe pas, retourner une erreur gracieuse
+          logger.warn(`⚠️ settingsService.getSetting - Paramètre ${key} non trouvé dans Supabase`);
+          return { success: false, error: result.error || 'Paramètre non trouvé', data: null };
+        }
+      }
+
       const response = await apiCall(`/settings/${key}`);
       return response;
     } catch (error) {
       logger.error(`Erreur getSetting ${key}:`, error);
-      throw error;
+      // ✅ CORRECTION: Retourner une erreur gracieuse au lieu de throw
+      return { success: false, error: error.message || 'Paramètre non trouvé', data: null };
     }
   },
 
@@ -56,7 +92,9 @@ const settingsService = {
     try {
       const response = await this.getSetting('table_number_enabled');
       if (response.success && response.data) {
-        return response.data.value === true || response.data.value === 'true';
+        // Gérer les différents formats de valeur (string, boolean, number)
+        const value = response.data.setting_value || response.data.value;
+        return value === true || value === 'true' || value === 1 || value === '1';
       }
       return false; // Par défaut désactivé
     } catch (error) {

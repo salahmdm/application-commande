@@ -79,6 +79,18 @@ const useAuth = () => {
     }
   }, [user, updateProfile]);
   
+  const resetPassword = useCallback(async (email) => {
+    try {
+      logger.log('📧 useAuth.resetPassword - Email:', email);
+      const result = await authServiceFirebase.resetPassword(email);
+      logger.log('✅ useAuth.resetPassword - Résultat:', result);
+      return result;
+    } catch (error) {
+      logger.error('❌ useAuth.resetPassword - Erreur:', error);
+      return { success: false, error: error.message || 'Erreur lors de la réinitialisation' };
+    }
+  }, []);
+
   const hasRole = useCallback((requiredRole) => {
     if (!isAuthenticated || !role) return false;
     if (requiredRole === 'admin') return role === 'admin';
@@ -95,6 +107,7 @@ const useAuth = () => {
     logout,
     update,
     loginAsGuest,
+    resetPassword,
     hasRole,
     isClient: role === 'client',
     isManager: role === 'manager',

@@ -611,6 +611,74 @@ class SupabaseService {
       if (orderData.userId && typeof orderData.userId === 'number') {
         userId = orderData.userId;
       }
+      
+      // ✅ SOLUTION DE CONTOURNEMENT : Si userId est NULL et que la contrainte NOT NULL existe encore
+      // Essayer de trouver ou créer un utilisateur "invité système" dans Supabase
+      if (userId === null) {
+        try {
+          // Chercher un utilisateur invité système (email spécial)
+          const { data: guestUser, error: guestError } = await this.getClient()
+            .from('users')
+            .select('id')
+            .eq('email', 'guest@system.local')
+            .single();
+          
+          if (!guestError && guestUser && guestUser.id) {
+            // Utiliser l'utilisateur invité système existant
+            userId = guestUser.id;
+            console.log('✅ Utilisation utilisateur invité système:', userId);
+          } else {
+            // Essayer de créer un utilisateur invité système
+            // Note: password_hash est requis, on utilise un hash spécial
+            const { data: newGuestUser, error: createError } = await this.getClient()
+              .from('users')
+              .insert({
+                email: 'guest@system.local',
+                password_hash: '$2b$10$SYSTEM_GUEST_USER_NO_LOGIN_ALLOWED', // Hash spécial, jamais utilisé
+                first_name: 'Invité',
+                last_name: 'Système',
+                role: 'client',
+                is_active: 0 // Désactivé pour éviter les connexions
+              })
+              .select('id')
+              .single();
+            
+            if (!createError && newGuestUser && newGuestUser.id) {
+              userId = newGuestUser.id;
+              console.log('✅ Utilisateur invité système créé:', userId);
+            } else {
+              // Si la création échoue, essayer avec un email différent (au cas où l'unicité pose problème)
+              console.warn('⚠️ Impossible de créer utilisateur invité système, tentative avec email alternatif');
+              const timestamp = Date.now();
+              const { data: altGuestUser, error: altError } = await this.getClient()
+                .from('users')
+                .insert({
+                  email: `guest-${timestamp}@system.local`,
+                  password_hash: '$2b$10$SYSTEM_GUEST_USER_NO_LOGIN_ALLOWED',
+                  first_name: 'Invité',
+                  last_name: 'Système',
+                  role: 'client',
+                  is_active: 0
+                })
+                .select('id')
+                .single();
+              
+              if (!altError && altGuestUser && altGuestUser.id) {
+                userId = altGuestUser.id;
+                console.log('✅ Utilisateur invité système créé (alternatif):', userId);
+              } else {
+                console.error('❌ Impossible de créer utilisateur invité système:', altError);
+                // Si tout échoue, on laissera userId = null et l'erreur se produira
+                // L'utilisateur devra exécuter la migration SQL
+              }
+            }
+          }
+        } catch (e) {
+          console.error('❌ Erreur lors de la recherche/création utilisateur invité:', e);
+          // Si tout échoue, on laissera userId = null et l'erreur se produira
+          // L'utilisateur devra exécuter la migration SQL
+        }
+      }
 
       // ✅ Générer le numéro de commande si non fourni
       let orderNumber = orderData.orderNumber;

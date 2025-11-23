@@ -33,12 +33,16 @@ const updateUserRole = async (email, newRole) => {
       console.log('   1. L\'utilisateur existe-t-il dans Firebase Authentication ?');
       console.log('   2. L\'utilisateur a-t-il un document dans Firestore (collection "users") ?');
       console.log('   3. L\'email est-il exactement: ' + email);
+      console.log('\n⚠️ Si Firestore n\'est pas activé, consultez ACTIVER_FIRESTORE.md');
+      console.log('   → Lien direct: https://console.developers.google.com/apis/api/firestore.googleapis.com/overview?project=prise-de-commande-pos');
       return { success: false, error: 'Utilisateur non trouvé' };
     }
 
     // Mettre à jour tous les documents trouvés (normalement il ne devrait y en avoir qu'un)
     const updates = [];
-    querySnapshot.forEach(async (docSnapshot) => {
+    
+    // Utiliser for...of pour attendre chaque mise à jour
+    for (const docSnapshot of querySnapshot.docs) {
       const userData = docSnapshot.data();
       console.log(`\n📋 Utilisateur trouvé:`);
       console.log(`   - UID: ${docSnapshot.id}`);
@@ -57,12 +61,11 @@ const updateUserRole = async (email, newRole) => {
         updates.push({ uid: docSnapshot.id, success: true });
       } catch (updateError) {
         console.error(`❌ Erreur lors de la mise à jour:`, updateError);
+        console.error(`   Code: ${updateError.code}`);
+        console.error(`   Message: ${updateError.message}`);
         updates.push({ uid: docSnapshot.id, success: false, error: updateError.message });
       }
-    });
-
-    // Attendre que toutes les mises à jour soient terminées
-    await Promise.all(updates.map(u => u));
+    }
 
     console.log('\n✅ Mise à jour terminée !');
     console.log(`\n💡 L'utilisateur ${email} a maintenant le rôle: ${newRole}`);

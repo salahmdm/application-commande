@@ -616,19 +616,27 @@ class SupabaseService {
       // Essayer de trouver ou créer un utilisateur "invité système" dans Supabase
       if (userId === null) {
         try {
+          console.log('🔍 Recherche utilisateur invité système...');
+          
           // Chercher un utilisateur invité système (email spécial)
           const { data: guestUser, error: guestError } = await this.getClient()
             .from('users')
             .select('id')
             .eq('email', 'guest@system.local')
-            .single();
+            .maybeSingle(); // Utiliser maybeSingle() au lieu de single() pour éviter erreur si non trouvé
+          
+          if (guestError && guestError.code !== 'PGRST116') {
+            // PGRST116 = not found, c'est OK
+            console.warn('⚠️ Erreur recherche utilisateur invité:', guestError);
+          }
           
           if (!guestError && guestUser && guestUser.id) {
             // Utiliser l'utilisateur invité système existant
             userId = guestUser.id;
-            console.log('✅ Utilisation utilisateur invité système:', userId);
+            console.log('✅ Utilisation utilisateur invité système existant:', userId);
           } else {
             // Essayer de créer un utilisateur invité système
+            console.log('📝 Création utilisateur invité système...');
             // Note: password_hash est requis, on utilise un hash spécial
             const { data: newGuestUser, error: createError } = await this.getClient()
               .from('users')
@@ -643,41 +651,66 @@ class SupabaseService {
               .select('id')
               .single();
             
-            if (!createError && newGuestUser && newGuestUser.id) {
+            if (createError) {
+              console.warn('⚠️ Erreur création utilisateur invité système:', createError);
+              // Si la création échoue (peut-être email déjà existant), essayer de le récupérer à nouveau
+              if (createError.code === '23505') { // Violation contrainte unique (email déjà existant)
+                console.log('🔄 Email déjà existant, récupération de l\'utilisateur...');
+                const { data: existingUser, error: fetchError } = await this.getClient()
+                  .from('users')
+                  .select('id')
+                  .eq('email', 'guest@system.local')
+                  .maybeSingle();
+                
+                if (!fetchError && existingUser && existingUser.id) {
+                  userId = existingUser.id;
+                  console.log('✅ Utilisateur invité système récupéré:', userId);
+                } else {
+                  console.error('❌ Impossible de récupérer utilisateur invité:', fetchError);
+                }
+              } else {
+                // Si la création échoue pour une autre raison, essayer avec un email différent
+                console.warn('⚠️ Tentative avec email alternatif...');
+                const timestamp = Date.now();
+                const { data: altGuestUser, error: altError } = await this.getClient()
+                  .from('users')
+                  .insert({
+                    email: `guest-${timestamp}@system.local`,
+                    password_hash: '$2b$10$SYSTEM_GUEST_USER_NO_LOGIN_ALLOWED',
+                    first_name: 'Invité',
+                    last_name: 'Système',
+                    role: 'client',
+                    is_active: 0
+                  })
+                  .select('id')
+                  .single();
+                
+                if (!altError && altGuestUser && altGuestUser.id) {
+                  userId = altGuestUser.id;
+                  console.log('✅ Utilisateur invité système créé (alternatif):', userId);
+                } else {
+                  console.error('❌ Impossible de créer utilisateur invité système (alternatif):', altError);
+                  // Si tout échoue, on laissera userId = null et l'erreur se produira
+                  // L'utilisateur devra exécuter la migration SQL
+                  throw new Error('Impossible de créer ou trouver un utilisateur système. Veuillez exécuter la migration SQL : ALTER TABLE "orders" ALTER COLUMN "user_id" DROP NOT NULL;');
+                }
+              }
+            } else if (newGuestUser && newGuestUser.id) {
               userId = newGuestUser.id;
               console.log('✅ Utilisateur invité système créé:', userId);
-            } else {
-              // Si la création échoue, essayer avec un email différent (au cas où l'unicité pose problème)
-              console.warn('⚠️ Impossible de créer utilisateur invité système, tentative avec email alternatif');
-              const timestamp = Date.now();
-              const { data: altGuestUser, error: altError } = await this.getClient()
-                .from('users')
-                .insert({
-                  email: `guest-${timestamp}@system.local`,
-                  password_hash: '$2b$10$SYSTEM_GUEST_USER_NO_LOGIN_ALLOWED',
-                  first_name: 'Invité',
-                  last_name: 'Système',
-                  role: 'client',
-                  is_active: 0
-                })
-                .select('id')
-                .single();
-              
-              if (!altError && altGuestUser && altGuestUser.id) {
-                userId = altGuestUser.id;
-                console.log('✅ Utilisateur invité système créé (alternatif):', userId);
-              } else {
-                console.error('❌ Impossible de créer utilisateur invité système:', altError);
-                // Si tout échoue, on laissera userId = null et l'erreur se produira
-                // L'utilisateur devra exécuter la migration SQL
-              }
             }
           }
         } catch (e) {
           console.error('❌ Erreur lors de la recherche/création utilisateur invité:', e);
           // Si tout échoue, on laissera userId = null et l'erreur se produira
           // L'utilisateur devra exécuter la migration SQL
+          throw new Error(`Erreur lors de la création de l'utilisateur système : ${e.message}. Veuillez exécuter la migration SQL dans Supabase : ALTER TABLE "orders" ALTER COLUMN "user_id" DROP NOT NULL;`);
         }
+      }
+      
+      // Vérifier que userId n'est toujours pas null avant de continuer
+      if (userId === null) {
+        throw new Error('user_id est NULL et la contrainte NOT NULL est active. Veuillez exécuter cette migration SQL dans Supabase : ALTER TABLE "orders" ALTER COLUMN "user_id" DROP NOT NULL;');
       }
 
       // ✅ Générer le numéro de commande si non fourni

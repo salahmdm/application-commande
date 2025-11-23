@@ -208,12 +208,23 @@ const useAuthStore = create(
       },
       
       logout: async () => {
+        const currentUser = get().user;
+        const uid = currentUser?.uid || currentUser?.id;
+        
         try {
           // Déconnexion Firebase
           await authServiceFirebase.logout();
         } catch (error) {
           logger.warn('⚠️ Erreur lors du logout Firebase:', error);
           // Continuer quand même pour nettoyer le frontend
+        }
+        
+        // ✅ SÉCURITÉ: Marquer la déconnexion comme volontaire
+        try {
+          localStorage.setItem('logout_voluntary', 'true');
+          localStorage.setItem('logout_timestamp', Date.now().toString());
+        } catch (e) {
+          logger.warn('⚠️ Erreur lors du marquage de déconnexion:', e);
         }
         
         // ✅ Nettoyer le panier de l'utilisateur actuel avant la déconnexion
@@ -227,12 +238,46 @@ const useAuthStore = create(
           logger.warn('⚠️ Erreur lors du nettoyage du panier:', error);
         }
         
-        // Nettoyer localStorage
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        // ✅ SÉCURITÉ: Nettoyer TOUS les caches localStorage
+        try {
+          // Nettoyer les clés principales
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          
+          // ✅ SÉCURITÉ: Nettoyer tous les caches Firestore de cet utilisateur
+          if (uid) {
+            localStorage.removeItem(`firestore_user_${uid}`);
+            localStorage.removeItem(`firestore_user_${uid}_time`);
+          }
+          
+          // ✅ SÉCURITÉ: Nettoyer tous les caches Firestore (par sécurité)
+          try {
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && (key.startsWith('firestore_user_') || key.startsWith('user_'))) {
+                keysToRemove.push(key);
+              }
+            }
+            keysToRemove.forEach(key => localStorage.removeItem(key));
+          } catch (e) {
+            logger.warn('⚠️ Erreur lors du nettoyage des caches Firestore:', e);
+          }
+        } catch (e) {
+          logger.warn('⚠️ Erreur lors du nettoyage localStorage:', e);
+        }
+        
         // ✅ Nettoyer aussi la clé de panier invité
-        sessionStorage.removeItem('guest-cart-key');
+        try {
+          sessionStorage.removeItem('guest-cart-key');
+        } catch (e) {
+          // Ignorer
+        }
+        
+        // ✅ SÉCURITÉ: Réinitialiser le store immédiatement
         set({ user: null, isAuthenticated: false, role: null, token: null });
+        
+        logger.log('✅ authStore.logout - Déconnexion complète et sécurisée');
       },
       
       updateProfile: (updates) => {

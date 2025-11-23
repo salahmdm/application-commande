@@ -307,20 +307,70 @@ const authServiceFirebase = {
     try {
       logger.log('🚪 authServiceFirebase.logout - Début');
       
+      // ✅ SÉCURITÉ: Récupérer l'UID avant la déconnexion pour nettoyer les caches
+      const currentUser = firebaseService.getCurrentUser();
+      const uid = currentUser?.uid;
+      
       // Déconnexion Firebase
       await firebaseService.signOut();
       
-      // Nettoyer localStorage
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
+      // ✅ SÉCURITÉ: Marquer la déconnexion comme volontaire
+      try {
+        localStorage.setItem('logout_voluntary', 'true');
+        localStorage.setItem('logout_timestamp', Date.now().toString());
+      } catch (e) {
+        logger.warn('⚠️ Erreur lors du marquage de déconnexion:', e);
+      }
       
-      logger.log('✅ authServiceFirebase.logout - Déconnexion réussie');
+      // ✅ SÉCURITÉ: Nettoyer TOUS les caches localStorage
+      try {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        
+        // Nettoyer les caches Firestore de cet utilisateur
+        if (uid) {
+          localStorage.removeItem(`firestore_user_${uid}`);
+          localStorage.removeItem(`firestore_user_${uid}_time`);
+        }
+        
+        // Nettoyer tous les caches Firestore (par sécurité)
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('firestore_user_') || key.startsWith('user_'))) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+      } catch (e) {
+        logger.warn('⚠️ Erreur lors du nettoyage localStorage:', e);
+      }
+      
+      logger.log('✅ authServiceFirebase.logout - Déconnexion réussie et sécurisée');
       return { success: true };
     } catch (error) {
       logger.error('❌ authServiceFirebase.logout - Erreur:', error);
-      // Nettoyer quand même localStorage
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
+      
+      // ✅ SÉCURITÉ: Nettoyer quand même localStorage même en cas d'erreur
+      try {
+        localStorage.setItem('logout_voluntary', 'true');
+        localStorage.setItem('logout_timestamp', Date.now().toString());
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        
+        // Nettoyer tous les caches Firestore
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('firestore_user_') || key.startsWith('user_'))) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+      } catch (e) {
+        logger.warn('⚠️ Erreur lors du nettoyage d\'urgence:', e);
+      }
+      
       return { success: true }; // Retourner succès même en cas d'erreur
     }
   },

@@ -38,3 +38,4 @@ Dans la console du navigateur, vérifiez l'URL de la requête :
 - [ ] Produits s'affichent correctement
 
 
+

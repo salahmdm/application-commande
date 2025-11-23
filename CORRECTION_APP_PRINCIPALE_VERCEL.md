@@ -103,3 +103,4 @@ Si les données ne s'affichent toujours pas :
 Les corrections que j'ai faites concernent **l'application principale** (clients, admins, managers), pas seulement le kiosk. Le kiosk utilise `kioskService`, mais l'application principale utilise `productService` qui a été corrigé pour fonctionner avec Supabase sur Vercel.
 
 
+

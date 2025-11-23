@@ -96,3 +96,4 @@ console.log('Key:', import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NE
 3. **Vérifier** que les produits s'affichent correctement
 
 
+

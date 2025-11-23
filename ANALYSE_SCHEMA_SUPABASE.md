@@ -54,3 +54,4 @@ DROP TABLE IF EXISTS "catégories";
 Testez votre application pour vérifier que tout fonctionne !
 
 
+

@@ -143,3 +143,4 @@ Après le redéploiement, dans la console du navigateur, vous devriez voir :
 **Solution** : Attendez que Vercel redéploie avec le code corrigé (utilise `is_available`)
 
 
+

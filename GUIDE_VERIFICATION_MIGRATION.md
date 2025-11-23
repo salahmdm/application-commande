@@ -86,3 +86,4 @@ Ce script va :
 Le message "Success. No rows returned" est normal pour une requête SELECT qui ne trouve rien. Ce n'est pas une erreur, c'est juste que la requête n'a pas trouvé de résultats correspondant aux critères.
 
 
+

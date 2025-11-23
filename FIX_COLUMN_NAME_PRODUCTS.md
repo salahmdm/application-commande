@@ -40,3 +40,4 @@ Après cette correction :
 3. **Vérifiez** que les produits s'affichent correctement
 
 
+

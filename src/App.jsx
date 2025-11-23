@@ -44,10 +44,10 @@ function App() {
   // ✅ Gestion automatique de la redirection vers la page d'accueil en cas de déconnexion serveur
   useServerDisconnection();
 
-  // ✅ Diagnostic Supabase : Exposer la fonction de test dans la console (développement uniquement)
+  // ✅ Diagnostic Supabase : Exposer la fonction de test dans la console (disponible en dev et production)
   useEffect(() => {
+    window.testSupabaseConnection = testSupabaseConnection;
     if (import.meta.env.DEV) {
-      window.testSupabaseConnection = testSupabaseConnection;
       logger.log('💡 Pour tester la connexion Supabase, tapez dans la console : testSupabaseConnection()');
     }
   }, []);

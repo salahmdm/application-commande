@@ -5,7 +5,6 @@ import Input from '../common/Input';
 import useCart from '../../hooks/useCart';
 import useAuth from '../../hooks/useAuth';
 import useOrders from '../../hooks/useOrders';
-import useAuthStore from '../../store/authStore';
 import useCartStore from '../../store/cartStore';
 import useNotifications from '../../hooks/useNotifications';
 import useSettings from '../../hooks/useSettings';
@@ -22,12 +21,10 @@ const CartDrawer = ({ isOpen, onClose }) => {
     items, 
     orderType, 
     promoCode, 
-    discount,
     discountPercentage,
     promoData,
     loyaltyReward: appliedReward,
     subtotal, // HT maintenant
-    subtotalTTC, // TTC pour l'affichage
     discountAmount,
     promoDiscountAmount,
     loyaltyDiscountAmount,
@@ -43,7 +40,6 @@ const CartDrawer = ({ isOpen, onClose }) => {
   } = useCart();
   const { user, isGuest } = useAuth();
   const { createOrder } = useOrders();
-  const { updatePoints, refreshPoints } = useAuthStore();
   const { clearCart } = useCartStore();
   const { success, error: showError } = useNotifications();
   const { tableNumberEnabled } = useSettings();

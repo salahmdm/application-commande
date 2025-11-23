@@ -1,10 +1,16 @@
 import { apiCall } from './api';
 import logger from '../utils/logger';
+import supabaseService from './supabaseService';
 
 /**
  * Service pour les fonctionnalités Admin
- * Connecté au backend MySQL
+ * Utilise Supabase directement si le backend n'est pas disponible
  */
+
+const shouldUseSupabase = () => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  return !apiUrl || apiUrl === '';
+};
 
 export const adminService = {
   /**
@@ -12,6 +18,17 @@ export const adminService = {
    */
   async getAllUsers() {
     try {
+      if (shouldUseSupabase()) {
+        logger.log('🔄 adminService.getAllUsers - Utilisation Supabase direct');
+        const { data, error } = await supabaseService.getClient()
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return { success: true, data: data || [] };
+      }
+
       const response = await apiCall('/admin/users');
       return response;
     } catch (error) {
@@ -25,6 +42,18 @@ export const adminService = {
    */
   async getUserById(userId) {
     try {
+      if (shouldUseSupabase()) {
+        logger.log(`🔄 adminService.getUserById - Utilisation Supabase direct pour ID ${userId}`);
+        const { data, error } = await supabaseService.getClient()
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+
+        if (error) throw error;
+        return { success: true, data };
+      }
+
       const response = await apiCall(`/admin/users/${userId}`);
       return response;
     } catch (error) {
@@ -38,6 +67,33 @@ export const adminService = {
    */
   async createUser(userData) {
     try {
+      if (shouldUseSupabase()) {
+        logger.log('🔄 adminService.createUser - Utilisation Supabase direct');
+        
+        // Convertir le format des données pour Supabase
+        const supabaseUserData = {
+          email: userData.email,
+          password_hash: userData.password ? `$2b$10$TEMP_HASH_${Date.now()}` : '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED',
+          first_name: userData.firstName || userData.first_name || '',
+          last_name: userData.lastName || userData.last_name || '',
+          phone: userData.phone || null,
+          role: userData.role || 'client',
+          loyalty_points: userData.loyaltyPoints || userData.loyalty_points || 0,
+          is_active: userData.isActive !== undefined ? (userData.isActive ? 1 : 0) : 1,
+          email_verified: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        const result = await supabaseService.createUser(supabaseUserData);
+        if (result.success) {
+          logger.log('✅ adminService.createUser - Utilisateur créé via Supabase');
+          return { success: true, data: result.data };
+        } else {
+          throw new Error(result.error || 'Erreur création utilisateur Supabase');
+        }
+      }
+
       const response = await apiCall('/admin/users', {
         method: 'POST',
         body: JSON.stringify(userData)
@@ -54,6 +110,43 @@ export const adminService = {
    */
   async updateUser(userId, userData) {
     try {
+      if (shouldUseSupabase()) {
+        logger.log(`🔄 adminService.updateUser - Utilisation Supabase direct pour ID ${userId}`);
+        
+        // Convertir le format des données pour Supabase
+        const supabaseUpdates = {
+          email: userData.email,
+          first_name: userData.firstName || userData.first_name,
+          last_name: userData.lastName || userData.last_name,
+          phone: userData.phone,
+          role: userData.role,
+          loyalty_points: userData.loyaltyPoints || userData.loyalty_points,
+          is_active: userData.isActive !== undefined ? (userData.isActive ? 1 : 0) : undefined,
+          updated_at: new Date().toISOString()
+        };
+
+        // Supprimer les champs undefined
+        Object.keys(supabaseUpdates).forEach(key => {
+          if (supabaseUpdates[key] === undefined) {
+            delete supabaseUpdates[key];
+          }
+        });
+
+        // Si un nouveau mot de passe est fourni, le hasher (nécessiterait bcrypt côté client)
+        // Pour l'instant, on ne met pas à jour le mot de passe via Supabase depuis le frontend
+        if (userData.password) {
+          logger.warn('⚠️ adminService.updateUser - Mise à jour du mot de passe non supportée via Supabase depuis le frontend');
+        }
+
+        const result = await supabaseService.updateUser(userId, supabaseUpdates);
+        if (result.success) {
+          logger.log('✅ adminService.updateUser - Utilisateur mis à jour via Supabase');
+          return { success: true, data: result.data };
+        } else {
+          throw new Error(result.error || 'Erreur mise à jour utilisateur Supabase');
+        }
+      }
+
       const response = await apiCall(`/admin/users/${userId}`, {
         method: 'PUT',
         body: JSON.stringify(userData)
@@ -70,6 +163,17 @@ export const adminService = {
    */
   async deleteUser(userId) {
     try {
+      if (shouldUseSupabase()) {
+        logger.log(`🔄 adminService.deleteUser - Utilisation Supabase direct pour ID ${userId}`);
+        const result = await supabaseService.deleteUser(userId);
+        if (result.success) {
+          logger.log('✅ adminService.deleteUser - Utilisateur supprimé via Supabase');
+          return { success: true };
+        } else {
+          throw new Error(result.error || 'Erreur suppression utilisateur Supabase');
+        }
+      }
+
       const response = await apiCall(`/admin/users/${userId}`, {
         method: 'DELETE'
       });

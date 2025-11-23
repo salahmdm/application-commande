@@ -10,6 +10,7 @@ import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import Modal from '../../components/common/Modal';
 import { apiCall } from '../../services/api';
+import adminService from '../../services/adminService';
 import useNotifications from '../../hooks/useNotifications';
 import useAuth from '../../hooks/useAuth';
 import logger from '../../utils/logger';
@@ -62,7 +63,7 @@ const AdminAccounts = () => {
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await apiCall('/admin/users');
+      const response = await adminService.getAllUsers();
       
       if (response && response.success) {
         setUsers(response.data || []);
@@ -294,9 +295,7 @@ const AdminAccounts = () => {
     }
 
     try {
-      const response = await apiCall(`/admin/users/${userId}`, {
-        method: 'DELETE'
-      });
+      const response = await adminService.deleteUser(userId);
 
       if (response.success) {
         success('Utilisateur supprimé avec succès');
@@ -344,23 +343,17 @@ const AdminAccounts = () => {
           updateData.password = formData.password;
         }
 
-        response = await apiCall(`/admin/users/${editingUser.id}`, {
-          method: 'PUT',
-          body: updateData
-        });
+        response = await adminService.updateUser(editingUser.id, updateData);
       } else {
         // Créer
-        response = await apiCall('/admin/users', {
-          method: 'POST',
-          body: {
-            email: formData.email,
-            password: formData.password,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            phone: formData.phone,
-            role: formData.role,
-            loyaltyPoints: parseInt(formData.loyaltyPoints) || 0
-          }
+        response = await adminService.createUser({
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          role: formData.role,
+          loyaltyPoints: parseInt(formData.loyaltyPoints) || 0
         });
       }
 

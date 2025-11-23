@@ -8,7 +8,7 @@ L'API Firestore n'est pas activée dans votre projet Firebase. Vous devez l'acti
 
 ### Option 1 : Via le lien direct (Recommandé)
 
-1. **Cliquez sur ce lien** : [Activer Firestore API](https://console.developers.google.com/apis/api/firestore.googleapis.com/overview?project=prise-de-commande-pos)
+1. **Cliquez sur ce lien** : [Activer Firestore API](ttps://console.developers.google.com/apis/api/firestore.googleapis.com/overview?project=prise-de-commande-posh)
 
 2. Cliquez sur **"Activer"** ou **"Enable"**
 

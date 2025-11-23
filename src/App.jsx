@@ -72,27 +72,41 @@ function App() {
     // ✅ OPTIMISATION: Restaurer immédiatement depuis localStorage pour affichage instantané
     const { setUser, setAuthenticated, setRole, restoreAuth } = useAuthStore.getState();
     
-    // ✅ SÉCURITÉ: Vérifier si l'utilisateur s'est déconnecté volontairement
+    // ✅ SÉCURITÉ CRITIQUE: Vérifier si l'utilisateur s'est déconnecté volontairement AVANT toute restauration
     const logoutVoluntary = localStorage.getItem('logout_voluntary');
     const logoutTimestamp = localStorage.getItem('logout_timestamp');
     
-    // Si déconnexion volontaire récente (moins de 1 heure), ne pas restaurer
+    // Si déconnexion volontaire récente (moins de 1 heure), NE PAS restaurer
     if (logoutVoluntary === 'true' && logoutTimestamp) {
       const logoutTime = parseInt(logoutTimestamp, 10);
       const oneHourAgo = Date.now() - 3600000; // 1 heure
       
       if (logoutTime > oneHourAgo) {
-        logger.log('🔒 App - Déconnexion volontaire détectée, pas de restauration automatique');
-        // Nettoyer le flag après vérification
-        localStorage.removeItem('logout_voluntary');
-        localStorage.removeItem('logout_timestamp');
-        // Ne pas restaurer la session
+        logger.log('🔒 App - Déconnexion volontaire active, AUCUNE restauration automatique');
+        // NE PAS nettoyer le flag ici, on le garde pour empêcher Firebase Auth de reconnecter
+        // Ne pas restaurer la session du tout
+        setUser(null);
+        setAuthenticated(false);
+        setRole(null);
+        // Ne pas continuer, ignorer complètement la restauration
+        // Le flag sera nettoyé lors d'une nouvelle connexion ou après 1 heure
         return;
       } else {
         // Le flag est trop ancien, le nettoyer
+        logger.log('🔒 App - Flag de déconnexion expiré (>1h), nettoyage');
         localStorage.removeItem('logout_voluntary');
         localStorage.removeItem('logout_timestamp');
       }
+    }
+    
+    // ✅ SÉCURITÉ: Vérifier à nouveau avant de restaurer depuis localStorage
+    const currentLogoutVoluntary = localStorage.getItem('logout_voluntary');
+    if (currentLogoutVoluntary === 'true') {
+      logger.log('🔒 App - Déconnexion volontaire détectée (vérification finale), pas de restauration');
+      setUser(null);
+      setAuthenticated(false);
+      setRole(null);
+      return;
     }
     
     // Restaurer depuis localStorage immédiatement (sans attendre Firebase)
@@ -130,25 +144,46 @@ function App() {
         unsubscribe = authServiceFirebase.onAuthStateChange(async (user) => {
         if (!isMounted) return;
         
-          // ✅ SÉCURITÉ: Vérifier si l'utilisateur s'est déconnecté volontairement
+          // ✅ SÉCURITÉ CRITIQUE: Vérifier TOUJOURS le flag AVANT tout traitement
           const logoutVoluntary = localStorage.getItem('logout_voluntary');
-          if (logoutVoluntary === 'true' && !user) {
-            // Déconnexion volontaire, ne pas restaurer
-            logger.log('🔒 App - Déconnexion volontaire, Firebase Auth restauré mais on ignore');
-            setUser(null);
-            setAuthenticated(false);
-            setRole(null);
-            localStorage.removeItem('logout_voluntary');
-            localStorage.removeItem('logout_timestamp');
-            return;
+          const logoutTimestamp = localStorage.getItem('logout_timestamp');
+          
+          // Si déconnexion volontaire récente (moins de 1 heure), IGNORER complètement Firebase Auth
+          if (logoutVoluntary === 'true' && logoutTimestamp) {
+            const logoutTime = parseInt(logoutTimestamp, 10);
+            const oneHourAgo = Date.now() - 3600000; // 1 heure
+            
+            if (logoutTime > oneHourAgo) {
+              logger.log('🔒 App - Déconnexion volontaire active, IGNORER Firebase Auth complètement');
+              // Forcer la déconnexion même si Firebase Auth dit qu'il y a un utilisateur
+              setUser(null);
+              setAuthenticated(false);
+              setRole(null);
+              
+              // Si Firebase Auth a encore un utilisateur, le déconnecter
+              if (user) {
+                try {
+                  await firebaseService.signOut();
+                  logger.log('🔒 App - Firebase Auth déconnecté après détection de déconnexion volontaire');
+                } catch (err) {
+                  logger.warn('⚠️ Erreur lors de la déconnexion Firebase Auth:', err);
+                }
+              }
+              
+              return; // NE PAS continuer, ignorer complètement
+            } else {
+              // Le flag est trop ancien, le nettoyer
+              localStorage.removeItem('logout_voluntary');
+              localStorage.removeItem('logout_timestamp');
+            }
           }
           
           try {
             if (user) {
-              // ✅ SÉCURITÉ: Vérifier à nouveau si déconnexion volontaire
+              // ✅ SÉCURITÉ: Vérifier à nouveau (double vérification)
               const currentLogoutVoluntary = localStorage.getItem('logout_voluntary');
               if (currentLogoutVoluntary === 'true') {
-                logger.log('🔒 App - Déconnexion volontaire détectée, déconnexion de Firebase Auth');
+                logger.log('🔒 App - Déconnexion volontaire détectée (double vérification), déconnexion forcée');
                 try {
                   await authServiceFirebase.logout();
                 } catch (err) {

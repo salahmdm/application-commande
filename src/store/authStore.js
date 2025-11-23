@@ -87,6 +87,14 @@ const useAuthStore = create(
               loyalty_points: response.user.loyalty_points || response.user.points || 0
             };
             
+            // ✅ SÉCURITÉ: Nettoyer le flag de déconnexion volontaire lors d'une connexion réussie
+            try {
+              localStorage.removeItem('logout_voluntary');
+              localStorage.removeItem('logout_timestamp');
+            } catch (e) {
+              logger.warn('⚠️ Erreur lors du nettoyage du flag de déconnexion:', e);
+            }
+            
             set({ 
               user: userWithPoints, 
               isAuthenticated: true, 
@@ -278,6 +286,10 @@ const useAuthStore = create(
         set({ user: null, isAuthenticated: false, role: null, token: null });
         
         logger.log('✅ authStore.logout - Déconnexion complète et sécurisée');
+        
+        // ✅ SÉCURITÉ: Forcer un petit délai pour s'assurer que le flag est bien défini
+        // avant que Firebase Auth ne tente de restaurer la session
+        await new Promise(resolve => setTimeout(resolve, 100));
       },
       
       updateProfile: (updates) => {

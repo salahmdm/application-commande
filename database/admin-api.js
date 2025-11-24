@@ -4713,20 +4713,20 @@ app.get('/api/restaurant-info', async (req, res) => {
     try { openingHours = map.opening_hours ? JSON.parse(map.opening_hours) : {}; } catch { openingHours = {}; }
     const businessDefaults = {
       name: 'BLOSSOM CAFE',
-      address: '15 Avenue des Champs-Élysées, 75008 PARIS',
-      phone: '01 42 56 78 90',
-      siret: '123 456 789 00012',
-      vatNumber: 'FR 12 345678901',
-      website: 'www.supermarche-dupont.fr',
-      email: 'contact@supermarche-dupont.fr',
-      legalForm: 'SAS',
-      shareCapital: '100 000 €',
-      rcs: 'RCS Paris B 123 456 789',
-      paymentMention: 'TVA acquittée sur les encaissements',
+      address: '',
+      phone: '',
+      siret: '',
+      vatNumber: '',
+      website: '',
+      email: '',
+      legalForm: '',
+      shareCapital: '',
+      rcs: '',
+      paymentMention: '',
       legalMentions: '',
-      returnPolicy: 'Les produits alimentaires ne sont ni repris ni échangés. Merci de conserver votre ticket.',
-      foodInfo: 'Les denrées alimentaires servies ne peuvent être reprises pour des raisons sanitaires.',
-      customerService: '0800 123 456'
+      returnPolicy: '',
+      foodInfo: '',
+      customerService: ''
     };
     const displayDefaults = {
       showName: true,

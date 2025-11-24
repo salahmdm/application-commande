@@ -6,7 +6,8 @@ import useAuth from './hooks/useAuth';
 import useUIStore from './store/uiStore';
 import useAuthStore from './store/authStore';
 import useServerDisconnection from './hooks/useServerDisconnection';
-import authServiceSupabase from './services/authServiceSupabase';
+import authServiceFirebase from './services/authServiceFirebase';
+import firebaseService from './services/firebaseService';
 import supabaseService from './services/supabaseService';
 import logger from './utils/logger';
 import { testSupabaseConnection } from './utils/testSupabaseConnection';
@@ -22,6 +23,7 @@ import ProfileView from './views/client/ProfileView';
 // Manager views
 import ManagerDashboard from './views/manager/ManagerDashboard';
 import ManagerPOS from './views/manager/ManagerPOS';
+import ManagerAdminHomeView from './views/manager/ManagerAdminHomeView';
 
 // Admin views
 import AdminProducts from './views/admin/AdminProducts';
@@ -30,7 +32,6 @@ import AdminInventory from './views/admin/AdminInventory';
 import AdminSettings from './views/admin/AdminSettings';
 import AdminAccounts from './views/admin/AdminAccounts';
 // RestaurantSettings retiré (doublon). Utiliser l'éditeur sur la page d'accueil.
-import AdminAppearance from './views/admin/AdminAppearance';
 import DashboardCA from './views/dashboard/DashboardCA';
 
 function App() {
@@ -64,7 +65,7 @@ function App() {
     }
   }, []);
   
-  // ✅ Synchronisation Supabase Authentication avec le store - OPTIMISÉ
+  // ✅ Synchronisation Firebase Authentication avec le store - OPTIMISÉ
   useEffect(() => {
     let unsubscribe = null;
     let isMounted = true;
@@ -83,7 +84,7 @@ function App() {
       
       if (logoutTime > oneHourAgo) {
         logger.log('🔒 App - Déconnexion volontaire active, AUCUNE restauration automatique');
-        // NE PAS nettoyer le flag ici, on le garde pour empêcher Supabase Auth de reconnecter
+        // NE PAS nettoyer le flag ici, on le garde pour empêcher Firebase Auth de reconnecter
         // Ne pas restaurer la session du tout
         setUser(null);
         setAuthenticated(false);
@@ -109,7 +110,7 @@ function App() {
       return;
     }
     
-    // Restaurer depuis localStorage immédiatement (sans attendre Supabase)
+    // Restaurer depuis localStorage immédiatement (sans attendre Firebase)
     const cachedUser = localStorage.getItem('user');
     if (cachedUser) {
       try {
@@ -126,47 +127,47 @@ function App() {
       }
     }
     
-    // Initialiser l'écouteur Supabase immédiatement (sans délai)
-    const initSupabase = async () => {
+    // Initialiser l'écouteur Firebase immédiatement (sans délai)
+    const initFirebase = async () => {
       if (!isMounted) return;
       
       try {
-        // Vérifier si authServiceSupabase est disponible
-        if (!authServiceSupabase || typeof authServiceSupabase.onAuthStateChange !== 'function') {
-          logger.warn('⚠️ App - authServiceSupabase.onAuthStateChange non disponible');
+        // Vérifier si authServiceFirebase est disponible
+        if (!authServiceFirebase || typeof authServiceFirebase.onAuthStateChange !== 'function') {
+          logger.warn('⚠️ App - authServiceFirebase.onAuthStateChange non disponible');
           if (restoreAuth) {
             await restoreAuth();
           }
           return;
         }
         
-        // Écouter les changements d'état d'authentification Supabase
-        unsubscribe = authServiceSupabase.onAuthStateChange(async (user) => {
+        // Écouter les changements d'état d'authentification Firebase
+        unsubscribe = authServiceFirebase.onAuthStateChange(async (user) => {
         if (!isMounted) return;
         
           // ✅ SÉCURITÉ CRITIQUE: Vérifier TOUJOURS le flag AVANT tout traitement
           const logoutVoluntary = localStorage.getItem('logout_voluntary');
           const logoutTimestamp = localStorage.getItem('logout_timestamp');
           
-          // Si déconnexion volontaire récente (moins de 1 heure), IGNORER complètement Supabase Auth
+          // Si déconnexion volontaire récente (moins de 1 heure), IGNORER complètement Firebase Auth
           if (logoutVoluntary === 'true' && logoutTimestamp) {
             const logoutTime = parseInt(logoutTimestamp, 10);
             const oneHourAgo = Date.now() - 3600000; // 1 heure
             
             if (logoutTime > oneHourAgo) {
-              logger.log('🔒 App - Déconnexion volontaire active, IGNORER Supabase Auth complètement');
-              // Forcer la déconnexion même si Supabase Auth dit qu'il y a un utilisateur
+              logger.log('🔒 App - Déconnexion volontaire active, IGNORER Firebase Auth complètement');
+              // Forcer la déconnexion même si Firebase Auth dit qu'il y a un utilisateur
               setUser(null);
               setAuthenticated(false);
               setRole(null);
               
-              // Si Supabase Auth a encore un utilisateur, le déconnecter
+              // Si Firebase Auth a encore un utilisateur, le déconnecter
               if (user) {
                 try {
-                  await authServiceSupabase.logout();
-                  logger.log('🔒 App - Supabase Auth déconnecté après détection de déconnexion volontaire');
+                  await firebaseService.signOut();
+                  logger.log('🔒 App - Firebase Auth déconnecté après détection de déconnexion volontaire');
                 } catch (err) {
-                  logger.warn('⚠️ Erreur lors de la déconnexion Supabase Auth:', err);
+                  logger.warn('⚠️ Erreur lors de la déconnexion Firebase Auth:', err);
                 }
               }
               
@@ -185,7 +186,7 @@ function App() {
               if (currentLogoutVoluntary === 'true') {
                 logger.log('🔒 App - Déconnexion volontaire détectée (double vérification), déconnexion forcée');
                 try {
-                  await authServiceSupabase.logout();
+                  await authServiceFirebase.logout();
                 } catch (err) {
                   logger.error('❌ Erreur lors de la déconnexion forcée:', err);
                 }
@@ -194,13 +195,13 @@ function App() {
                 setRole(null);
                 return;
               }
-              // Si l'utilisateur a déjà toutes les données (depuis authServiceSupabase)
+              // Si l'utilisateur a déjà toutes les données (depuis authServiceFirebase)
               if (user.uid && user.role) {
                 // ✅ SÉCURITÉ: Ne pas autoriser les comptes kiosk
                 if (user.role === 'kiosk') {
                   logger.warn('⚠️ App - Compte kiosk détecté, déconnexion');
                   try {
-                    await authServiceSupabase.logout();
+                    await authServiceFirebase.logout();
                   } catch (err) {
                     logger.error('❌ Erreur lors de la déconnexion kiosk:', err);
                   }
@@ -294,41 +295,35 @@ function App() {
                         setRole(cachedUser.role);
                         
                         // ✅ SYNCHRONISATION AUTOMATIQUE: Créer l'utilisateur dans Supabase
-                        logger.log('🔄 App - Utilisateur non trouvé dans Supabase, création automatique...');
-                        // Créer l'utilisateur dans Supabase si nécessaire
-                        const { data: createdUser, error: createError } = await supabaseService.getClient()
-                          .from('users')
-                          .insert({
-                            email: user.email,
-                            password_hash: '$2b$10$SUPABASE_AUTH_USER',
-                            first_name: cachedUser.firstName || '',
-                            last_name: cachedUser.lastName || '',
-                            role: cachedUser.role || 'client',
-                            loyalty_points: cachedUser.loyalty_points || 0,
-                            is_active: 1,
-                            email_verified: user.emailVerified ? 1 : 0,
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString()
-                          })
-                          .select()
-                          .single();
+                        logger.log('🔄 App - Synchronisation automatique Firebase → Supabase en cours...');
+                        const syncResult = await supabaseService.syncFirebaseUser(user, {
+                          firstName: cachedUser.firstName,
+                          lastName: cachedUser.lastName,
+                          role: cachedUser.role || 'client',
+                          loyalty_points: cachedUser.loyalty_points || 0
+                        });
                         
-                        if (createError && createError.code !== '23505') {
-                          logger.error('❌ App - Erreur création utilisateur:', createError);
-                        } else if (createdUser) {
-                          logger.log('✅ App - Utilisateur créé dans Supabase:', user.email);
-                          const updatedUser = {
-                            ...cachedUser,
-                            id: createdUser.id,
-                            firstName: createdUser.first_name || cachedUser.firstName,
-                            lastName: createdUser.last_name || cachedUser.lastName,
-                            role: createdUser.role || cachedUser.role,
-                            loyalty_points: createdUser.loyalty_points || cachedUser.loyalty_points,
-                            points: createdUser.loyalty_points || cachedUser.points
-                          };
-                          setUser(updatedUser);
-                          setRole(updatedUser.role);
-                          localStorage.setItem('user', JSON.stringify(updatedUser));
+                        if (syncResult.success) {
+                          logger.log('✅ App - Utilisateur synchronisé avec succès dans Supabase:', user.email);
+                          // Mettre à jour avec les données Supabase fraîches
+                          const updatedSupabaseUser = await supabaseService.getUserByEmail(user.email);
+                          if (updatedSupabaseUser.success && updatedSupabaseUser.data) {
+                            const supabaseData = updatedSupabaseUser.data;
+                            const updatedUser = {
+                              ...cachedUser,
+                              id: supabaseData.id,
+                              firstName: supabaseData.first_name || cachedUser.firstName,
+                              lastName: supabaseData.last_name || cachedUser.lastName,
+                              role: supabaseData.role || cachedUser.role,
+                              loyalty_points: supabaseData.loyalty_points || cachedUser.loyalty_points,
+                              points: supabaseData.loyalty_points || cachedUser.points
+                            };
+                            setUser(updatedUser);
+                            setRole(updatedUser.role);
+                            localStorage.setItem('user', JSON.stringify(updatedUser));
+                          }
+                        } else {
+                          logger.error('❌ App - Erreur synchronisation Supabase:', syncResult.error);
                         }
                         return;
                       }
@@ -337,15 +332,15 @@ function App() {
                     }
                   }
                   
-                  logger.warn('⚠️ App - Utilisateur Supabase connecté mais pas dans table users');
-                  // Créer un utilisateur minimal
+                  logger.warn('⚠️ App - Utilisateur Firebase connecté mais pas dans Supabase, création automatique...');
+                  // Créer un utilisateur minimal et synchroniser avec Supabase
                   const minimalUser = {
                     id: user.uid || user.id,
                     uid: user.uid || user.id,
                     email: user.email,
-                    firstName: user.firstName || '',
-                    lastName: user.lastName || '',
-                    name: user.name || user.email,
+                    firstName: user.displayName?.split(' ')[0] || '',
+                    lastName: user.displayName?.split(' ').slice(1).join(' ') || '',
+                    name: user.displayName || '',
                     role: 'client',
                     loyalty_points: 0,
                     points: 0,
@@ -361,41 +356,44 @@ function App() {
                     // Ignorer
                   }
                   
-                  // Créer l'utilisateur dans Supabase
-                  logger.log('🔄 App - Création utilisateur dans Supabase...');
-                  const { data: newUser, error: createError } = await supabaseService.getClient()
-                    .from('users')
-                    .insert({
-                      email: user.email,
-                      password_hash: '$2b$10$SUPABASE_AUTH_USER',
-                      first_name: minimalUser.firstName,
-                      last_name: minimalUser.lastName,
-                      role: 'client',
-                      loyalty_points: 0,
-                      is_active: 1,
-                      email_verified: user.emailVerified ? 1 : 0,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString()
-                    })
-                    .select()
-                    .single();
+                  // ✅ SYNCHRONISATION AUTOMATIQUE: Créer l'utilisateur dans Supabase avec TOUTES les informations
+                  logger.log('🔄 App - Synchronisation automatique Firebase → Supabase en cours...');
+                  logger.log('   📋 Données à synchroniser:', {
+                    email: user.email,
+                    firstName: minimalUser.firstName,
+                    lastName: minimalUser.lastName,
+                    phone: null,
+                    role: 'client'
+                  });
+                  const syncResult = await supabaseService.syncFirebaseUser(user, {
+                    firstName: minimalUser.firstName,
+                    lastName: minimalUser.lastName,
+                    role: 'client',
+                    loyalty_points: 0,
+                    phone: null
+                  });
                   
-                  if (createError && createError.code !== '23505') {
-                    logger.error('❌ App - Erreur création utilisateur:', createError);
-                  } else if (newUser) {
-                    logger.log('✅ App - Utilisateur créé dans Supabase:', user.email);
-                    const updatedUser = {
-                      ...minimalUser,
-                      id: newUser.id,
-                      firstName: newUser.first_name || minimalUser.firstName,
-                      lastName: newUser.last_name || minimalUser.lastName,
-                      role: newUser.role || 'client',
-                      loyalty_points: newUser.loyalty_points || 0,
-                      points: newUser.loyalty_points || 0
-                    };
-                    setUser(updatedUser);
-                    setRole(updatedUser.role);
-                    localStorage.setItem('user', JSON.stringify(updatedUser));
+                  if (syncResult.success) {
+                    logger.log('✅ App - Utilisateur créé avec succès dans Supabase:', user.email);
+                    // Mettre à jour avec les données Supabase fraîches
+                    const updatedSupabaseUser = await supabaseService.getUserByEmail(user.email);
+                    if (updatedSupabaseUser.success && updatedSupabaseUser.data) {
+                      const supabaseData = updatedSupabaseUser.data;
+                      const updatedUser = {
+                        ...minimalUser,
+                        id: supabaseData.id,
+                        firstName: supabaseData.first_name || minimalUser.firstName,
+                        lastName: supabaseData.last_name || minimalUser.lastName,
+                        role: supabaseData.role || 'client',
+                        loyalty_points: supabaseData.loyalty_points || 0,
+                        points: supabaseData.loyalty_points || 0
+                      };
+                      setUser(updatedUser);
+                      setRole(updatedUser.role);
+                      localStorage.setItem('user', JSON.stringify(updatedUser));
+                    }
+                  } else {
+                    logger.error('❌ App - Erreur création utilisateur dans Supabase:', syncResult.error);
                   }
                   return;
                 }
@@ -406,7 +404,7 @@ function App() {
                 if (supabaseData.role === 'kiosk') {
                   logger.warn('⚠️ App - Compte kiosk détecté, déconnexion');
                   try {
-                    await authServiceSupabase.logout();
+                    await authServiceFirebase.logout();
                   } catch (err) {
                     logger.error('❌ Erreur lors de la déconnexion kiosk:', err);
                   }
@@ -418,19 +416,19 @@ function App() {
                 
                 // Construire l'objet utilisateur depuis Supabase
                 const fullUser = {
-                  id: supabaseData.id,
+                  id: user.uid || user.id,
                   uid: user.uid || user.id,
                   email: user.email,
                   firstName: supabaseData.first_name || '',
                   lastName: supabaseData.last_name || '',
-                  name: `${supabaseData.first_name || ''} ${supabaseData.last_name || ''}`.trim() || user.email,
-                  role: supabaseData.role || 'client',
+                  name: `${supabaseData.first_name || ''} ${supabaseData.last_name || ''}`.trim() || user.displayName || user.email,
+                  role: supabaseData.role || 'client', // ✅ Rôle depuis Supabase
                   loyalty_points: supabaseData.loyalty_points || 0,
                   points: supabaseData.loyalty_points || 0,
                   emailVerified: user.emailVerified || false,
-                  photoURL: supabaseData.avatar_url || user.photoURL || null,
+                  photoURL: supabaseData.avatar_url || user.photoURL,
                   phone: supabaseData.phone || null,
-                  address: null
+                  address: null // Supabase n'a pas de champ address dans users
                 };
                 
                 // Mettre à jour le store
@@ -442,16 +440,16 @@ function App() {
                 } catch (err) {
                   logger.warn('⚠️ Erreur localStorage:', err);
                 }
-              } catch (supabaseError) {
-                logger.error('❌ App - Erreur lors de la récupération Supabase:', supabaseError);
+              } catch (firestoreError) {
+                logger.error('❌ Erreur lors de la récupération Firestore:', firestoreError);
                 
-                // ✅ CORRECTION: Si Supabase est hors ligne, utiliser le cache localStorage
+                // ✅ CORRECTION: Si Firestore est hors ligne, utiliser le cache localStorage
                 const cachedUserStr = localStorage.getItem('user');
                 if (cachedUserStr) {
                   try {
                     const cachedUser = JSON.parse(cachedUserStr);
                     if (cachedUser && cachedUser.uid === (user.uid || user.id)) {
-                      logger.warn('⚠️ App - Supabase hors ligne, utilisation du cache localStorage');
+                      logger.warn('⚠️ App - Firestore hors ligne, utilisation du cache localStorage');
                       setUser(cachedUser);
                       setAuthenticated(true);
                       setRole(cachedUser.role);
@@ -462,14 +460,14 @@ function App() {
                   }
                 }
                 
-                // Si pas de cache, utiliser les données de base Supabase
+                // Si pas de cache, utiliser les données de base Firebase
                 const minimalUser = {
                   id: user.uid || user.id,
                   uid: user.uid || user.id,
                   email: user.email,
-                  firstName: user.firstName || '',
-                  lastName: user.lastName || '',
-                  name: user.name || user.email,
+                  firstName: user.displayName?.split(' ')[0] || '',
+                  lastName: user.displayName?.split(' ').slice(1).join(' ') || '',
+                  name: user.displayName || '',
                   role: 'client',
                   loyalty_points: 0,
                   points: 0,
@@ -496,14 +494,14 @@ function App() {
               }
             }
           } catch (error) {
-            logger.error('❌ App - Erreur lors de la synchronisation Supabase:', error);
+            logger.error('❌ App - Erreur lors de la synchronisation Firebase:', error);
             setUser(null);
             setAuthenticated(false);
             setRole(null);
           }
         });
       } catch (error) {
-        logger.error('❌ App - Erreur lors de l\'initialisation de l\'écouteur Supabase:', error);
+        logger.error('❌ App - Erreur lors de l\'initialisation de l\'écouteur Firebase:', error);
         if (restoreAuth) {
           await restoreAuth();
         }
@@ -511,7 +509,7 @@ function App() {
     };
     
     // ✅ OPTIMISATION: Initialiser immédiatement (pas de délai)
-    initSupabase();
+    initFirebase();
     
     // Nettoyer au démontage
     return () => {
@@ -520,7 +518,7 @@ function App() {
         try {
           unsubscribe();
         } catch (error) {
-          logger.warn('⚠️ Erreur lors du nettoyage Supabase:', error);
+          logger.warn('⚠️ Erreur lors du nettoyage Firebase:', error);
         }
       }
     };
@@ -569,13 +567,13 @@ function App() {
       case 'admin':
         return {
           home: HomeView,
+          'manager-admin-home': ManagerAdminHomeView,
           'admin-dashboard': DashboardCA,
           'admin-products': AdminProducts,
           'admin-orders': AdminOrders,
           'admin-inventory': AdminInventory,
           'admin-accounts': AdminAccounts,
           'admin-settings': AdminSettings,
-          'admin-appearance': AdminAppearance,
 
           'manager-pos': ManagerPOS,
           'manager-orders': ManagerDashboard,
@@ -584,6 +582,7 @@ function App() {
       case 'manager':
         return {
           home: HomeView,
+          'manager-admin-home': ManagerAdminHomeView,
           'manager-pos': ManagerPOS,
           'manager-orders': ManagerDashboard,
           'manager-stats': DashboardCA,

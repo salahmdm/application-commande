@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Package, RefreshCw, Utensils, CakeSlice, 
-  User, MapPin, Volume2, VolumeX, LayoutGrid, Columns, History, CheckCircle2
+  User, MapPin, Volume2, VolumeX, CheckCircle2
 } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';

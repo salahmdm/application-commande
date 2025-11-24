@@ -1,5 +1,5 @@
 // Import React non nécessaire avec JSX transform automatique
-import { ShoppingCart, Menu } from 'lucide-react';
+import { ShoppingCart, Home as HomeIcon } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import useUIStore from '../../store/uiStore';
@@ -10,29 +10,35 @@ import { formatPrice } from '../../constants/pricing';
  * 🎨 Header Ultra-Moderne avec Design Futuriste
  * Design avec gradients, effets de verre et animations fluides
  */
-const Header = ({ onMenuClick, sidebarOpen }) => {
+const Header = () => {
   const { user } = useAuth();
   const { totalItems, total } = useCart();
-  const { setShowCart, toggleCart } = useUIStore((state) => ({
+  const { setShowCart, toggleCart, currentView } = useUIStore((state) => ({
     setShowCart: state.setShowCart,
-    toggleCart: state.toggleCart
+    toggleCart: state.toggleCart,
+    currentView: state.currentView
   }));
   const setCurrentView = useUIStore((state) => state.setCurrentView);
   
   const isManager = user?.role === 'manager' || user?.role === 'admin';
-
-  const handleMenuClick = () => {
-    // Fermer le panier si ouvert
-    setShowCart(false);
-    // Ouvrir/fermer le menu
-    onMenuClick();
-  };
+  const isOnManagerHomePage = currentView === 'manager-admin-home';
 
   const handleHomeClick = () => {
     // Fermer le panier si ouvert
     setShowCart(false);
     // Aller à la page d'accueil
-    setCurrentView('home');
+    if (isManager) {
+      setCurrentView('manager-admin-home');
+    } else {
+      setCurrentView('home');
+    }
+  };
+
+  const handleManagerHomeClick = () => {
+    // Fermer le panier si ouvert
+    setShowCart(false);
+    // Aller à la page d'accueil manager/admin
+    setCurrentView('manager-admin-home');
   };
   
   return (
@@ -41,18 +47,6 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
         <div className="flex items-center justify-between gap-2 md:gap-6 min-w-0">
           {/* Logo avec effet moderne */}
           <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Bouton menu avec effet de verre - Visible uniquement pour managers/admins */}
-            {isManager && (
-              <button
-                onClick={handleMenuClick}
-                className="p-3 rounded-2xl bg-white/50 backdrop-blur-sm border border-slate-200/50 hover:bg-white/80 transition-all duration-300 flex-shrink-0 active:scale-95 group"
-                aria-label={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
-                title={sidebarOpen ? "Masquer le menu" : "Afficher le menu"}
-              >
-                <Menu className="w-6 h-6 text-slate-700 group-hover:text-purple-600 transition-colors duration-200" />
-              </button>
-            )}
-            
             <div className="flex items-center gap-3 sm:gap-6 md:gap-8">
               {/* Logo avec gradient - Bouton vers page d'accueil */}
               <button
@@ -63,6 +57,18 @@ const Header = ({ onMenuClick, sidebarOpen }) => {
               >
                 Blossom Café
               </button>
+              
+              {/* Bouton maison pour managers/admins (sauf sur la page d'accueil) */}
+              {isManager && !isOnManagerHomePage && (
+                <button
+                  onClick={handleManagerHomeClick}
+                  className="p-4 rounded-2xl bg-gradient-to-br from-black to-neutral-800 border-2 border-black hover:from-neutral-800 hover:to-black shadow-lg hover:shadow-xl transition-all duration-300 flex-shrink-0 active:scale-95 group"
+                  aria-label="Retour à l'accueil"
+                  title="Retour à l'accueil"
+                >
+                  <HomeIcon className="w-7 h-7 text-white group-hover:scale-110 transition-transform duration-200" />
+                </button>
+              )}
               
               {/* Boutons mobiles modernes */}
               {isManager && (

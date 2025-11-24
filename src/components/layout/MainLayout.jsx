@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import Header from './Header';
-import Sidebar from './Sidebar';
 import MobileNav from '../common/MobileNav';
 import CartDrawer from '../client/CartDrawer';
 import Modal from '../common/Modal';
@@ -15,7 +13,6 @@ import useUIStore from '../../store/uiStore';
  * Optimisé pour mobile, tablette et desktop
  */
 const MainLayout = ({ children }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(true); // true par défaut pour desktop
   const { notifications, dismiss } = useNotifications();
   const showCart = useUIStore((state) => state.showCart);
   const setShowCart = useUIStore((state) => state.setShowCart);
@@ -23,24 +20,13 @@ const MainLayout = ({ children }) => {
   const orderSuccessMessage = useUIStore((state) => state.orderSuccessMessage);
   const setShowOrderSuccessModal = useUIStore((state) => state.setShowOrderSuccessModal);
   
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-  
   return (
     <div className="min-h-screen bg-gradient-to-br from-white to-gray-50 overflow-x-hidden">
       {/* Header - adapté mobile/desktop */}
-      <Header 
-        onMenuClick={toggleSidebar}
-        sidebarOpen={sidebarOpen}
-      />
+      <Header />
       
       <div className="flex overflow-x-hidden">
-        {/* Sidebar - peut être cachée sur toutes les tailles d'écran */}
-        <Sidebar 
-          isOpen={sidebarOpen} 
-          onClose={() => setSidebarOpen(false)} 
-        />
+        {/* Sidebar - désactivée pour tous les utilisateurs */}
         
         {/* Contenu principal - padding top pour compenser le header fixed, padding bottom pour mobile nav */}
         <main className="flex-1 p-0 min-h-screen pt-20 md:pt-24 lg:pt-28 pb-20 lg:pb-8 overflow-x-hidden">

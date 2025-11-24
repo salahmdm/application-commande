@@ -1,11 +1,20 @@
 import React from 'react';
+import { Search, X } from 'lucide-react';
 import logger from '../../utils/logger';
 
 /**
  * Composant CategoryFilterPOS - Filtrage par catégories optimisé pour le POS
  * Design minimaliste noir & blanc, texte uniquement
  */
-const CategoryFilterPOS = ({ categories, selectedCategory, onSelectCategory }) => {
+const CategoryFilterPOS = ({ 
+  categories, 
+  selectedCategory, 
+  onSelectCategory,
+  searchQuery = '',
+  onSearchChange,
+  isSearchExpanded = false,
+  onSearchToggle
+}) => {
   const categoriesArray = Array.isArray(categories) ? categories : Object.values(categories);
 
   return (
@@ -41,24 +50,63 @@ const CategoryFilterPOS = ({ categories, selectedCategory, onSelectCategory }) =
         
         {/* Scroll horizontal avec cadre sur mobile */}
         <div className="
-          flex gap-2 overflow-x-auto md:flex-wrap scrollbar-hide pb-2
-          md:border-0 border-2 border-neutral-200 rounded-xl p-3 md:p-0
+          flex items-center gap-3 overflow-x-auto md:flex-wrap scrollbar-hide pb-3 pt-1
+          md:border-0 border-2 border-neutral-200 rounded-2xl p-4 md:p-0 md:pb-3 md:pt-1
+          bg-gradient-to-br from-neutral-50 to-white md:bg-transparent
+          overflow-y-visible
         ">
+        {/* Icône de recherche ou champ de recherche */}
+        {isSearchExpanded ? (
+          <div className="relative flex-shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+              className="pl-11 pr-10 py-2.5 rounded-xl border-2 border-neutral-300 bg-white text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all duration-200 font-sans text-sm w-56 shadow-sm"
+              autoFocus
+            />
+            <button
+              onClick={() => {
+                onSearchChange && onSearchChange('');
+                onSearchToggle && onSearchToggle(false);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full hover:bg-neutral-200 flex items-center justify-center transition-all"
+            >
+              <X className="w-4 h-4 text-neutral-600" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => onSearchToggle && onSearchToggle(true)}
+            className="flex-shrink-0 w-11 h-11 rounded-xl border-2 border-neutral-300 bg-white text-neutral-700 hover:border-black hover:bg-black hover:text-white hover:shadow-lg shadow-md flex items-center justify-center transition-all duration-200 active:scale-95 group"
+            title="Rechercher"
+          >
+            <Search className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </button>
+        )}
+        
         {/* Badge "Toutes" */}
         <button
           onClick={() => onSelectCategory(null)}
           className={`
-            rounded-xl px-4 py-2.5
-            transition-all duration-200
+            rounded-xl px-5 py-3
+            transition-all duration-300
             flex-shrink-0
+            font-heading font-bold text-sm
             ${!selectedCategory
-              ? 'bg-black text-white shadow-lg'
-              : 'bg-white border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md shadow-sm'
+              ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl scale-105 border-2 border-black border-t-black'
+              : 'bg-white border-2 border-neutral-300 border-t-neutral-300 text-neutral-700 hover:border-black hover:border-t-black hover:bg-neutral-50 hover:shadow-lg shadow-md hover:scale-105'
             }
             active:scale-95
+            relative overflow-visible
           `}
         >
-          <span className="font-heading font-semibold text-sm whitespace-nowrap">
+          {!selectedCategory && (
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer rounded-xl"></div>
+          )}
+          <span className="relative whitespace-nowrap">
             Toutes
           </span>
         </button>
@@ -86,17 +134,22 @@ const CategoryFilterPOS = ({ categories, selectedCategory, onSelectCategory }) =
                 onSelectCategory(categoryKey);
               }}
               className={`
-                rounded-xl px-4 py-2.5
-                transition-all duration-200
+                rounded-xl px-5 py-3
+                transition-all duration-300
                 flex-shrink-0
+                font-heading font-bold text-sm
+                relative overflow-visible
                 ${isActive
-                  ? 'bg-black text-white shadow-lg'
-                  : 'bg-white border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50 hover:shadow-md shadow-sm'
+                  ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl scale-105 border-2 border-black border-t-black'
+                  : 'bg-white border-2 border-neutral-300 border-t-neutral-300 text-neutral-700 hover:border-black hover:border-t-black hover:bg-neutral-50 hover:shadow-lg shadow-md hover:scale-105'
                 }
                 active:scale-95
               `}
             >
-              <span className="font-heading font-semibold text-sm whitespace-nowrap">
+              {isActive && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer rounded-xl"></div>
+              )}
+              <span className="relative whitespace-nowrap">
                 {category.name}
               </span>
             </button>

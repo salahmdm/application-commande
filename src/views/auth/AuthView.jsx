@@ -256,21 +256,8 @@ const AuthView = () => {
       
       const result = await register(userData);
       if (result.success) {
-        // ✅ Vérifier si l'email doit être confirmé
-        if (result.requiresEmailConfirmation) {
-          success(result.message || 'Compte créé avec succès ! Vérifiez votre boîte email et cliquez sur le lien de confirmation avant de vous connecter.');
-          setIsLogin(true); // Revenir à la page de connexion
-          setRegisterData({
-            firstName: '',
-            lastName: '',
-            email: '',
-            password: '',
-            confirmPassword: '',
-            phone: ''
-          });
-          setPasswordErrors([]);
-          setConfirmPasswordError('');
-        } else if (result.warning) {
+        // ✅ Vérifier si la connexion automatique a échoué
+        if (result.warning) {
           // Afficher un message de succès avec un avertissement
           success('Compte créé avec succès ! Veuillez vous connecter.');
           showError(result.warning);

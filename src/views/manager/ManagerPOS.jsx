@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, Search, Info, X } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Info } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import CategoryFilterPOS from '../../components/manager/CategoryFilterPOS';
@@ -28,6 +28,7 @@ const ManagerPOS = () => {
   const [customerName, setCustomerName] = useState('');
   const [orderType, setOrderType] = useState('dine-in');
   const [tableNumber, setTableNumber] = useState('');
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
@@ -359,47 +360,36 @@ const ManagerPOS = () => {
   };
   
   return (
-    <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8">
-      {/* En-tête amélioré */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl md:text-3xl font-heading font-bold text-black leading-tight"></h1>
+    <div className="flex flex-col h-[calc(100vh-5rem)] md:h-[calc(100vh-6rem)] lg:h-[calc(100vh-7rem)] pl-5 sm:pl-5 md:pl-10 pr-0 overflow-hidden">
+      {/* En-tête - Fixe en haut */}
+      <div className="flex-shrink-0 pr-0 pt-6 md:pt-8 pb-4">
+        {/* En-tête amélioré */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl md:text-3xl font-heading font-bold text-black leading-tight"></h1>
+          </div>
         </div>
       </div>
-
-      {/* Barre de recherche */}
-      <Card padding="none" className="bg-gradient-to-br from-neutral-50 to-neutral-100 border-2 border-neutral-200 p-2 sm:p-2.5 md:p-3 -mt-2 sm:-mt-2 md:-mt-3 w-full sm:w-1/2 max-w-md">
-        <div className="relative">
-          <Search className="absolute left-2 sm:left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-neutral-400" />
-          <input
-            type="text"
-            placeholder="Rechercher un produit..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-7 sm:pl-9 pr-2.5 sm:pr-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border-2 border-neutral-200 bg-white text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all duration-200 font-sans text-sm"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 sm:right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-neutral-200 hover:bg-neutral-300 flex items-center justify-center transition-all"
-            >
-              <X className="w-3 h-3 sm:w-4 sm:h-4 text-neutral-600" />
-            </button>
-          )}
-        </div>
-      </Card>
       
-      <div className="grid grid-cols-1 xl:grid-cols-3 lg:grid-cols-1 gap-3 md:gap-4">
-        {/* Catalogue Produits - Colonnes adaptées */}
-        <div className="xl:col-span-2 lg:col-span-1 space-y-3">
-          {/* Filtres de catégories POS */}
-          <CategoryFilterPOS 
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-          />
+      {/* Zone principale - Flex pour prendre toute la hauteur restante */}
+      <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
+        {/* Catalogue Produits - Colonnes adaptées avec scroll */}
+        <div className="flex-1 flex flex-col min-h-0 pr-3">
+          {/* Filtres de catégories POS avec recherche - Fixe en haut */}
+          <div className="flex-shrink-0 sticky top-0 z-20 bg-white pb-3 pt-3 shadow-md overflow-visible">
+            <CategoryFilterPOS 
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              isSearchExpanded={isSearchExpanded}
+              onSearchToggle={setIsSearchExpanded}
+            />
+          </div>
           
-          {/* Grille de produits responsive, compacte */}
+          {/* Grille de produits responsive, compacte - Scrollable */}
+          <div className="flex-1 overflow-y-auto space-y-3">
           <div className="grid gap-3 sm:gap-4 md:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {filteredProducts.map((product) => (
               <Card
@@ -463,11 +453,12 @@ const ManagerPOS = () => {
               </Card>
             ))}
           </div>
+          </div>
         </div>
         
-        {/* Panier - Design simplifié et modernisé */}
-        <div className="hidden xl:block w-full xl:w-[28rem]">
-          <div className="bg-white rounded-2xl border-2 border-neutral-200 shadow-lg overflow-hidden sticky top-0">
+        {/* Panier - Pleine hauteur, sans bordure à droite, jusqu'au bout de la page */}
+        <div className="hidden xl:flex xl:flex-col flex-1 min-w-[24.64rem] max-w-[24.64rem] h-full">
+          <div className="bg-white overflow-hidden h-full flex flex-col border-l border-t border-b border-neutral-200">
             {/* Header compact */}
             <div className="px-4 py-3 bg-black flex items-center justify-between border-b border-neutral-200">
               <div className="flex items-center gap-2">
@@ -545,9 +536,9 @@ const ManagerPOS = () => {
                 <p className="text-xs text-neutral-500 mt-1">Ajoutez des produits pour commencer</p>
               </div>
             ) : (
-              <div className="flex flex-col max-h-[calc(100vh-400px)]">
+              <div className="flex flex-col flex-1 min-h-0">
                 {/* Liste des articles */}
-                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0">
                   {cart.map((item) => (
                     <div key={item.id} className="bg-neutral-50 rounded-lg p-3 border-2 border-transparent hover:border-neutral-200 transition-colors">
                       <div className="flex items-start justify-between gap-3">
@@ -617,8 +608,8 @@ const ManagerPOS = () => {
                   ))}
                 </div>
 
-                {/* Résumé et actions */}
-                <div className="border-t-2 border-neutral-200 bg-white px-4 py-4 space-y-3">
+                {/* Résumé et actions - Fixe en bas */}
+                <div className="border-t-2 border-neutral-200 bg-white px-4 py-4 space-y-3 flex-shrink-0">
                   {/* Code promo - Compact */}
                   <div className="flex gap-2">
                     <input

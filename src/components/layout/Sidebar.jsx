@@ -1,5 +1,5 @@
 // Import React non nécessaire avec JSX transform automatique
-import { Home, ShoppingBag, Package, Settings, X, PlusCircle, DollarSign, Warehouse, Palette, Users, LogOut } from 'lucide-react';
+import { Home, ShoppingBag, Package, Settings, X, PlusCircle, DollarSign, Warehouse, Users, LogOut } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useUIStore from '../../store/uiStore';
 
@@ -15,7 +15,12 @@ const Sidebar = ({ isOpen, onClose }) => {
     // Fermer le panier si ouvert
     setShowCart(false);
     // Naviguer vers la vue
-    setCurrentView(view);
+    // Si c'est 'home' pour un manager/admin, rediriger vers manager-admin-home
+    if (view === 'home' && (role === 'manager' || role === 'admin')) {
+      setCurrentView('manager-admin-home');
+    } else {
+      setCurrentView(view);
+    }
     // Fermer la sidebar
     if (onClose) onClose();
   };
@@ -48,8 +53,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       { id: 'admin-products', label: 'Gestion Produits', icon: ShoppingBag, roles: ['manager', 'admin'] },
       { id: 'admin-inventory', label: 'Inventaire', icon: Warehouse, roles: ['manager', 'admin'] },
       { id: 'admin-accounts', label: 'Gestion des Comptes', icon: Users, roles: ['admin'] },
-      { id: 'admin-appearance', label: 'Apparence', icon: Palette, roles: ['admin'] },
-    { id: 'admin-settings', label: 'Paramètres', icon: Settings, roles: ['admin'] },
+      { id: 'admin-settings', label: 'Paramètres', icon: Settings, roles: ['admin'] },
     ];
     
     const allItems = [...baseItems, ...managerItems, ...adminItems];

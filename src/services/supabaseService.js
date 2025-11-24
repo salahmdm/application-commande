@@ -557,27 +557,18 @@ class SupabaseService {
         .from('settings')
         .select('*')
         .eq('setting_key', key)
-        .maybeSingle(); // Utiliser maybeSingle pour éviter erreur si non trouvé
+        .single();
 
-      // ✅ Si erreur 406 (RLS bloqué) ou code PGRST301, essayer 'app_settings'
-      // Vérifier aussi error.statusCode car Supabase peut retourner 406 dans différents formats
-      const isRLSError = error && (
-        error.code === 'PGRST301' || 
-        error.status === 406 || 
-        error.statusCode === 406 ||
-        (error.message && error.message.includes('406')) ||
-        (error.message && error.message.includes('Not Acceptable'))
-      );
-      
-      if (isRLSError) {
-        console.warn(`⚠️ Supabase - Table 'settings' inaccessible (RLS), essai avec 'app_settings' pour ${key}`);
+      // ✅ Si erreur 406 (RLS bloqué) ou table n'existe pas, essayer 'app_settings'
+      if (error && (error.code === 'PGRST301' || error.status === 406)) {
+        console.warn(`⚠️ Supabase - Table 'settings' inaccessible, essai avec 'app_settings' pour ${key}`);
         
         // Essayer avec app_settings
         const result = await this.getClient()
           .from('app_settings')
           .select('*')
           .eq('setting_key', key)
-          .maybeSingle(); // Utiliser maybeSingle
+          .single();
         
         if (result.error) {
           // Si le paramètre n'existe pas, ce n'est pas une erreur critique
@@ -585,13 +576,11 @@ class SupabaseService {
             return { success: false, error: 'Paramètre non trouvé', data: null };
           }
           // Si RLS bloque aussi app_settings, retourner une erreur gracieuse
-          if (result.error.code === 'PGRST301' || result.error.status === 406 || result.error.statusCode === 406) {
+          if (result.error.code === 'PGRST301' || result.error.status === 406) {
             console.warn(`⚠️ Supabase - Accès refusé à app_settings pour ${key} (RLS probablement activé)`);
             return { success: false, error: 'Paramètre non accessible (RLS)', data: null };
           }
-          // Pour les autres erreurs, retourner gracieusement
-          console.warn(`⚠️ Supabase - Erreur app_settings pour ${key}:`, result.error);
-          return { success: false, error: 'Paramètre non accessible', data: null };
+          throw result.error;
         }
         
         // Vérifier que result.data existe
@@ -618,46 +607,12 @@ class SupabaseService {
         if (error.code === 'PGRST116') {
           return { success: false, error: 'Paramètre non trouvé', data: null };
         }
-        // Si RLS bloque ou autre erreur, essayer app_settings
-        if (error.code === 'PGRST301' || error.status === 406 || error.statusCode === 406) {
-          console.warn(`⚠️ Supabase - Accès refusé à settings pour ${key} (RLS), essai avec app_settings`);
-          
-          // Essayer avec app_settings
-          const result = await this.getClient()
-            .from('app_settings')
-            .select('*')
-            .eq('setting_key', key)
-            .maybeSingle();
-          
-          if (result.error) {
-            console.warn(`⚠️ Supabase - Accès refusé à app_settings pour ${key} (RLS probablement activé)`);
-            return { success: false, error: 'Paramètre non accessible (RLS)', data: null };
-          }
-          
-          if (!result.data) {
-            return { success: false, error: 'Paramètre non trouvé', data: null };
-          }
-          
-          return { 
-            success: true, 
-            data: {
-              id: result.data.id,
-              setting_key: result.data.setting_key,
-              setting_value: result.data.setting_value,
-              value: result.data.setting_value,
-              description: result.data.description,
-              setting_type: result.data.setting_type
-            }
-          };
+        // Si RLS bloque ou autre erreur, retourner une erreur gracieuse
+        if (error.code === 'PGRST301' || error.status === 406) {
+          console.warn(`⚠️ Supabase - Accès refusé à settings pour ${key} (RLS probablement activé)`);
+          return { success: false, error: 'Paramètre non accessible (RLS)', data: null };
         }
-        // Pour les autres erreurs, retourner gracieusement
-        console.warn(`⚠️ Supabase - Erreur settings pour ${key}:`, error);
-        return { success: false, error: 'Paramètre non accessible', data: null };
-      }
-
-      // Si pas de données, retourner non trouvé
-      if (!data) {
-        return { success: false, error: 'Paramètre non trouvé', data: null };
+        throw error;
       }
 
       // Convertir vers le format attendu
@@ -669,7 +624,7 @@ class SupabaseService {
         }
       };
     } catch (error) {
-      console.warn(`⚠️ Supabase - Erreur getSetting ${key}:`, error);
+      console.error(`❌ Supabase - Erreur getSetting ${key}:`, error);
       // ✅ Gestion gracieuse : retourner une erreur non-bloquante
       return { success: false, error: error.message || error.toString(), data: null };
     }
@@ -684,16 +639,8 @@ class SupabaseService {
         .order('setting_key', { ascending: true });
 
       // ✅ Si erreur 406 (RLS bloqué), essayer 'app_settings'
-      const isRLSError = error && (
-        error.code === 'PGRST301' || 
-        error.status === 406 || 
-        error.statusCode === 406 ||
-        (error.message && error.message.includes('406')) ||
-        (error.message && error.message.includes('Not Acceptable'))
-      );
-      
-      if (isRLSError) {
-        console.warn('⚠️ Supabase - Table \'settings\' inaccessible (RLS), essai avec \'app_settings\'');
+      if (error && (error.code === 'PGRST301' || error.status === 406)) {
+        console.warn('⚠️ Supabase - Table \'settings\' inaccessible, essai avec \'app_settings\'');
         
         const result = await this.getClient()
           .from('app_settings')
@@ -701,11 +648,6 @@ class SupabaseService {
           .order('setting_key', { ascending: true });
         
         if (result.error) {
-          // Si app_settings est aussi bloqué, retourner gracieusement
-          if (result.error.code === 'PGRST301' || result.error.status === 406 || result.error.statusCode === 406) {
-            console.warn('⚠️ Supabase - Table \'app_settings\' aussi inaccessible (RLS)');
-            return { success: false, error: 'Paramètres non accessibles (RLS)', data: [] };
-          }
           throw result.error;
         }
         

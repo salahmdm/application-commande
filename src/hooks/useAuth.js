@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import useAuthStore from '../store/authStore';
-import authServiceSupabase from '../services/authServiceSupabase';
+import authServiceFirebase from '../services/authServiceFirebase';
 import logger from '../utils/logger';
 
 /**
@@ -34,28 +34,10 @@ const useAuth = () => {
   
   const logout = useCallback(async () => {
     try {
-      logger.log('🚪 useAuth.logout - Début');
-      
-      // ✅ SÉCURITÉ: Marquer la déconnexion comme volontaire AVANT de déconnecter
-      try {
-        localStorage.setItem('logout_voluntary', 'true');
-        localStorage.setItem('logout_timestamp', Date.now().toString());
-      } catch (e) {
-        logger.warn('⚠️ Erreur lors du marquage de déconnexion:', e);
-      }
-      
-      // Déconnecter Supabase
-      await authServiceSupabase.logout();
-      
-      // Déconnecter le store
+      await authServiceFirebase.logout();
       storeLogout();
-      
-      logger.log('✅ useAuth.logout - Déconnexion réussie');
       return { success: true };
     } catch (error) {
-      logger.error('❌ useAuth.logout - Erreur:', error);
-      // Même en cas d'erreur, nettoyer le store
-      storeLogout();
       return { success: false, error: error.message };
     }
   }, [storeLogout]);
@@ -79,7 +61,7 @@ const useAuth = () => {
       }
       
       logger.log('🔄 useAuth.update - Mise à jour profil:', updates);
-      const result = await authServiceSupabase.updateProfile(user.uid || user.id, updates);
+      const result = await authServiceFirebase.updateProfile(user.uid || user.id, updates);
       logger.log('📦 useAuth.update - Résultat:', result);
       
       if (result.success && result.user) {
@@ -100,7 +82,7 @@ const useAuth = () => {
   const resetPassword = useCallback(async (email) => {
     try {
       logger.log('📧 useAuth.resetPassword - Email:', email);
-      const result = await authServiceSupabase.resetPassword(email);
+      const result = await authServiceFirebase.resetPassword(email);
       logger.log('✅ useAuth.resetPassword - Résultat:', result);
       return result;
     } catch (error) {

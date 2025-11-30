@@ -7,7 +7,80 @@ import supabaseService from './supabaseService';
  */
 const shouldUseSupabase = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  if (isLocalhost) {
+    return false;
+  }
+
   return !apiUrl || apiUrl === '';
+};
+
+let forceSupabaseAdmin = false;
+const preferSupabaseAdmin = () => {
+  const envForce = import.meta?.env?.VITE_FORCE_SUPABASE_ADMIN === 'true';
+  return forceSupabaseAdmin || envForce || shouldUseSupabase();
+};
+
+const fetchAllProductsFromSupabase = async () => {
+  const result = await supabaseService.getProducts({ isActive: undefined });
+  if (!result.success) {
+    throw new Error(result.error || 'Erreur Supabase');
+  }
+  return result;
+};
+
+const normalizeListResponse = (response, fallbackKey = 'data') => {
+  if (!response) {
+    return { success: false, data: [], error: 'Réponse vide' };
+  }
+
+  if (response.success && Array.isArray(response.data)) {
+    return { success: true, data: response.data };
+  }
+
+  if (response.success && response.data && Array.isArray(response.data[fallbackKey])) {
+    return { success: true, data: response.data[fallbackKey] };
+  }
+
+  if (Array.isArray(response)) {
+    return { success: true, data: response };
+  }
+
+  if (Array.isArray(response[fallbackKey])) {
+    return { success: true, data: response[fallbackKey] };
+  }
+
+  if (response.success && Array.isArray(response.products)) {
+    return { success: true, data: response.products };
+  }
+
+  if (response.success && Array.isArray(response.categories)) {
+    return { success: true, data: response.categories };
+  }
+
+  if (Array.isArray(response.results)) {
+    return { success: true, data: response.results };
+  }
+
+  if (Array.isArray(response.items)) {
+    return { success: true, data: response.items };
+  }
+
+  if (response.success && response.data && typeof response.data === 'object') {
+    const candidate = Object.values(response.data).find((value) => Array.isArray(value));
+    if (candidate) {
+      return { success: true, data: candidate };
+    }
+  }
+
+  return {
+    success: false,
+    data: [],
+    error: response.error || response.message || 'Réponse API invalide'
+  };
 };
 
 /**
@@ -55,11 +128,79 @@ const productService = {
       }
       
       logger.log('   → Endpoint:', endpoint);
-      const response = await apiCall(endpoint);
-      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits');
-      return response;
+      try {
+        const response = await apiCall(endpoint);
+        const normalized = normalizeListResponse(response, 'products');
+        if (normalized.success && normalized.data.length > 0) {
+          logger.log('   ✅ Réponse reçue:', normalized.data.length, 'produits');
+          return normalized;
+        }
+        logger.warn('⚠️ productService.getAllProducts - Réponse vide, tentative fallback /kiosk/products');
+      } catch (primaryError) {
+        logger.warn('⚠️ productService.getAllProducts - Erreur route /products, tentative fallback /kiosk/products', primaryError);
+      }
+
+      const kioskParams = new URLSearchParams();
+      if (filters.category) kioskParams.append('categoryId', filters.category);
+      if (filters.search) kioskParams.append('search', filters.search);
+      if (filters.featured) kioskParams.append('featured', 'true');
+      let kioskEndpoint = '/kiosk/products';
+      if (kioskParams.toString()) {
+        kioskEndpoint += `?${kioskParams.toString()}`;
+      }
+      try {
+        const fallbackResponse = await apiCall(kioskEndpoint);
+        const fallbackNormalized = normalizeListResponse(fallbackResponse, 'products');
+        if (fallbackNormalized.success && fallbackNormalized.data.length > 0) {
+          logger.log('   ✅ Fallback /kiosk/products:', fallbackNormalized.data.length, 'produits');
+          return fallbackNormalized;
+        }
+      } catch (kioskError) {
+        logger.warn('⚠️ productService.getAllProducts - Erreur fallback /kiosk/products:', kioskError);
+      }
+      
+      // ✅ Fallback final: Utiliser Supabase directement si toutes les routes API ont échoué
+      logger.warn('⚠️ productService.getAllProducts - Toutes les routes API ont échoué, utilisation Supabase direct');
+      const supabaseFilters = {
+        isActive: filters.featured ? undefined : 1,
+      };
+      if (filters.category) {
+        supabaseFilters.categoryId = filters.category;
+      }
+      if (filters.search) {
+        supabaseFilters.search = filters.search;
+      }
+      const supabaseResult = await supabaseService.getProducts(supabaseFilters);
+      if (supabaseResult.success) {
+        logger.log(`✅ productService.getAllProducts - ${supabaseResult.data.length} produits récupérés depuis Supabase (fallback final)`);
+        return supabaseResult;
+      } else {
+        throw new Error(supabaseResult.error || 'Erreur Supabase');
+      }
     } catch (error) {
       logger.error('❌ Erreur getAllProducts:', error);
+      // ✅ Dernière tentative: Utiliser Supabase directement si toutes les routes API ont échoué
+      if (error?.message?.includes('fetch') || error?.message?.includes('Network') || error?.message?.includes('Failed to fetch')) {
+        logger.warn('⚠️ productService.getAllProducts - Erreur réseau détectée, tentative Supabase direct');
+        try {
+          const supabaseFilters = {
+            isActive: filters.featured ? undefined : 1,
+          };
+          if (filters.category) {
+            supabaseFilters.categoryId = filters.category;
+          }
+          if (filters.search) {
+            supabaseFilters.search = filters.search;
+          }
+          const supabaseResult = await supabaseService.getProducts(supabaseFilters);
+          if (supabaseResult.success) {
+            logger.log(`✅ productService.getAllProducts - ${supabaseResult.data.length} produits récupérés depuis Supabase (fallback réseau)`);
+            return supabaseResult;
+          }
+        } catch (supabaseError) {
+          logger.error('❌ productService.getAllProducts - Erreur Supabase fallback:', supabaseError);
+        }
+      }
       throw error;
     }
   },
@@ -69,26 +210,86 @@ const productService = {
    */
   async getAllProductsAdmin() {
     try {
-      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
-      if (shouldUseSupabase()) {
+      // ✅ VERCEL / Auth Supabase: Utiliser Supabase directement si pas de backend ou forcé
+      if (preferSupabaseAdmin()) {
         logger.log('🔄 productService.getAllProductsAdmin - Utilisation Supabase direct (tous les produits)');
-        // Pour l'admin, récupérer tous les produits (actifs ET inactifs)
-        const result = await supabaseService.getProducts({ isActive: undefined });
-        if (result.success) {
-          logger.log(`✅ productService.getAllProductsAdmin - ${result.data.length} produits récupérés depuis Supabase (tous)`);
-          return result;
-        } else {
-          throw new Error(result.error || 'Erreur Supabase');
-        }
+        const result = await fetchAllProductsFromSupabase();
+        logger.log(`✅ productService.getAllProductsAdmin - ${result.data.length} produits récupérés depuis Supabase (tous)`);
+        return result;
       }
 
       logger.log('🔄 productService.getAllProductsAdmin - Appel API route admin');
       const response = await apiCall('/admin/products');  // ✅ Route admin
-      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (tous)');
-      return response;
+      const normalized = normalizeListResponse(response);
+      logger.log('   ✅ Réponse reçue:', normalized.data.length, 'produits (tous)');
+      return normalized;
     } catch (error) {
-      logger.error('❌ Erreur getAllProductsAdmin:', error);
-      throw error;
+      // ✅ Gestion des erreurs d'authentification avec fallback automatique vers Supabase
+      // ✅ AMÉLIORATION: Extraire toutes les propriétés possibles de l'erreur
+      const errorStatus = error?.status || error?.statusCode || error?.responseStatus || null;
+      const errorMessage = String(error?.message || error?.error || '').toLowerCase();
+      const errorDataMessage = String(error?.errorData?.error || error?.errorData?.message || '').toLowerCase();
+      const fullErrorMessage = `${errorMessage} ${errorDataMessage}`.toLowerCase();
+      
+      // ✅ AMÉLIORATION: Détection plus robuste des erreurs d'authentification
+      // Vérifier le statut HTTP, le flag isAuthError, et les messages d'erreur
+      const isAuthError = errorStatus === 401 || 
+                         errorStatus === 403 || 
+                         error?.isAuthError === true ||
+                         fullErrorMessage.includes('401') || 
+                         fullErrorMessage.includes('403') ||
+                         fullErrorMessage.includes('accès refusé') ||
+                         fullErrorMessage.includes('forbidden') ||
+                         fullErrorMessage.includes('droits admin requis') ||
+                         fullErrorMessage.includes('droits admin') ||
+                         fullErrorMessage.includes('unauthorized') ||
+                         fullErrorMessage.includes('access denied');
+      
+      logger.debug('🔍 getAllProductsAdmin - Analyse erreur:', {
+        errorStatus,
+        errorMessage: error?.message,
+        isAuthError,
+        hasErrorData: !!error?.errorData,
+        errorDataMessage: error?.errorData?.error || error?.errorData?.message
+      });
+      
+      if (isAuthError) {
+        logger.warn('🔐 productService.getAllProductsAdmin - Accès refusé (401/403), fallback automatique vers Supabase');
+        logger.debug('   Détails erreur:', { 
+          status: errorStatus, 
+          statusCode: error?.statusCode,
+          message: error?.message,
+          errorData: error?.errorData,
+          errorObject: {
+            name: error?.name,
+            message: error?.message,
+            status: error?.status,
+            statusCode: error?.statusCode
+          }
+        });
+        
+        // ✅ Activer le flag pour éviter les prochains appels backend inutiles
+        forceSupabaseAdmin = true;
+        
+        try {
+          logger.log('🔄 Tentative de fallback Supabase...');
+          const fallback = await fetchAllProductsFromSupabase();
+          logger.log(`✅ productService.getAllProductsAdmin - ${fallback.data?.length || 0} produits récupérés depuis Supabase (fallback)`);
+          return fallback;
+        } catch (supabaseError) {
+          logger.error('❌ productService.getAllProductsAdmin - Fallback Supabase échoué:', supabaseError);
+          // Relancer l'erreur Supabase si le fallback échoue
+          throw supabaseError;
+        }
+      } else {
+        logger.error('❌ Erreur getAllProductsAdmin (non-auth):', {
+          message: error?.message,
+          status: errorStatus,
+          name: error?.name,
+          stack: error?.stack
+        });
+        throw error;
+      }
     }
   },
 
@@ -99,8 +300,9 @@ const productService = {
     try {
       logger.log('🔄 productService.getAllProductsAuthenticated - Route /products/all');
       const response = await apiCall('/products/all');
-      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'produits (auth)');
-      return response;
+      const normalized = normalizeListResponse(response);
+      logger.log('   ✅ Réponse reçue:', normalized.data.length, 'produits (auth)');
+      return normalized;
     } catch (error) {
       logger.error('❌ Erreur getAllProductsAuthenticated:', error);
       throw error;
@@ -187,11 +389,53 @@ const productService = {
       }
 
       logger.log('🔄 productService.getCategories - Appel API');
-      const response = await apiCall('/categories');  // ✅ Route publique
-      logger.log('   ✅ Réponse reçue:', response.data?.length || 0, 'catégories');
-      return response;
+      try {
+        const response = await apiCall('/categories');  // ✅ Route publique
+        const normalized = normalizeListResponse(response, 'categories');
+        if (normalized.success && normalized.data.length > 0) {
+          logger.log('   ✅ Réponse reçue:', normalized.data.length, 'catégories');
+          return normalized;
+        }
+        logger.warn('⚠️ productService.getCategories - Réponse vide, fallback /kiosk/categories');
+      } catch (primaryError) {
+        logger.warn('⚠️ productService.getCategories - Erreur route /categories, fallback /kiosk/categories', primaryError);
+      }
+
+      try {
+        const fallbackResponse = await apiCall('/kiosk/categories');
+        const fallbackNormalized = normalizeListResponse(fallbackResponse, 'categories');
+        if (fallbackNormalized.success && fallbackNormalized.data.length > 0) {
+          logger.log('   ✅ Fallback /kiosk/categories:', fallbackNormalized.data.length, 'catégories');
+          return fallbackNormalized;
+        }
+      } catch (kioskError) {
+        logger.warn('⚠️ productService.getCategories - Erreur fallback /kiosk/categories:', kioskError);
+      }
+      
+      // ✅ Fallback final: Utiliser Supabase directement si toutes les routes API ont échoué
+      logger.warn('⚠️ productService.getCategories - Toutes les routes API ont échoué, utilisation Supabase direct');
+      const supabaseResult = await supabaseService.getCategories({ isActive: 1 });
+      if (supabaseResult.success) {
+        logger.log(`✅ productService.getCategories - ${supabaseResult.data.length} catégories récupérées depuis Supabase (fallback final)`);
+        return supabaseResult;
+      } else {
+        throw new Error(supabaseResult.error || 'Erreur Supabase');
+      }
     } catch (error) {
       logger.error('❌ Erreur getCategories:', error);
+      // ✅ Dernière tentative: Utiliser Supabase directement si toutes les routes API ont échoué
+      if (error?.message?.includes('fetch') || error?.message?.includes('Network') || error?.message?.includes('Failed to fetch')) {
+        logger.warn('⚠️ productService.getCategories - Erreur réseau détectée, tentative Supabase direct');
+        try {
+          const supabaseResult = await supabaseService.getCategories({ isActive: 1 });
+          if (supabaseResult.success) {
+            logger.log(`✅ productService.getCategories - ${supabaseResult.data.length} catégories récupérées depuis Supabase (fallback réseau)`);
+            return supabaseResult;
+          }
+        } catch (supabaseError) {
+          logger.error('❌ productService.getCategories - Erreur Supabase fallback:', supabaseError);
+        }
+      }
       throw error;
     }
   },

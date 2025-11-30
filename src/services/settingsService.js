@@ -3,11 +3,90 @@ import supabaseService from './supabaseService';
 import { transformSettingsToBusinessInfo } from '../utils/businessInfo';
 import logger from '../utils/logger';
 
+const OPTIONAL_SETTING_DEFAULTS = {
+  table_number_enabled: 'false',
+  currency_symbol: '€',
+};
+
+const MISSING_SETTINGS_STORAGE_KEY = 'blossom_missing_settings_v1';
+const canUseBrowserStorage = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
+const loadMissingSettingsFromStorage = () => {
+  if (!canUseBrowserStorage) {
+    return new Set();
+  }
+  try {
+    const raw = window.localStorage.getItem(MISSING_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed);
+    }
+    return new Set();
+  } catch (error) {
+    logger.warn('⚠️ settingsService - Impossible de charger le cache des paramètres manquants:', error);
+    return new Set();
+  }
+};
+
+const missingSettingsCache = loadMissingSettingsFromStorage();
+
+const persistMissingSettings = () => {
+  if (!canUseBrowserStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      MISSING_SETTINGS_STORAGE_KEY,
+      JSON.stringify(Array.from(missingSettingsCache))
+    );
+  } catch (error) {
+    logger.warn('⚠️ settingsService - Impossible de persister le cache des paramètres manquants:', error);
+  }
+};
+
+const markSettingMissing = (key) => {
+  if (!key || missingSettingsCache.has(key)) {
+    return;
+  }
+  missingSettingsCache.add(key);
+  persistMissingSettings();
+};
+
+const hasSettingBeenMarkedMissing = (key) => missingSettingsCache.has(key);
+
+const buildDefaultSettingResponse = (key) => {
+  if (!Object.prototype.hasOwnProperty.call(OPTIONAL_SETTING_DEFAULTS, key)) {
+    return null;
+  }
+  const value = OPTIONAL_SETTING_DEFAULTS[key];
+  return {
+    success: true,
+    data: {
+      setting_key: key,
+      setting_value: value,
+      value
+    },
+    isDefault: true
+  };
+};
+
 /**
  * Déterminer si on doit utiliser Supabase directement
  */
 const shouldUseSupabase = () => {
   const apiUrl = import.meta.env.VITE_API_URL;
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  // En local on privilégie toujours le backend (port 5000)
+  if (isLocalhost) {
+    return false;
+  }
+
   return !apiUrl || apiUrl === '';
 };
 
@@ -45,28 +124,60 @@ const settingsService = {
    * Récupérer un paramètre spécifique (Public)
    */
   async getSetting(key) {
-    try {
-      // ✅ VERCEL: Utiliser Supabase directement si pas de backend
-      if (shouldUseSupabase()) {
-        logger.log(`🔄 settingsService.getSetting - Utilisation Supabase direct (${key})`);
-        const result = await supabaseService.getSetting(key);
-        if (result.success) {
-          logger.log(`✅ settingsService.getSetting - Paramètre ${key} récupéré depuis Supabase`);
-          return result;
-        } else {
-          // Si le paramètre n'existe pas, retourner une erreur gracieuse
-          logger.warn(`⚠️ settingsService.getSetting - Paramètre ${key} non trouvé dans Supabase`);
-          return { success: false, error: result.error || 'Paramètre non trouvé', data: null };
-        }
-      }
+    const useSupabase = shouldUseSupabase();
+    const isLocalBackend = !useSupabase;
 
-      const response = await apiCall(`/settings/${key}`);
-      return response;
-    } catch (error) {
-      logger.error(`Erreur getSetting ${key}:`, error);
-      // ✅ CORRECTION: Retourner une erreur gracieuse au lieu de throw
-      return { success: false, error: error.message || 'Paramètre non trouvé', data: null };
+    if (isLocalBackend && hasSettingBeenMarkedMissing(key)) {
+      const defaultResponse = buildDefaultSettingResponse(key);
+      if (defaultResponse) {
+        logger.debug(`ℹ️ settingsService.getSetting - Valeur par défaut (cache) utilisée pour ${key}`);
+        return defaultResponse;
+      }
     }
+
+    if (useSupabase) {
+      try {
+        const supabaseResult = await supabaseService.getSetting(key);
+        if (supabaseResult.success || supabaseResult.error === 'Paramètre non trouvé') {
+          return supabaseResult;
+        }
+      } catch (error) {
+        logger.warn(`⚠️ settingsService.getSetting - Supabase indisponible pour ${key}:`, error);
+      }
+    }
+
+    const handleMissingSettingFallback = () => {
+      if (isLocalBackend) {
+        markSettingMissing(key);
+      }
+      const defaultResponse = buildDefaultSettingResponse(key);
+      if (defaultResponse) {
+        logger.debug(`ℹ️ settingsService.getSetting - Valeur par défaut utilisée pour ${key}`);
+        return defaultResponse;
+      }
+      return { success: false, error: 'Paramètre non trouvé', data: null };
+    };
+
+    if (!useSupabase) {
+      try {
+        const response = await apiCall(`/settings/${key}`);
+        if (response?.success) {
+          return response;
+        }
+        if (response?.status === 404 || response?.error === 'Paramètre non trouvé') {
+          return handleMissingSettingFallback();
+        }
+        return response;
+      } catch (error) {
+        if (error?.status === 404) {
+          return handleMissingSettingFallback();
+        }
+        logger.warn(`⚠️ getSetting ${key} via API:`, error?.message);
+        return { success: false, error: error.message || 'Paramètre non accessible', data: null };
+      }
+    }
+
+    return handleMissingSettingFallback();
   },
 
   /**
@@ -97,8 +208,7 @@ const settingsService = {
         return value === true || value === 'true' || value === 1 || value === '1';
       }
       return false; // Par défaut désactivé
-    } catch (error) {
-      logger.error('Erreur isTableNumberEnabled:', error);
+    } catch {
       return false; // En cas d'erreur, désactivé par défaut
     }
   },

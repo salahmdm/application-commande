@@ -33,6 +33,7 @@ const HomeView = () => {
   const { refresh: refreshProducts } = useProducts();
   const [loading, setLoading] = useState(true);
   const [businessInfo, setBusinessInfo] = useState(null);
+  const [contactEmail, setContactEmail] = useState(null);
   const [news, setNews] = useState([]);
   const [showNewsEditor, setShowNewsEditor] = useState(false);
   const [loyaltyRewards, setLoyaltyRewards] = useState([]);
@@ -129,6 +130,18 @@ const HomeView = () => {
     }
   }, []);
   
+  // Charger l'adresse mail de contact
+  const loadContactEmail = useCallback(async () => {
+    try {
+      const res = await settingsService.getSetting('contact_email');
+      if (res?.success && res.data?.value) {
+        setContactEmail(res.data.value);
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement adresse mail contact:', error);
+    }
+  }, []);
+  
   // ✅ OPTIMISATION: Mémoriser les fonctions de chargement pour éviter les re-créations
   const loadNews = useCallback(async () => {
     try {
@@ -204,6 +217,10 @@ const HomeView = () => {
           logger.warn('⚠️ HomeView - Erreur business info (non bloquant):', err);
         });
         
+        const contactEmailPromise = loadContactEmail().catch(err => {
+          logger.warn('⚠️ HomeView - Erreur adresse mail contact (non bloquant):', err);
+        });
+        
         const newsPromise = loadNews().catch(err => {
           logger.warn('⚠️ HomeView - Erreur news (non bloquant):', err);
         });
@@ -213,7 +230,7 @@ const HomeView = () => {
         });
         
         // Charger les autres données en parallèle (sans bloquer)
-        await Promise.allSettled([businessPromise, newsPromise, rewardsPromise]);
+        await Promise.allSettled([businessPromise, contactEmailPromise, newsPromise, rewardsPromise]);
         
         // Désactiver le loading rapidement
         clearTimeout(safetyTimeout);
@@ -228,7 +245,7 @@ const HomeView = () => {
     };
     
     loadHomeData();
-  }, [user?.id, loadBusinessInfo, loadNews, loadLoyaltyRewards]); // ✅ Toutes les dépendances
+  }, [user?.id, loadBusinessInfo, loadContactEmail, loadNews, loadLoyaltyRewards]); // ✅ Toutes les dépendances
   
   // Rafraîchir les points séparément pour éviter les boucles infinies
   useEffect(() => {
@@ -903,7 +920,7 @@ const HomeView = () => {
                 <Button
                   variant="outline"
                   size="xl"
-                  onClick={() => window.open(`mailto:${businessInfo?.email || 'contact@blossom-cafe.fr'}`, '_blank')}
+                  onClick={() => window.open(`mailto:${contactEmail || businessInfo?.email || 'contact@blossom-cafe.fr'}`, '_blank')}
                   className="group relative overflow-hidden border-2 border-white text-white hover:bg-white/20 shadow-2xl"
                   icon={<Mail className="w-6 h-6" />}
                 >

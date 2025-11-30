@@ -4,8 +4,7 @@
  * Ce script vérifie :
  * 1. Les variables d'environnement
  * 2. La configuration Supabase
- * 3. La configuration Firebase
- * 4. Les fichiers de build
+ * 3. Les fichiers de build
  */
 
 import { createClient } from '@supabase/supabase-js';

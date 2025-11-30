@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import productService from '../services/productService';
+import kioskService from '../services/kioskService';
 import logger from '../utils/logger';
 
 /**
@@ -48,7 +49,7 @@ const useProductStore = create((set, get) => ({
   },
   
   // Charger les produits pour les clients authentifiés - Utilise toujours la route publique pour simplifier
-  fetchProductsForClient: async () => {
+  fetchProductsForClient: async (filters = {}) => {
     const state = get();
     // Éviter les appels multiples simultanés
     if (state.isLoading) {
@@ -75,29 +76,57 @@ const useProductStore = create((set, get) => ({
       logger.log('🔄 fetchProductsForClient - Début du chargement...');
       // Utiliser la route publique /products qui filtre déjà les produits disponibles
       // C'est plus simple et évite les problèmes d'authentification
-      const response = await productService.getAllProducts();
-      logger.log('📦 fetchProductsForClient - Réponse reçue:', response);
-      logger.log('📦 fetchProductsForClient - Données reçues:', response?.data?.length || 0, 'produits');
+      const response = await productService.getAllProducts(filters);
+      const productsList = response?.data ?? [];
+      logger.log('📦 fetchProductsForClient - Produits reçus:', productsList.length);
 
-      if (response && response.success && response.data) {
-        const productsCount = response.data.length;
-        logger.log('✅ fetchProductsForClient - Produits chargés:', productsCount);
-        if (productsCount > 0) {
-          // ✅ SÉCURITÉ: Ne pas logger les IDs de produits (peuvent être sensibles)
-          logger.debug('📦 Premiers produits chargés (détails masqués)');
-        } else {
-          logger.warn('⚠️ fetchProductsForClient - Aucun produit trouvé dans la réponse');
-        }
-        set({ products: response.data, isLoading: false, usingFallback: false });
-        return { success: true, data: response.data };
-      } else {
-        logger.error('❌ fetchProductsForClient - Réponse API invalide:', response);
-        throw new Error('Réponse API invalide');
+      if (response?.success && productsList.length > 0) {
+        set({ products: productsList, isLoading: false, usingFallback: false });
+        return { success: true, data: productsList };
       }
+
+      logger.warn('⚠️ fetchProductsForClient - Réponse vide, tentative fallback kiosk');
+      const kioskResponse = await kioskService.getProductsByCategory(filters.category || null);
+      if (kioskResponse?.success && kioskResponse.data) {
+        logger.log('✅ fetchProductsForClient - Produits chargés via kiosk fallback:', kioskResponse.data.length);
+        set({ products: kioskResponse.data, isLoading: false, usingFallback: true });
+        return { success: true, data: kioskResponse.data };
+      }
+
+      throw new Error(kioskResponse?.error || 'Réponse API invalide');
     } catch (error) {
       logger.error('❌ Erreur chargement produits clients depuis la base de données:', error);
       logger.error('   Message:', error.message);
       logger.error('   Stack:', error.stack);
+      
+      // ✅ Fallback final: Utiliser Supabase directement si toutes les routes API ont échoué
+      logger.warn('⚠️ fetchProductsForClient - Tentative fallback Supabase direct');
+      try {
+        const { default: supabaseService } = await import('../services/supabaseService');
+        const supabaseFilters = {
+          isActive: filters.featured ? undefined : 1,
+        };
+        if (filters.category) {
+          supabaseFilters.categoryId = filters.category;
+        }
+        if (filters.search) {
+          supabaseFilters.search = filters.search;
+        }
+        const supabaseResult = await supabaseService.getProducts(supabaseFilters);
+        if (supabaseResult.success && supabaseResult.data && supabaseResult.data.length > 0) {
+          logger.log(`✅ fetchProductsForClient - ${supabaseResult.data.length} produits récupérés depuis Supabase (fallback final)`);
+          set({ 
+            products: supabaseResult.data, 
+            isLoading: false, 
+            usingFallback: true,
+            error: null
+          });
+          return { success: true, data: supabaseResult.data };
+        }
+      } catch (supabaseError) {
+        logger.error('❌ fetchProductsForClient - Erreur Supabase fallback:', supabaseError);
+      }
+      
       // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
       set({ 
         products: [], 
@@ -110,7 +139,7 @@ const useProductStore = create((set, get) => ({
   },
   
   // Charger les produits publics (pour les invités non authentifiés) - Route publique
-  fetchProductsPublic: async () => {
+  fetchProductsPublic: async (filters = {}) => {
     const state = get();
     // Éviter les appels multiples simultanés
     if (state.isLoading) {
@@ -134,16 +163,57 @@ const useProductStore = create((set, get) => ({
     
     set({ isLoading: true, error: null });
     try {
-      const response = await productService.getAllProducts();
-      if (response.success && response.data) {
-        set({ products: response.data, isLoading: false, usingFallback: false });
-        logger.log('✅ Produits publics chargés depuis MySQL:', response.data.length);
-        return { success: true, data: response.data };
-      } else {
-        throw new Error('Réponse API invalide');
+      const response = await productService.getAllProducts(filters);
+      const productsList = response?.data ?? [];
+
+      if (response?.success && productsList.length > 0) {
+        set({ products: productsList, isLoading: false, usingFallback: false });
+        logger.log('✅ Produits publics chargés:', productsList.length);
+        return { success: true, data: productsList };
       }
+
+      logger.warn('⚠️ fetchProductsPublic - Réponse vide, tentative fallback kiosk');
+      const kioskResponse = await kioskService.getProductsByCategory(filters.category || null);
+      if (kioskResponse?.success && kioskResponse.data) {
+        logger.log('✅ fetchProductsPublic - Produits chargés via kiosk fallback:', kioskResponse.data.length);
+        set({ products: kioskResponse.data, isLoading: false, usingFallback: true });
+        return { success: true, data: kioskResponse.data };
+      }
+
+      throw new Error(kioskResponse?.error || 'Réponse API invalide');
     } catch (error) {
       logger.error('❌ Erreur chargement produits publics depuis la base de données:', error);
+      logger.error('   Message:', error.message);
+      logger.error('   Stack:', error.stack);
+      
+      // ✅ Fallback final: Utiliser Supabase directement si toutes les routes API ont échoué
+      logger.warn('⚠️ fetchProductsPublic - Tentative fallback Supabase direct');
+      try {
+        const { default: supabaseService } = await import('../services/supabaseService');
+        const supabaseFilters = {
+          isActive: filters.featured ? undefined : 1,
+        };
+        if (filters.category) {
+          supabaseFilters.categoryId = filters.category;
+        }
+        if (filters.search) {
+          supabaseFilters.search = filters.search;
+        }
+        const supabaseResult = await supabaseService.getProducts(supabaseFilters);
+        if (supabaseResult.success && supabaseResult.data && supabaseResult.data.length > 0) {
+          logger.log(`✅ fetchProductsPublic - ${supabaseResult.data.length} produits récupérés depuis Supabase (fallback final)`);
+          set({ 
+            products: supabaseResult.data, 
+            isLoading: false, 
+            usingFallback: true,
+            error: null
+          });
+          return { success: true, data: supabaseResult.data };
+        }
+      } catch (supabaseError) {
+        logger.error('❌ fetchProductsPublic - Erreur Supabase fallback:', supabaseError);
+      }
+      
       // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
       set({ 
         products: [], 
@@ -178,15 +248,29 @@ const useProductStore = create((set, get) => ({
       }
     } catch (error) {
       logger.error('❌ Erreur chargement produits admin:', error);
-      // NE PAS utiliser les données de secours - afficher une erreur
       const currentState = get();
+      const isAuthError = error?.status === 401 || error?.status === 403;
+      
       set({ 
-        products: currentState.products || [], // ✅ Garder les produits existants en cas d'erreur
+        products: currentState.products || [],
         isLoading: false, 
         usingFallback: false,
-        error: error.message || 'Impossible de charger les produits depuis la base de données'
+        error: isAuthError ? null : (error.message || 'Impossible de charger les produits depuis la base de données')
       });
-      throw error; // Propager l'erreur pour que l'UI puisse l'afficher
+
+      if (isAuthError) {
+        logger.warn('🔁 fetchAllProductsAdmin - Droits insuffisants, fallback route publique');
+        try {
+          const fallbackResult = await get().fetchProductsForClient();
+          logger.log('✅ fetchAllProductsAdmin - Fallback client réussi');
+          return fallbackResult;
+        } catch (fallbackError) {
+          logger.error('❌ fetchAllProductsAdmin - Fallback client échoué:', fallbackError);
+        }
+        return { success: false, data: currentState.products || [] };
+      }
+
+      throw error; // Propager l'erreur réelle pour traitement amont
     }
   },
   
@@ -195,14 +279,42 @@ const useProductStore = create((set, get) => ({
     set({ error: null });
     try {
       const response = await productService.getCategories();
-      if (response.success && response.data) {
-        set({ categories: response.data });
+      const categoriesList = response?.data ?? [];
+
+      if (response?.success && categoriesList.length > 0) {
+        set({ categories: categoriesList });
         logger.log('✅ Catégories chargées depuis MySQL');
-      } else {
-        throw new Error('Réponse API invalide');
+        return;
       }
+
+      logger.warn('⚠️ fetchCategories - Réponse vide, tentative fallback kiosk');
+      const kioskResponse = await kioskService.getCategories();
+      if (kioskResponse?.success && kioskResponse.data) {
+        logger.log('✅ fetchCategories - Catégories chargées via kiosk fallback:', kioskResponse.data.length);
+        set({ categories: kioskResponse.data });
+        return;
+      }
+
+      throw new Error(kioskResponse?.error || 'Réponse API invalide');
     } catch (error) {
       logger.error('❌ Erreur chargement catégories depuis la base de données:', error);
+      logger.error('   Message:', error.message);
+      logger.error('   Stack:', error.stack);
+      
+      // ✅ Fallback final: Utiliser Supabase directement si toutes les routes API ont échoué
+      logger.warn('⚠️ fetchCategories - Tentative fallback Supabase direct');
+      try {
+        const { default: supabaseService } = await import('../services/supabaseService');
+        const supabaseResult = await supabaseService.getCategories({ isActive: 1 });
+        if (supabaseResult.success && supabaseResult.data && supabaseResult.data.length > 0) {
+          logger.log(`✅ fetchCategories - ${supabaseResult.data.length} catégories récupérées depuis Supabase (fallback final)`);
+          set({ categories: supabaseResult.data });
+          return;
+        }
+      } catch (supabaseError) {
+        logger.error('❌ fetchCategories - Erreur Supabase fallback:', supabaseError);
+      }
+      
       // ❌ NE PLUS utiliser les données de secours - Utiliser uniquement la base de données
       set({ 
         categories: [], 
@@ -254,18 +366,18 @@ const useProductStore = create((set, get) => ({
     }
   },
   
-  // Supprimer un produit (Admin) - Supprime de MySQL
+  // Supprimer un produit (Admin) - Supprime de Supabase
   deleteProduct: async (id) => {
     try {
       logger.log('🗑️ Store - Suppression produit ID:', id);
       const response = await productService.deleteProduct(id);
       
       if (response.success) {
-        logger.log('✅ Store - Produit supprimé de MySQL');
+        logger.log('✅ Store - Produit supprimé de Supabase');
         
-        // Recharger tous les produits depuis MySQL pour synchroniser
-        await get().fetchProducts();
-        logger.log('✅ Store - Produits rechargés depuis MySQL');
+        // Recharger tous les produits depuis Supabase pour synchroniser
+        await get().fetchAllProductsAdmin();
+        logger.log('✅ Store - Produits rechargés depuis Supabase');
         
         return response;
       }

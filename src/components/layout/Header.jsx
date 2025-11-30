@@ -1,9 +1,7 @@
 // Import React non nécessaire avec JSX transform automatique
-import { ShoppingCart, Home as HomeIcon } from 'lucide-react';
+import { Home as HomeIcon, PlusCircle, Package } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
-import useCart from '../../hooks/useCart';
 import useUIStore from '../../store/uiStore';
-import { formatPrice } from '../../constants/pricing';
 // ConfirmLogoutModal déplacé dans MainLayout pour être au premier plan
 
 /**
@@ -12,10 +10,8 @@ import { formatPrice } from '../../constants/pricing';
  */
 const Header = () => {
   const { user } = useAuth();
-  const { totalItems, total } = useCart();
-  const { setShowCart, toggleCart, currentView } = useUIStore((state) => ({
+  const { setShowCart, currentView } = useUIStore((state) => ({
     setShowCart: state.setShowCart,
-    toggleCart: state.toggleCart,
     currentView: state.currentView
   }));
   const setCurrentView = useUIStore((state) => state.setCurrentView);
@@ -42,152 +38,177 @@ const Header = () => {
   };
   
   return (
-    <header className="bg-white/95 backdrop-blur-xl border-b border-slate-200/50 fixed top-0 left-0 right-0 z-[100] shadow-lg shadow-slate-200/50 overflow-x-hidden will-change-transform">
-      <div className="w-full px-4 sm:px-6 py-4 md:py-6">
-        <div className="flex items-center justify-between gap-2 md:gap-6 min-w-0">
-          {/* Logo avec effet moderne */}
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="flex items-center gap-3 sm:gap-6 md:gap-8">
-              {/* Logo avec gradient - Bouton vers page d'accueil */}
-              <button
-                onClick={handleHomeClick}
-                className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-black via-neutral-800 to-black bg-clip-text text-transparent whitespace-nowrap hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-0 rounded-lg px-2 py-1"
-                aria-label="Aller à la page d'accueil"
-                title="Accueil"
-              >
-                Blossom Café
-              </button>
-              
-              {/* Bouton maison pour managers/admins (sauf sur la page d'accueil) */}
-              {isManager && !isOnManagerHomePage && (
+    <header className="bg-white/95 backdrop-blur-xl border-b border-slate-200/50 fixed top-0 left-0 right-0 z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.15)] overflow-x-hidden will-change-transform h-16 md:h-20">
+      <div className="w-full h-full px-4 sm:px-6">
+        <div className="flex items-center justify-between gap-2 md:gap-4 min-w-0 h-full">
+          {/* Espace gauche pour équilibrer */}
+          <div className="flex items-center gap-3 flex-shrink-0 h-full">
+            <div className="flex items-center gap-3 sm:gap-6 md:gap-8 h-full">
+              {/* Logo Blossom Café à gauche pour manager/admin */}
+              {isManager && (
                 <button
-                  onClick={handleManagerHomeClick}
-                  className="p-4 rounded-2xl bg-gradient-to-br from-black to-neutral-800 border-2 border-black hover:from-neutral-800 hover:to-black shadow-lg hover:shadow-xl transition-all duration-300 flex-shrink-0 active:scale-95 group"
-                  aria-label="Retour à l'accueil"
-                  title="Retour à l'accueil"
+                  onClick={handleHomeClick}
+                  className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-black via-neutral-800 to-black bg-clip-text text-transparent whitespace-nowrap transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-0 rounded-lg px-2 py-1 drop-shadow-2xl shadow-black/50"
+                  aria-label="Aller à la page d'accueil"
+                  title="Accueil"
                 >
-                  <HomeIcon className="w-7 h-7 text-white group-hover:scale-110 transition-transform duration-200" />
+                  Blossom Café
                 </button>
               )}
               
-              {/* Boutons mobiles modernes */}
+              {/* Bouton maison pour managers/admins - Style glassmorphism moderne */}
+              {isManager && !isOnManagerHomePage && (
+                <button
+                  onClick={handleManagerHomeClick}
+                  className={`h-full px-8 md:px-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 hover:border-white/30 text-slate-800 font-semibold text-base md:text-lg shadow-xl hover:shadow-2xl transition-all duration-300 flex items-center justify-center flex-shrink-0 group overflow-hidden relative ${
+                    currentView === 'manager-admin-home' ? 'bg-white/20 border-white/40 shadow-2xl shadow-slate-400/30' : ''
+                  }`}
+                  aria-label="Retour à l'accueil"
+                  title="Retour à l'accueil"
+                >
+                  {/* Effet de lumière au survol */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  
+                  {/* Ligne de lumière animée */}
+                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
+                  
+                  <HomeIcon className="w-[1.8rem] h-[1.8rem] md:w-[2.16rem] md:h-[2.16rem] relative z-10 text-slate-700 group-hover:text-slate-900 transition-colors" />
+                  
+                  {/* Indicateur actif - point lumineux */}
+                  {currentView === 'manager-admin-home' && (
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-slate-600 rounded-full animate-pulse"></div>
+                  )}
+                </button>
+              )}
+              
+              {/* Boutons mobiles - Style glassmorphism avec couleurs subtiles */}
               {isManager && (
-                <div className="flex items-center gap-2 md:hidden">
+                <div className="flex items-center gap-2 md:hidden h-full">
                   <button
                     onClick={() => setCurrentView('manager-pos')}
-                    className="group relative bg-gradient-to-r from-blue-500 to-blue-600 text-white px-6 py-3 rounded-2xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 border border-blue-400/30 overflow-hidden"
+                    className={`h-full px-4 rounded-2xl bg-blue-50/80 backdrop-blur-md border border-blue-200/50 hover:border-blue-300/70 text-blue-700 font-semibold shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 flex-shrink-0 group overflow-hidden relative ${
+                      currentView === 'manager-pos' ? 'bg-blue-100/90 border-blue-300/80 shadow-2xl shadow-blue-400/30' : ''
+                    }`}
                   >
-                    {/* Effet de brillance */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                    {/* Effet de lumière douce */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-100/0 via-blue-100/20 to-blue-100/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     
-                    {/* Particules flottantes */}
-                    <div className="absolute top-1 left-2 w-1 h-1 bg-white/60 rounded-full animate-ping"></div>
-                    <div className="absolute bottom-1 right-3 w-1 h-1 bg-white/40 rounded-full animate-ping animation-delay-200"></div>
-
-                    <div className="relative z-10">
-                      <span className="mobile-button-text">POS</span>
-                    </div>
+                    {/* Ligne de lumière */}
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-300/50 to-transparent"></div>
+                    
+                    <PlusCircle className="w-5 h-5 relative z-10 text-blue-600 group-hover:text-blue-700 transition-colors" />
+                    <span className="relative z-10 text-sm font-bold text-blue-700">POS</span>
+                    
+                    {/* Indicateur actif */}
+                    {currentView === 'manager-pos' && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse"></div>
+                    )}
                   </button>
                   
                   <button
                     onClick={() => setCurrentView('manager-orders')}
-                    className="group relative bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 rounded-2xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 border border-emerald-400/30 overflow-hidden"
+                    className={`h-full px-4 rounded-2xl bg-emerald-50/80 backdrop-blur-md border border-emerald-200/50 hover:border-emerald-300/70 text-emerald-700 font-semibold shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2 flex-shrink-0 group overflow-hidden relative ${
+                      currentView === 'manager-orders' ? 'bg-emerald-100/90 border-emerald-300/80 shadow-2xl shadow-emerald-400/30' : ''
+                    }`}
                   >
-                    {/* Effet de brillance */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                    {/* Effet de lumière douce */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-100/0 via-emerald-100/20 to-emerald-100/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     
-                    {/* Particules flottantes */}
-                    <div className="absolute top-1 left-2 w-1 h-1 bg-white/60 rounded-full animate-ping"></div>
-                    <div className="absolute bottom-1 right-3 w-1 h-1 bg-white/40 rounded-full animate-ping animation-delay-200"></div>
-
-                    <div className="relative z-10">
-                      <span className="mobile-button-text">CMD</span>
-                    </div>
+                    {/* Ligne de lumière */}
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/50 to-transparent"></div>
+                    
+                    <Package className="w-5 h-5 relative z-10 text-emerald-600 group-hover:text-emerald-700 transition-colors" />
+                    <span className="relative z-10 text-sm font-bold text-emerald-700">CMD</span>
+                    
+                    {/* Indicateur actif */}
+                    {currentView === 'manager-orders' && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-emerald-600 rounded-full animate-pulse"></div>
+                    )}
                   </button>
                 </div>
               )}
             </div>
           </div>
           
-          {/* Boutons centraux (Manager/Admin uniquement) - Design futuriste */}
-          {isManager && (
-            <div className="hidden md:flex items-center gap-6 flex-1 justify-center">
+          {/* Logo centré avec effet moderne - Uniquement pour les clients */}
+          {!isManager && (
+            <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center h-full">
               <button
-                onClick={() => setCurrentView('manager-pos')}
-                className="group relative bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 text-white px-8 py-5 rounded-3xl flex items-center justify-center shadow-xl hover:shadow-2xl hover:shadow-blue-500/25 transition-all duration-300 hover:scale-105 active:scale-95 border border-blue-400/30 overflow-hidden backdrop-blur-sm"
+                onClick={handleHomeClick}
+                className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-black via-neutral-800 to-black bg-clip-text text-transparent whitespace-nowrap transition-transform duration-200 cursor-pointer focus:outline-none focus:ring-0 rounded-lg px-2 py-1 drop-shadow-2xl shadow-black/50"
+                aria-label="Aller à la page d'accueil"
+                title="Accueil"
               >
-                {/* Effet de brillance au survol */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out"></div>
-
-                {/* Effet de particules */}
-                <div className="absolute top-0 left-0 w-full h-full opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                  <div className="absolute top-3 left-6 w-1 h-1 bg-white/60 rounded-full animate-ping"></div>
-                  <div className="absolute top-6 right-8 w-1 h-1 bg-white/40 rounded-full animate-ping animation-delay-200"></div>
-                  <div className="absolute bottom-4 left-10 w-1 h-1 bg-white/50 rounded-full animate-ping animation-delay-400"></div>
-                </div>
-
-                <div className="relative z-10">
-                  <span className="text-lg font-bold leading-tight">Prise de commande</span>
-                </div>
-
-                {/* Indicateur d'état actif avec animation */}
-                <div className="absolute top-4 right-4 w-3 h-3 bg-white/80 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:animate-pulse"></div>
-
-                {/* Bordure lumineuse */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-blue-400/20 to-blue-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                Blossom Café
+              </button>
+            </div>
+          )}
+          
+          {/* Espace droit pour équilibrer */}
+          <div className="flex items-center gap-3 flex-shrink-0 h-full">
+          </div>
+          
+          {/* Boutons centraux (Manager/Admin uniquement) - Style glassmorphism élégant */}
+          {isManager && (
+            <div className="hidden md:flex items-center gap-3 md:gap-4 flex-1 justify-center h-full">
+              <button
+                onClick={() => {
+                  setShowCart(false);
+                  setCurrentView('manager-pos');
+                }}
+                className={`h-full px-6 md:px-10 rounded-2xl bg-blue-50/80 backdrop-blur-lg border border-blue-200/60 hover:border-blue-300/80 text-blue-700 font-semibold text-base md:text-lg shadow-xl hover:shadow-2xl transition-all duration-300 flex items-center justify-center gap-2 md:gap-3 flex-shrink-0 group overflow-hidden relative ${
+                  currentView === 'manager-pos' ? 'bg-blue-100/90 border-blue-300/90 shadow-2xl shadow-blue-400/40' : ''
+                }`}
+              >
+                {/* Effet de lumière douce au survol */}
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-100/0 via-blue-100/30 to-blue-100/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                
+                {/* Ligne de lumière supérieure */}
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-300/60 to-transparent"></div>
+                
+                {/* Reflet subtil */}
+                <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                
+                <PlusCircle className="w-5 h-5 md:w-6 md:h-6 relative z-10 text-blue-600 group-hover:text-blue-800 transition-colors" />
+                <span className="relative z-10 font-bold text-blue-700 group-hover:text-blue-800 transition-colors">Prise de commande</span>
+                
+                {/* Indicateur actif - point lumineux */}
+                {currentView === 'manager-pos' && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-2 h-2 bg-blue-600 rounded-full animate-pulse shadow-lg shadow-blue-400/50"></div>
+                )}
               </button>
               
               <button
-                onClick={() => setCurrentView('manager-orders')}
-                className="group relative bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700 text-white px-8 py-5 rounded-3xl flex items-center justify-center shadow-xl hover:shadow-2xl hover:shadow-emerald-500/25 transition-all duration-300 hover:scale-105 active:scale-95 border border-emerald-400/30 overflow-hidden backdrop-blur-sm"
+                onClick={() => {
+                  setShowCart(false);
+                  setCurrentView('manager-orders');
+                }}
+                className={`h-full px-6 md:px-10 rounded-2xl bg-emerald-50/80 backdrop-blur-lg border border-emerald-200/60 hover:border-emerald-300/80 text-emerald-700 font-semibold text-base md:text-lg shadow-xl hover:shadow-2xl transition-all duration-300 flex items-center justify-center gap-2 md:gap-3 flex-shrink-0 group overflow-hidden relative ${
+                  currentView === 'manager-orders' ? 'bg-emerald-100/90 border-emerald-300/90 shadow-2xl shadow-emerald-400/40' : ''
+                }`}
               >
-                {/* Effet de brillance au survol */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out"></div>
-
-                {/* Effet de particules */}
-                <div className="absolute top-0 left-0 w-full h-full opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                  <div className="absolute top-3 left-6 w-1 h-1 bg-white/60 rounded-full animate-ping"></div>
-                  <div className="absolute top-6 right-8 w-1 h-1 bg-white/40 rounded-full animate-ping animation-delay-200"></div>
-                  <div className="absolute bottom-4 left-10 w-1 h-1 bg-white/50 rounded-full animate-ping animation-delay-400"></div>
-                </div>
-
-                <div className="relative z-10">
-                  <span className="text-lg font-bold leading-tight">Gestion de commande</span>
-                </div>
-
-                {/* Indicateur d'état actif avec animation */}
-                <div className="absolute top-4 right-4 w-3 h-3 bg-white/80 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:animate-pulse"></div>
-
-                {/* Bordure lumineuse */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-emerald-400/20 to-emerald-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                {/* Effet de lumière douce au survol */}
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-100/0 via-emerald-100/30 to-emerald-100/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                
+                {/* Ligne de lumière supérieure */}
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-300/60 to-transparent"></div>
+                
+                {/* Reflet subtil */}
+                <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                
+                <Package className="w-5 h-5 md:w-6 md:h-6 relative z-10 text-emerald-600 group-hover:text-emerald-800 transition-colors" />
+                <span className="relative z-10 font-bold text-emerald-700 group-hover:text-emerald-800 transition-colors">Gestion de commande</span>
+                
+                {/* Indicateur actif - point lumineux */}
+                {currentView === 'manager-orders' && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-2 h-2 bg-emerald-600 rounded-full animate-pulse shadow-lg shadow-emerald-400/50"></div>
+                )}
               </button>
             </div>
           )}
           
           {/* Actions - À droite avec design moderne */}
           <div className="flex items-center gap-3 md:gap-4 flex-shrink-0">
-
-            {user?.role === 'client' && (
-              <button
-                onClick={() => toggleCart()}
-                className="group relative bg-gradient-to-r from-purple-600 to-blue-600 text-white px-4 md:px-6 py-3 rounded-2xl flex items-center gap-2 md:gap-3 shadow-lg hover:shadow-xl hover:shadow-purple-500/25 transition-all duration-300 flex-shrink-0 hover:scale-105 active:scale-95"
-                aria-label={`Panier: ${totalItems} articles, ${formatPrice(total)}`}
-              >
-                {/* Effet de brillance */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                
-                <ShoppingCart className="w-5 h-5 relative z-10" />
-                <span className="hidden sm:inline text-sm md:text-base font-semibold relative z-10">Panier</span>
-                <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg text-xs md:text-sm font-bold relative z-10">
-                  {formatPrice(total)}
-                </div>
-                {totalItems > 0 && (
-                  <div className="absolute -top-2 -right-2 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg animate-pulse">
-                    {totalItems}
-                  </div>
-                )}
-              </button>
-            )}
           </div>
         </div>
       </div>

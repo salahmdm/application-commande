@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Image as ImageIcon, Info, X } from 'lucide-react';
+import { Plus, Image as ImageIcon, Info } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
-import Input from '../../components/common/Input';
 import Modal from '../../components/common/Modal';
 import CategoryFilter from '../../components/common/CategoryFilter';
 import useProducts from '../../hooks/useProducts';
-import useDebounce from '../../hooks/useDebounce';
 import useCart from '../../hooks/useCart';
 import useUIStore from '../../store/uiStore';
 import { calculateTTC, formatPrice } from '../../constants/pricing';
@@ -43,7 +41,6 @@ const ProductsView = () => {
     filteredProducts, 
     products,
     categories, 
-    search, 
     searchQuery,
     filters,
     isLoading,
@@ -53,32 +50,6 @@ const ProductsView = () => {
   const { currentView } = useUIStore();
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  
-  // État local pour la recherche avec debounce
-  // Permet une saisie fluide sans déclencher le filtrage à chaque frappe
-  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery || '');
-  
-  // Debounce de la recherche avec un délai de 300ms
-  // Le filtrage ne se déclenchera que 300ms après la dernière frappe
-  const debouncedSearchQuery = useDebounce(localSearchQuery, 300);
-  
-  // ✅ OPTIMISATION: Corriger les dépendances useEffect pour éviter les bugs
-  // Mettre à jour la recherche dans le store quand la valeur debouncée change
-  // Cela déclenche le filtrage des produits dans le store
-  useEffect(() => {
-    // Éviter les mises à jour inutiles si la valeur est identique
-    if (debouncedSearchQuery !== searchQuery) {
-      search(debouncedSearchQuery);
-    }
-  }, [debouncedSearchQuery, searchQuery, search]); // ✅ Toutes les dépendances
-  
-  // Synchroniser l'état local avec le store au montage ou si le store change depuis l'extérieur
-  useEffect(() => {
-    if (searchQuery !== localSearchQuery && searchQuery !== debouncedSearchQuery) {
-      setLocalSearchQuery(searchQuery || '');
-    }
-  }, [searchQuery, localSearchQuery, debouncedSearchQuery]); // ✅ Toutes les dépendances
 
   const selectedProductIngredients = selectedProduct
     ? extractIngredients(selectedProduct.allergens ?? selectedProduct.ingredients)
@@ -168,77 +139,16 @@ const ProductsView = () => {
   });
   
   return (
-    <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-6 md:pt-8 animate-fade-in">
-      {/* En-tête avec recherche */}
-      <div className="space-y-4">
-        <div className="flex flex-col md:flex-row gap-4 items-start justify-end">
-          {/* Recherche - Loupe seule ou champ complet selon l'état */}
-          {!isSearchOpen ? (
-            <button
-              onClick={() => setIsSearchOpen(true)}
-              className="p-2 rounded-lg bg-white border-2 border-neutral-300 hover:border-neutral-400 transition-all duration-200 hover:scale-105 active:scale-95 shadow-soft ml-auto md:ml-0 -mt-2"
-              aria-label="Ouvrir la recherche"
-            >
-              <Search className="w-4 h-4 text-neutral-600" />
-            </button>
-          ) : (
-            <div className="flex-1 flex items-center gap-2 w-full md:w-auto">
-              <Input
-                type="text"
-                placeholder="Rechercher un produit..."
-                value={localSearchQuery}
-                onChange={(e) => setLocalSearchQuery(e.target.value)}
-                icon={<Search className="w-5 h-5" />}
-                autoFocus
-                onBlur={() => {
-                  // Ne fermer que si le champ est vide
-                  if (!localSearchQuery.trim()) {
-                    setIsSearchOpen(false);
-                  }
-                }}
-                className="flex-1"
-              />
-              {localSearchQuery && (
-                <button
-                  onClick={() => {
-                    setLocalSearchQuery('');
-                    search('');
-                    setIsSearchOpen(false);
-                  }}
-                  className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 transition-all duration-200"
-                  aria-label="Effacer la recherche"
-                >
-                  <X className="w-5 h-5 text-neutral-600" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* Filtres actifs */}
-        {(filters.category || searchQuery) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-neutral-700 font-heading font-semibold">Filtres actifs:</span>
-            {filters.category && (
-              <span className="px-4 py-2 bg-neutral-100 text-black rounded-full text-sm font-heading font-semibold border-2 border-neutral-300 shadow-soft">
-                {categories[filters.category]?.name}
-              </span>
-            )}
-            {searchQuery && (
-              <span className="px-4 py-2 bg-neutral-100 text-black rounded-full text-sm font-heading font-semibold border-2 border-neutral-300 shadow-soft">
-                &quot;{searchQuery}&quot;
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
+    <div className="space-y-5 pl-5 sm:pl-5 md:pl-10 pr-5 sm:pr-5 md:pr-10 pt-4 animate-fade-in">
       {/* Filtre par catégories */}
       <CategoryFilter 
         categories={categories}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
       />
+      
+      {/* Espace pour compenser le bandeau fixe */}
+      <div className="h-20 md:h-24"></div>
       
       {/* Liste des produits */}
       {isLoading && (!products || products.length === 0) ? (
@@ -279,10 +189,10 @@ const ProductsView = () => {
               <div className="absolute top-3 right-3 z-10">
                 <button
                   onClick={() => setSelectedProduct(product)}
-                  className="w-9 h-9 bg-white/90 backdrop-blur-sm hover:bg-white rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                  className="w-9 h-9 bg-white/40 backdrop-blur-sm hover:bg-white/60 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                   aria-label="Voir les ingrédients"
                 >
-                  <Info className="w-4 h-4 text-neutral-700" />
+                  <Info className="w-5 h-5 text-neutral-700" />
                 </button>
               </div>
               

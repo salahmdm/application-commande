@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Modal from './Modal';
 import Button from './Button';
 import useUIStore from '../../store/uiStore';
@@ -10,13 +10,28 @@ import useAuth from '../../hooks/useAuth';
  * Version avec informations utilisateur pour admin et manager
  */
 const ConfirmLogoutModal = () => {
-  const showLogoutConfirm = useUIStore((state) => state.showLogoutConfirm);
-  const setShowLogoutConfirm = useUIStore((state) => state.setShowLogoutConfirm);
+  const { showLogoutConfirm, setShowLogoutConfirm } = useUIStore((state) => ({
+    showLogoutConfirm: state.showLogoutConfirm,
+    setShowLogoutConfirm: state.setShowLogoutConfirm,
+  }));
   const { logout, user } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const handleConfirm = async () => {
-    setShowLogoutConfirm(false);
-    await logout();
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      await logout();
+      setShowLogoutConfirm(false);
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion', error);
+      setErrorMessage(
+        "Une erreur est survenue lors de la déconnexion. Veuillez réessayer."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -30,6 +45,7 @@ const ConfirmLogoutModal = () => {
 
   const isClient = user.role === 'client';
   const isManager = user.role === 'manager' || user.role === 'admin';
+  const shouldShowClientView = isClient || (!isClient && !isManager);
 
   return (
     <Modal
@@ -41,7 +57,7 @@ const ConfirmLogoutModal = () => {
       closeOnOverlayClick={true}
       variant="glass"
     >
-      {isClient ? (
+      {shouldShowClientView ? (
         // Version simple pour les clients - Sans icône ni informations utilisateur
         <div className="flex flex-col space-y-6 py-4">
           {/* Titre */}
@@ -54,14 +70,24 @@ const ConfirmLogoutModal = () => {
             </p>
           </div>
 
+          {errorMessage && (
+            <div
+              className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+              role="alert"
+            >
+              {errorMessage}
+            </div>
+          )}
+
           {/* Boutons d'action */}
           <div className="flex items-center gap-3 pt-2">
             <Button
-              variant="ghost"
+              variant="secondary"
               size="md"
               fullWidth
               onClick={handleCancel}
-              className="border border-slate-300 hover:bg-slate-100"
+              className="h-12 flex-1 bg-gray-500 hover:bg-gray-600"
+              disabled={isSubmitting}
             >
               Annuler
             </Button>
@@ -70,8 +96,10 @@ const ConfirmLogoutModal = () => {
               size="md"
               fullWidth
               onClick={handleConfirm}
+              className="h-12 flex-1"
+              disabled={isSubmitting}
             >
-              Se déconnecter
+              {isSubmitting ? 'Déconnexion...' : 'Se déconnecter'}
             </Button>
           </div>
         </div>
@@ -87,6 +115,15 @@ const ConfirmLogoutModal = () => {
               Êtes-vous sûr de vouloir vous déconnecter ?
             </p>
           </div>
+
+          {errorMessage && (
+            <div
+              className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+              role="alert"
+            >
+              {errorMessage}
+            </div>
+          )}
 
           {/* Informations utilisateur */}
           <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
@@ -109,11 +146,12 @@ const ConfirmLogoutModal = () => {
           {/* Boutons d'action */}
           <div className="flex items-center gap-3 pt-2">
             <Button
-              variant="ghost"
+              variant="secondary"
               size="md"
               fullWidth
               onClick={handleCancel}
-              className="border border-slate-300 hover:bg-slate-100"
+              className="h-12 flex-1 bg-gray-500 hover:bg-gray-600"
+              disabled={isSubmitting}
             >
               Annuler
             </Button>
@@ -122,8 +160,10 @@ const ConfirmLogoutModal = () => {
               size="md"
               fullWidth
               onClick={handleConfirm}
+              className="h-12 flex-1"
+              disabled={isSubmitting}
             >
-              Se déconnecter
+              {isSubmitting ? 'Déconnexion...' : 'Se déconnecter'}
             </Button>
           </div>
         </div>

@@ -560,218 +560,257 @@ const AdminInventory = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-heading font-bold text-black flex items-center gap-3">
-            <Package className="w-7 h-7 md:w-8 md:h-8 text-blue-600" />
-            Gestion d&apos;Inventaire
-          </h1>
-          <p className="text-sm md:text-base text-neutral-600 mt-1">
-            Gérez vos articles, stocks et alertes
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 md:gap-3">
-          {selectedIds.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={handleBulkDelete}
-              className="flex items-center gap-2 bg-red-50 border-red-300 text-red-700 hover:bg-red-100 hover:border-red-400 text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Supprimer</span> ({selectedIds.length})
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            onClick={() => setIsPhysicalInventoryOpen(true)}
-            className="flex items-center gap-2 bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100 hover:border-purple-400 font-bold text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-          >
-            <ClipboardCheck className="w-4 h-4 md:w-5 md:h-5" />
-            INVENTAIRE
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setIsShoppingListOpen(true)}
-            className="flex items-center gap-2 bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 hover:border-blue-400 font-bold text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-          >
-            <ListChecks className="w-4 h-4 md:w-5 md:h-5" />
-            LISTE DE COURSES
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleImportCSV}
-            disabled={isImporting}
-            className="flex items-center gap-2 text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="hidden sm:inline">{isImporting ? 'Import...' : 'CSV'}</span>
-            <span className="sm:hidden">↑</span>
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export</span>
-            <span className="sm:hidden">↓</span>
-          </Button>
-          <Button
-            onClick={() => {
-              setEditingItem(null);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base px-3 py-2 md:px-4 md:py-2"
-          >
-            <Plus className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="hidden sm:inline">Nouvel article</span>
-            <span className="sm:hidden">Nouveau</span>
-          </Button>
-        </div>
-        {/* Input file caché pour l'import CSV */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-      </div>
-
-      {/* Statistiques - Responsive */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-        <div>
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200">
-            <div className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-heading font-medium text-blue-700">Articles en stock</p>
-                  <p className="text-xl md:text-2xl font-heading font-bold text-blue-900 mt-1">{stats.totalItems}</p>
+    <div className="p-4 md:p-6 lg:p-8 space-y-6 lg:space-y-8 min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/30">
+      {/* Header moderne avec glassmorphism */}
+      <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/50 p-6 md:p-8">
+        <div className="flex flex-col gap-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="p-3 md:p-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-lg">
+                  <Package className="w-6 h-6 md:w-8 md:h-8 text-white" />
                 </div>
-                <div className="p-2 md:p-3 bg-blue-200 rounded-xl">
-                  <Package className="w-5 h-5 md:w-6 md:h-6 text-blue-700" />
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div>
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200">
-            <div className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-heading font-medium text-green-700">Valeur totale</p>
-                  <p className="text-xl md:text-2xl font-heading font-bold text-green-900 mt-1">
-                    {new Intl.NumberFormat('fr-FR', {
-                      style: 'currency',
-                      currency: 'EUR'
-                    }).format(stats.totalValue)}
+                  <h1 className="text-2xl md:text-3xl lg:text-4xl font-heading font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-gray-900 bg-clip-text text-transparent">
+                    Gestion d&apos;Inventaire
+                  </h1>
+                  <p className="text-sm md:text-base text-slate-600 mt-1 font-medium">
+                    Gérez vos articles, stocks et alertes en temps réel
                   </p>
                 </div>
-                <div className="p-2 md:p-3 bg-green-200 rounded-xl">
-                  <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-green-700" />
-                </div>
               </div>
             </div>
-          </Card>
-        </div>
-
-        <div className="sm:col-span-2 lg:col-span-1">
-          <Card 
-            className="bg-gradient-to-br from-orange-50 to-orange-100 border-2 border-orange-200 cursor-pointer hover:shadow-lg transition-all active:scale-95 md:hover:scale-105"
-            onClick={() => setIsAlertsModalOpen(true)}
-          >
-            <div className="p-3 md:p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-heading font-medium text-orange-700">Alertes stock</p>
-                  <p className="text-xl md:text-2xl font-heading font-bold text-orange-900 mt-1">{stats.lowStockCount}</p>
-                  <p className="text-xs text-orange-600 mt-1">👆 Cliquer pour voir</p>
+          </div>
+          
+          {/* Actions principales - Design moderne et cohérent */}
+          <div className="flex flex-wrap gap-3 md:gap-4">
+            {selectedIds.length > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="group flex items-center gap-2 bg-white border-2 border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 active:scale-95"
+              >
+                <div className="p-1.5 bg-red-100 rounded-md group-hover:bg-red-200 transition-colors">
+                  <Trash2 className="w-4 h-4 md:w-5 md:h-5 text-red-700" />
                 </div>
-                <div className="p-2 md:p-3 bg-orange-200 rounded-xl">
-                  <span className="text-xl md:text-2xl">⚠️</span>
-                </div>
+                <span className="hidden sm:inline">Supprimer</span>
+                <span className="bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full text-xs font-bold border border-red-200">
+                  {selectedIds.length}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={() => setIsPhysicalInventoryOpen(true)}
+              className="group flex items-center gap-2 bg-white border-2 border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 active:scale-95"
+            >
+              <div className="p-1.5 bg-purple-100 rounded-md group-hover:bg-purple-200 transition-colors">
+                <ClipboardCheck className="w-4 h-4 md:w-5 md:h-5 text-purple-700" />
               </div>
-            </div>
-          </Card>
+              <span className="hidden sm:inline">INVENTAIRE</span>
+              <span className="sm:hidden">INV</span>
+            </button>
+            <button
+              onClick={() => setIsShoppingListOpen(true)}
+              className="group flex items-center gap-2 bg-white border-2 border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 active:scale-95"
+            >
+              <div className="p-1.5 bg-blue-100 rounded-md group-hover:bg-blue-200 transition-colors">
+                <ListChecks className="w-4 h-4 md:w-5 md:h-5 text-blue-700" />
+              </div>
+              <span className="hidden sm:inline">LISTE DE COURSES</span>
+              <span className="sm:hidden">LISTE</span>
+            </button>
+            <button
+              onClick={handleImportCSV}
+              disabled={isImporting}
+              className="group flex items-center gap-2 bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:border-slate-300"
+            >
+              <div className="p-1.5 bg-slate-100 rounded-md group-hover:bg-slate-200 transition-colors">
+                <Upload className="w-4 h-4 md:w-5 md:h-5 text-slate-700" />
+              </div>
+              <span className="hidden sm:inline">{isImporting ? 'Import...' : 'CSV'}</span>
+              <span className="sm:hidden">{isImporting ? '...' : '↑'}</span>
+            </button>
+            <button
+              onClick={handleExportCSV}
+              className="group flex items-center gap-2 bg-white border-2 border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 active:scale-95"
+            >
+              <div className="p-1.5 bg-slate-100 rounded-md group-hover:bg-slate-200 transition-colors">
+                <Download className="w-4 h-4 md:w-5 md:h-5 text-slate-700" />
+              </div>
+              <span className="hidden sm:inline">Export</span>
+              <span className="sm:hidden">↓</span>
+            </button>
+            <button
+              onClick={() => {
+                setEditingItem(null);
+                setIsModalOpen(true);
+              }}
+              className="group flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:from-blue-700 hover:to-indigo-800 px-4 py-2.5 md:px-5 md:py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95 border-2 border-blue-500/50"
+            >
+              <div className="p-1.5 bg-white/20 rounded-md group-hover:bg-white/30 transition-colors">
+                <Plus className="w-4 h-4 md:w-5 md:h-5 text-white" />
+              </div>
+              <span className="hidden sm:inline">Nouvel article</span>
+              <span className="sm:hidden">Nouveau</span>
+            </button>
+          </div>
+          {/* Input file caché pour l'import CSV */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFileChange}
+            className="hidden"
+          />
         </div>
       </div>
 
-      {/* Filtres et Recherche */}
-      <Card>
-        <div className="p-4 md:p-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
-            {/* Recherche */}
-            <div className="md:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-neutral-400" />
-                <input
-                  type="text"
-                  placeholder="Rechercher..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 md:pl-12 pr-3 md:pr-4 py-2.5 md:py-3 text-sm md:text-base rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 focus:bg-white transition-all duration-200"
-                />
+      {/* Statistiques - Design moderne avec glassmorphism */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        {/* Carte Articles en stock */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-blue-200/50 p-6 md:p-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-400/20 to-transparent rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                <Package className="w-6 h-6 md:w-7 md:h-7 text-white" />
+              </div>
+              <div className="text-right">
+                <p className="text-xs md:text-sm font-semibold text-slate-600 uppercase tracking-wide">Articles en stock</p>
+                <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent mt-1">
+                  {stats.totalItems}
+                </p>
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Filtre Catégorie */}
-            <div>
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="w-full px-3 md:px-4 py-2.5 md:py-3 text-sm md:text-base rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 focus:bg-white transition-all duration-200"
-              >
-                <option value="">Toutes catégories</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Filtre Statut */}
-            <div>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-3 md:px-4 py-2.5 md:py-3 text-sm md:text-base rounded-xl border-2 border-neutral-200 bg-neutral-50 text-black focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-blue-500 focus:bg-white transition-all duration-200"
-              >
-                <option value="">Tous statuts</option>
-                <option value="available">✅ Disponible</option>
-                <option value="low">⚠️ Stock bas</option>
-                <option value="out">❌ Rupture</option>
-              </select>
+        {/* Carte Valeur totale */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-emerald-200/50 p-6 md:p-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-emerald-400/20 to-transparent rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl shadow-lg">
+                <TrendingUp className="w-6 h-6 md:w-7 md:h-7 text-white" />
+              </div>
+              <div className="text-right">
+                <p className="text-xs md:text-sm font-semibold text-slate-600 uppercase tracking-wide">Valeur totale</p>
+                <p className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-700 bg-clip-text text-transparent mt-1">
+                  {new Intl.NumberFormat('fr-FR', {
+                    style: 'currency',
+                    currency: 'EUR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                  }).format(stats.totalValue)}
+                </p>
+              </div>
             </div>
           </div>
         </div>
-      </Card>
 
-      {/* Tableau */}
-      <Card>
-        <div className="p-4 md:p-6">
-          <div className="mb-3 md:mb-4 flex items-center justify-between">
-            <h2 className="text-lg md:text-xl font-heading font-bold text-black">
+        {/* Carte Alertes stock - Cliquable */}
+        <div
+          className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-orange-200/50 p-6 md:p-8 relative overflow-hidden group cursor-pointer transition-all duration-300 hover:shadow-2xl hover:border-orange-300 active:scale-95"
+          onClick={() => setIsAlertsModalOpen(true)}
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-orange-400/20 to-transparent rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl shadow-lg animate-pulse">
+                <span className="text-2xl md:text-3xl">⚠️</span>
+              </div>
+              <div className="text-right">
+                <p className="text-xs md:text-sm font-semibold text-slate-600 uppercase tracking-wide">Alertes stock</p>
+                <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-red-700 bg-clip-text text-transparent mt-1">
+                  {stats.lowStockCount}
+                </p>
+                <p className="text-xs text-orange-600 mt-2 font-medium">👆 Cliquer pour voir</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filtres et Recherche - Design moderne */}
+      <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/50 p-6 md:p-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
+          {/* Recherche */}
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+              Recherche
+            </label>
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Rechercher un article..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 text-sm md:text-base rounded-xl border-2 border-slate-200 bg-white/50 backdrop-blur-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-200/50 focus:border-blue-500 focus:bg-white transition-all duration-300 shadow-sm hover:shadow-md"
+              />
+            </div>
+          </div>
+
+          {/* Filtre Catégorie */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+              Catégorie
+            </label>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="w-full px-4 py-3 text-sm md:text-base rounded-xl border-2 border-slate-200 bg-white/50 backdrop-blur-sm text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-200/50 focus:border-blue-500 focus:bg-white transition-all duration-300 shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <option value="">Toutes catégories</option>
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtre Statut */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+              Statut
+            </label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full px-4 py-3 text-sm md:text-base rounded-xl border-2 border-slate-200 bg-white/50 backdrop-blur-sm text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-200/50 focus:border-blue-500 focus:bg-white transition-all duration-300 shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <option value="">Tous statuts</option>
+              <option value="available">✅ Disponible</option>
+              <option value="low">⚠️ Stock bas</option>
+              <option value="out">❌ Rupture</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Tableau - Design moderne */}
+      <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/50 p-6 md:p-8">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl md:text-2xl font-heading font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
               <span className="hidden sm:inline">Liste d&apos;inventaire</span>
               <span className="sm:hidden">Inventaire</span>
-              <span className="text-neutral-500 font-normal ml-2">({filteredItems.length})</span>
             </h2>
+            <p className="text-sm text-slate-600 mt-1 font-medium">
+              {filteredItems.length} article{filteredItems.length > 1 ? 's' : ''} trouvé{filteredItems.length > 1 ? 's' : ''}
+            </p>
           </div>
-          <InventoryTable
-            items={filteredItems}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onSort={handleSort}
-            sortConfig={sortConfig}
-            selectedIds={selectedIds}
-            onSelectItem={handleSelectItem}
-            onSelectAll={handleSelectAll}
-            onQuantityChange={handleQuantityChange}
-          />
         </div>
-      </Card>
+        <InventoryTable
+          items={filteredItems}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onSort={handleSort}
+          sortConfig={sortConfig}
+          selectedIds={selectedIds}
+          onSelectItem={handleSelectItem}
+          onSelectAll={handleSelectAll}
+          onQuantityChange={handleQuantityChange}
+        />
+      </div>
 
       {/* Modal Ajout/Modification */}
       <InventoryModal

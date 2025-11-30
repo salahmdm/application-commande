@@ -52,16 +52,17 @@ const AdminProducts = () => {
     
     const loadData = async () => {
       try {
-        await Promise.all([
+        const result = await Promise.all([
           fetchAllProductsAdmin(),
           fetchCategories()
         ]);
         logger.log('✅ AdminProducts - TOUS les produits et catégories chargés depuis MySQL');
         
         // ✅ SÉCURITÉ: Ne logger que le nombre, pas les détails complets
-        logger.debug('📊 AdminProducts - Produits chargés depuis MySQL:', allProducts.length);
+        const productsCount = result[0]?.data?.length || 0;
+        logger.debug('📊 AdminProducts - Produits chargés depuis MySQL:', productsCount);
         // ✅ SÉCURITÉ: Ne pas logger les détails complets des produits (données sensibles)
-        if (allProducts.length === 0) {
+        if (productsCount === 0) {
           logger.warn('⚠️ AdminProducts - Aucun produit trouvé dans la base de données');
         }
       } catch (err) {
@@ -225,6 +226,9 @@ const AdminProducts = () => {
       }
 
       setSelectedIds([]);
+      
+      // Recharger les produits après suppression
+      await fetchAllProductsAdmin();
       
       if (successCount > 0 && errorCount === 0) {
         success(`✅ ${successCount} produit(s) supprimé(s) avec succès !`);
@@ -484,10 +488,17 @@ const AdminProducts = () => {
     handleCloseModal();
   };
   
-  const handleDelete = (product) => {
+  const handleDelete = async (product) => {
     if (window.confirm(`Êtes-vous sûr de vouloir supprimer "${product.name}" ?`)) {
-      deleteProduct(product.id);
-      success('Produit supprimé avec succès !');
+      try {
+        await deleteProduct(product.id);
+        // Recharger les produits après suppression
+        await fetchAllProductsAdmin();
+        success('Produit supprimé avec succès !');
+      } catch (error) {
+        logger.error('❌ Erreur suppression produit:', error);
+        showError(`Erreur lors de la suppression: ${error.message}`);
+      }
     }
   };
   

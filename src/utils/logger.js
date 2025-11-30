@@ -5,7 +5,19 @@
  * - Très haute performance (aucune création de fonction inutile)
  */
 
-const ENV = import.meta?.env?.MODE || process.env.NODE_ENV || "development";
+// ✅ FRONTEND: Utiliser uniquement import.meta.env (pas process.env qui n'existe pas dans le navigateur)
+// ✅ SÉCURITÉ: Vérification robuste pour éviter les erreurs si import.meta n'est pas disponible
+let ENV = "development";
+try {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.MODE) {
+    ENV = import.meta.env.MODE;
+  } else if (typeof import.meta !== 'undefined' && import.meta.env?.DEV !== undefined) {
+    ENV = import.meta.env.DEV ? "development" : "production";
+  }
+} catch {
+  // Fallback en cas d'erreur
+  ENV = "development";
+}
 
 // 🎯 Niveaux de logs
 const LEVELS = {
@@ -30,33 +42,62 @@ let CURRENT_LEVEL =
 // 🔒 Sécurisation interne
 const safeExec = (fn, ...args) => {
   try {
-    if (typeof console !== "undefined" && fn) {
-      fn(...args);
+    // ✅ Vérifications de sécurité avant toute opération
+    if (typeof console === "undefined") {
+      return; // Pas de console disponible, sortir silencieusement
     }
-  } catch (e) {
-    // silence total
+    
+    if (!fn || typeof fn !== 'function') {
+      return; // Pas une fonction valide, sortir silencieusement
+    }
+    
+    // ✅ Vérifier que args est un tableau valide avant le spread
+    if (!Array.isArray(args)) {
+      // Si args n'est pas un tableau (cas très rare), le convertir
+      args = [args];
+    }
+    
+    // ✅ Appeler la fonction avec les arguments (protégé par try/catch)
+    fn(...args);
+  } catch {
+    // ✅ Silence total - pas besoin de capturer l'erreur
+    // Toute erreur (spread operator, appel de fonction, etc.) est silencieusement ignorée
   }
 };
 
 // 🔒 Masquer les données sensibles dans les logs
-const sanitizeData = (data) => {
+// ✅ PROTECTION: Limite de profondeur et détection de références circulaires pour éviter les récursions infinies
+const sanitizeData = (data, depth = 0, maxDepth = 10, visited = new WeakSet()) => {
+  // ✅ Protection : Limite de profondeur pour éviter les stack overflows
+  if (depth > maxDepth) {
+    return '[Max depth reached]';
+  }
+  
   if (data === null || data === undefined) return data;
   
   // Si c'est une string, vérifier si elle contient des tokens ou URLs sensibles
   if (typeof data === 'string') {
-    // Masquer les tokens JWT (commencent souvent par "eyJ")
-    if (data.startsWith('eyJ') || (data.length > 50 && !data.includes('http'))) {
-      return '***TOKEN_MASKED***';
+    // ✅ Masquer les tokens JWT (commencent par "eyJ" et ont une structure spécifique)
+    if (data.startsWith('eyJ') && data.length > 50) {
+      // Vérifier que c'est un vrai JWT (3 parties séparées par des points)
+      const parts = data.split('.');
+      if (parts.length === 3) {
+        return '***TOKEN_MASKED***';
+      }
     }
-    // Masquer les URLs avec tokens dans query params ou path
+    
+    // ✅ Masquer les URLs avec tokens dans query params ou path
     if (data.includes('http') && (data.includes('token=') || data.includes('/token/') || data.includes('?token') || data.includes('&token'))) {
       return data.replace(/([?&]token=)[^&]*/gi, '$1***MASKED***').replace(/\/token\/[^/\s]+/gi, '/token/***MASKED***');
     }
-    // Masquer les emails partiellement
-    if (data.includes('@') && data.includes('.')) {
+    
+    // ✅ Masquer les emails partiellement (avec regex pour meilleure détection)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailRegex.test(data.trim())) {
       const [local, domain] = data.split('@');
       if (local && domain) {
-        return `${local.substring(0, 2)}***@${domain}`;
+        const maskedLocal = local.length > 2 ? `${local.substring(0, 2)}***` : '***';
+        return `${maskedLocal}@${domain}`;
       }
     }
     return data;
@@ -64,18 +105,36 @@ const sanitizeData = (data) => {
   
   // Si c'est un objet, masquer les champs sensibles
   if (typeof data === 'object') {
+    // ✅ Protection : Vérifier si l'objet a déjà été visité (référence circulaire)
+    if (visited.has(data)) {
+      return '[Circular reference]';
+    }
+    
     const sensitiveFields = ['token', 'password', 'secret', 'email', 'authorization', 'cookie', 'role', 'loyalty_points', 'points', 'order_number', 'orderNumber', 'first_name', 'last_name', 'name', 'user_id', 'userId', 'client_identifier'];
     const sanitized = Array.isArray(data) ? [...data] : { ...data };
+    
+    // ✅ Marquer cet objet comme visité avant de le traiter
+    visited.add(data);
     
     for (const key in sanitized) {
       const lowerKey = key.toLowerCase();
       if (sensitiveFields.some(field => lowerKey.includes(field))) {
         if (lowerKey.includes('email')) {
-          // Masquer partiellement les emails
+          // ✅ Masquer partiellement les emails avec la même logique robuste
           const email = sanitized[key];
-          if (typeof email === 'string' && email.includes('@')) {
-            const [local, domain] = email.split('@');
-            sanitized[key] = `${local.substring(0, 2)}***@${domain}`;
+          if (typeof email === 'string' && email.trim()) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (emailRegex.test(email.trim())) {
+              const [local, domain] = email.split('@');
+              if (local && domain) {
+                const maskedLocal = local.length > 2 ? `${local.substring(0, 2)}***` : '***';
+                sanitized[key] = `${maskedLocal}@${domain}`;
+              } else {
+                sanitized[key] = '***EMAIL_MASKED***';
+              }
+            } else {
+              sanitized[key] = '***EMAIL_MASKED***';
+            }
           } else {
             sanitized[key] = '***EMAIL_MASKED***';
           }
@@ -100,7 +159,8 @@ const sanitizeData = (data) => {
           sanitized[key] = '***MASKED***';
         }
       } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
-        sanitized[key] = sanitizeData(sanitized[key]);
+        // ✅ Protection : Passer la profondeur et visited pour éviter les récursions infinies
+        sanitized[key] = sanitizeData(sanitized[key], depth + 1, maxDepth, visited);
       }
     }
     return sanitized;
@@ -111,6 +171,12 @@ const sanitizeData = (data) => {
 
 // 🔒 Sanitizer pour les arguments de log
 const sanitizeArgs = (args) => {
+  // ✅ Protection : Vérifier que args est un tableau valide
+  if (!Array.isArray(args)) {
+    // Si args n'est pas un tableau (cas très rare), le convertir et sanitizer
+    return [sanitizeData(args)];
+  }
+  // ✅ Sanitizer chaque argument (chacun aura son propre WeakSet pour visited)
   return args.map(arg => sanitizeData(arg));
 };
 

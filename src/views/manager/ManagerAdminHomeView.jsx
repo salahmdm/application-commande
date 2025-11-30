@@ -47,6 +47,21 @@ const ManagerAdminHomeView = () => {
 
   const menuItems = getMenuItems();
 
+  // Mapping des gradients pour chaque bouton (style Dashboard CA)
+  const getGradientForItem = (itemId) => {
+    const gradients = {
+      'home': 'bg-gradient-to-br from-blue-500 to-cyan-600',
+      'manager-pos': 'bg-gradient-to-br from-green-500 to-emerald-600',
+      'manager-orders': 'bg-gradient-to-br from-orange-500 to-red-600',
+      'admin-dashboard': 'bg-gradient-to-br from-purple-500 to-pink-600',
+      'admin-products': 'bg-gradient-to-br from-indigo-500 to-purple-600',
+      'admin-inventory': 'bg-gradient-to-br from-teal-500 to-cyan-600',
+      'admin-accounts': 'bg-gradient-to-br from-amber-500 to-orange-600',
+      'admin-settings': 'bg-gradient-to-br from-slate-500 to-gray-600',
+    };
+    return gradients[itemId] || 'bg-gradient-to-br from-blue-500 to-purple-600';
+  };
+
   const handleNavigation = (viewId) => {
     // Si c'est 'home', rediriger vers la page d'accueil client (HomeView)
     if (viewId === 'home') {
@@ -66,22 +81,23 @@ const ManagerAdminHomeView = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[110] bg-gradient-to-br from-neutral-50 to-white p-6 md:p-8 lg:p-12 overflow-y-auto">
-      <div className="max-w-7xl mx-auto">
+    <div className="fixed inset-0 z-[110] bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 p-4 sm:p-6 md:p-8 lg:p-12 overflow-y-auto">
+      <div className="w-full max-w-7xl mx-auto">
         {/* En-tête */}
-        <div className="text-center mb-8 md:mb-12">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-heading font-bold text-black mb-4">
+        <div className="text-center mb-10 md:mb-12 lg:mb-16">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-heading font-bold text-gray-900 mb-2">
             Blossom Café
           </h1>
-          <p className="text-lg md:text-xl text-neutral-600">
+          <p className="text-base md:text-lg text-gray-600">
             {role === 'admin' ? 'Administration' : 'Gestion'}
           </p>
         </div>
 
-        {/* Grille de boutons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
+        {/* Grille de boutons - Style Dashboard CA - Centrée */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 md:gap-x-6 gap-y-6 md:gap-y-8 lg:gap-y-10 justify-items-center">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const gradient = getGradientForItem(item.id);
             
             return (
               <button
@@ -91,36 +107,22 @@ const ManagerAdminHomeView = () => {
                   e.stopPropagation();
                   handleNavigation(item.id);
                 }}
-                className="group relative bg-white border-2 border-neutral-200 rounded-2xl p-6 md:p-8 hover:border-black hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] flex flex-col items-center justify-center gap-4 min-h-[180px] md:min-h-[220px] w-full isolate overflow-hidden"
-                style={{ 
-                  boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-                  position: 'relative',
-                  zIndex: 1
-                }}
+                className={`group relative overflow-hidden rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg md:shadow-xl ${gradient} transform transition-all duration-300 hover:scale-102 md:hover:scale-105 hover:shadow-2xl active:scale-[0.98] min-h-[160px] md:min-h-[200px] w-full flex flex-col items-center justify-center`}
               >
-                {/* Effet de brillance au survol */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-2xl pointer-events-none"></div>
-                
-                {/* Icône */}
-                <div className="relative z-10 w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-black flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                  <Icon className="w-8 h-8 md:w-10 md:h-10 text-white" />
+                {/* Fond décoratif - Icône en arrière-plan */}
+                <div className="hidden md:block absolute top-0 right-0 w-24 md:w-32 h-24 md:h-32 transform translate-x-8 -translate-y-8">
+                  <Icon className="w-full h-full text-white opacity-10" />
                 </div>
                 
-                {/* Label */}
-                <span className="relative z-10 font-heading font-bold text-lg md:text-xl text-black text-center px-2">
-                  {item.label}
-                </span>
-                
-                {/* Indicateur de survol */}
-                <div className="absolute top-4 right-4 w-3 h-3 bg-black rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                
-                {/* Ombre au survol */}
-                <div 
-                  className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                  style={{
-                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
-                  }}
-                ></div>
+                {/* Contenu centré */}
+                <div className="relative z-10 w-full flex flex-col items-center justify-center gap-3 md:gap-4">
+                  <div className="p-3 md:p-4 bg-white bg-opacity-20 rounded-lg md:rounded-xl backdrop-blur-sm">
+                    <Icon className="w-6 h-6 md:w-8 md:h-8 text-white" />
+                  </div>
+                  <p className="text-white text-opacity-90 font-bold text-base md:text-lg lg:text-xl text-center uppercase tracking-wide">
+                    {item.label}
+                  </p>
+                </div>
               </button>
             );
           })}

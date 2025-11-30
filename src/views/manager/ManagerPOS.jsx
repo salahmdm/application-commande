@@ -7,6 +7,7 @@ import ProductModal from '../../components/manager/ProductModal';
 import PaymentWorkflowModal from '../../components/manager/PaymentWorkflowModal';
 import useProducts from '../../hooks/useProducts';
 import useProductStore from '../../store/productStore';
+import useAuthStore from '../../store/authStore';
 import useNotifications from '../../hooks/useNotifications';
 import useSettings from '../../hooks/useSettings';
 import orderService from '../../services/orderService';
@@ -20,7 +21,8 @@ import logger from '../../utils/logger';
  */
 const ManagerPOS = () => {
   const { allProducts, categories } = useProducts();
-  const { fetchAllProductsAdmin } = useProductStore();
+  const { fetchAllProductsAdmin, fetchProductsForClient } = useProductStore();
+  const { role } = useAuthStore();
   const { success, error: showError } = useNotifications();
   const { tableNumberEnabled } = useSettings();
   
@@ -128,10 +130,11 @@ const ManagerPOS = () => {
       resetPOSForm();
       success('Paiement réalisé. Commande envoyée en préparation.');
     } else {
-      resetPOSForm();
-      showError('Paiement non finalisé. La commande reste en attente dans Gestion de commande.');
+      // ✅ Ne pas réinitialiser le formulaire ni afficher d'erreur si l'utilisateur revient simplement à l'étape précédente
+      // Le panier doit rester intact
+      // Ne rien faire - le panier reste tel quel
     }
-  }, [resetPOSForm, success, showError]);
+  }, [resetPOSForm, success]);
 
   const handlePaymentWorkflowSubmit = useCallback(async (payload) => {
     if (!paymentWorkflowOrder) {
@@ -161,20 +164,26 @@ const ManagerPOS = () => {
     }
   }, [paymentWorkflowOrder, parseWorkflowItems, parseWorkflowPayments, showError]);
   
-  // Charger tous les produits (actifs ET inactifs) pour le POS
+  // Charger les produits adaptés au rôle (admin => tous, sinon actifs)
   useEffect(() => {
-    const loadAllProducts = async () => {
+    const loadProducts = async () => {
       try {
-        logger.log('🔄 ManagerPOS - Chargement de tous les produits...');
-        await fetchAllProductsAdmin();
-        logger.log('✅ ManagerPOS - Tous les produits chargés');
+        if (role === 'admin') {
+          logger.log('🔄 ManagerPOS - Chargement produits (admin)');
+          await fetchAllProductsAdmin();
+          logger.log('✅ ManagerPOS - Produits admin chargés');
+        } else {
+          logger.log('🔄 ManagerPOS - Chargement produits (manager/client)');
+          await fetchProductsForClient();
+          logger.log('✅ ManagerPOS - Produits actifs chargés');
+        }
       } catch (error) {
         logger.error('❌ ManagerPOS - Erreur chargement produits:', error);
       }
     };
-    
-    loadAllProducts();
-  }, [fetchAllProductsAdmin]);
+
+    loadProducts();
+  }, [role, fetchAllProductsAdmin, fetchProductsForClient]);
   
   // Filtrer et trier les produits
   const filteredProducts = useMemo(() => {
@@ -261,7 +270,7 @@ const ManagerPOS = () => {
   const taxAmount = subtotalAfterDiscount * TAX_RATE; // TVA
   const total = subtotalAfterDiscount + taxAmount;
   
-  // Vérifier le code promo (à implémenter avec l'API)
+  // Vérifier le code promo
   const handlePromoCodeCheck = async () => {
     if (!promoCode.trim()) {
       setPromoDiscount(0);
@@ -269,9 +278,27 @@ const ManagerPOS = () => {
     }
     
     try {
-      // TODO: Implémenter la vérification du code promo via API
-      showError('Vérification des codes promo à implémenter');
+      const result = await orderService.validatePromoCode(promoCode.trim(), subtotal);
+      
+      if (result.success && result.data) {
+        const promo = result.data;
+        let discount = 0;
+        
+        if (promo.discount_type === 'percentage') {
+          discount = (subtotal * parseFloat(promo.discount_value)) / 100;
+        } else {
+          discount = parseFloat(promo.discount_value);
+        }
+        
+        setPromoDiscount(discount);
+        success(`Code promo "${promoCode.toUpperCase()}" appliqué ! Réduction de ${discount.toFixed(2)} €`);
+      } else {
+        setPromoDiscount(0);
+        showError(result.error || 'Code promo invalide');
+      }
     } catch (error) {
+      logger.error('Erreur validation code promo:', error);
+      setPromoDiscount(0);
       showError('Erreur lors de la vérification du code promo');
     }
   };
@@ -329,6 +356,21 @@ const ManagerPOS = () => {
           }
 
           const orderDetails = orderDetailsResp.data;
+          
+          // ✅ Debug: Vérifier les données du code promo
+          if (orderDetails.promo_code || orderDetails.promoCode || orderDetails.promo_code_id) {
+            logger.debug('🔍 ManagerPOS - Code promo dans orderDetails:', {
+              promo_code: orderDetails.promo_code,
+              promoCode: orderDetails.promoCode,
+              promo_code_id: orderDetails.promo_code_id,
+              promo_code_description: orderDetails.promo_code_description,
+              promo_discount_type: orderDetails.promo_discount_type,
+              promo_discount_value: orderDetails.promo_discount_value,
+              discount_amount: orderDetails.discount_amount,
+              discountAmount: orderDetails.discountAmount
+            });
+          }
+          
           const normalizedOrder = {
             ...orderDetails,
             parsedItems: parseWorkflowItems(orderDetails),
@@ -376,7 +418,7 @@ const ManagerPOS = () => {
         {/* Catalogue Produits - Colonnes adaptées avec scroll */}
         <div className="flex-1 flex flex-col min-h-0 pr-3">
           {/* Filtres de catégories POS avec recherche - Fixe en haut */}
-          <div className="flex-shrink-0 sticky top-0 z-20 bg-white pb-3 pt-3 shadow-md overflow-visible">
+          <div className="flex-shrink-0 sticky top-0 z-20 pb-3 pt-3 overflow-visible">
             <CategoryFilterPOS 
               categories={categories}
               selectedCategory={selectedCategory}
@@ -389,8 +431,8 @@ const ManagerPOS = () => {
           </div>
           
           {/* Grille de produits responsive, compacte - Scrollable */}
-          <div className="flex-1 overflow-y-auto space-y-3">
-          <div className="grid gap-3 sm:gap-4 md:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="flex-1 overflow-y-auto space-y-3 p-4 md:p-5">
+          <div className="grid gap-3 sm:gap-4 md:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-4">
             {filteredProducts.map((product) => (
               <Card
                 key={product.id}
@@ -400,13 +442,13 @@ const ManagerPOS = () => {
                     addToCart(product);
                   }
                 }}
-                className={`rounded-xl p-3 sm:p-2 md:p-3 transition-all min-h-[200px] sm:min-h-[225px] border-2 bg-white ${
+                className={`rounded-xl p-3 sm:p-2 md:p-3 transition-all min-h-[170px] sm:min-h-[191px] border-2 bg-white ${
                   product.is_available 
-                    ? 'cursor-pointer shadow-lg scale-[1.02] active:scale-[0.98] border-neutral-600' 
-                    : 'opacity-60 cursor-not-allowed border-neutral-400 shadow-sm'
+                    ? 'cursor-pointer shadow-[0_0_15px_rgba(0,0,0,0.15)] scale-[1.02] active:scale-[0.98] border-neutral-600' 
+                    : 'opacity-60 cursor-not-allowed border-neutral-400 shadow-[0_0_10px_rgba(0,0,0,0.1)]'
                 }`}
               >
-                <div className="flex flex-col h-full relative min-h-[200px] sm:min-h-[225px]">
+                <div className="flex flex-col h-full relative min-h-[170px] sm:min-h-[191px]">
                   {/* Prix en haut à gauche dans un petit cadre */}
                   <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-black/80 backdrop-blur-sm rounded-lg shadow-lg">
                     <div className="text-base sm:text-lg font-heading font-bold text-white">
@@ -825,7 +867,7 @@ const ManagerPOS = () => {
                   onClick={handleCreateOrder}
                   loading={processing}
                   disabled={processing}
-                  className="bg-gradient-to-r from-neutral-900 via-neutral-800 to-black hover:from-black hover:to-neutral-900 text-white font-heading font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl transition-transform duration-200 transform hover:scale-[1.01]"
+                  className="bg-gradient-to-r from-neutral-900 via-neutral-800 to-black hover:from-black hover:to-neutral-900 text-white font-heading font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl transition-transform duration-200 transform"
                 >
                   {processing ? (
                     <span className="flex items-center gap-2">

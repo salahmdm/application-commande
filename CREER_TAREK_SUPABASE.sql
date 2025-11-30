@@ -15,7 +15,7 @@ INSERT INTO users (
 )
 VALUES (
   'tarek@test.com',
-  '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED',
+  '$2b$10$SUPABASE_USER_NO_PASSWORD_REQUIRED',
   'Tarek',
   '',
   'client',

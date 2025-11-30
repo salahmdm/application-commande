@@ -124,9 +124,7 @@ class SupabaseService {
   }
 
   /**
-   * Récupérer un utilisateur par email (pour synchronisation Firebase)
-   * @param {string} email - Email de l'utilisateur
-   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+   * Récupérer un utilisateur par email
    */
   async getUserByEmail(email) {
     try {
@@ -140,131 +138,6 @@ class SupabaseService {
       return { success: true, data: data || null };
     } catch (error) {
       console.error('❌ Supabase - Erreur getUserByEmail:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Créer ou mettre à jour un utilisateur Firebase dans Supabase
-   * Synchronise les données Firebase avec Supabase
-   * @param {object} firebaseUser - Données utilisateur Firebase
-   * @param {object} additionalData - Données supplémentaires (rôle, etc.)
-   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
-   */
-  async syncFirebaseUser(firebaseUser, additionalData = {}) {
-    try {
-      const email = firebaseUser.email;
-      if (!email) {
-        throw new Error('Email requis pour la synchronisation');
-      }
-
-      // Vérifier si l'utilisateur existe déjà dans Supabase
-      const existingUser = await this.getUserByEmail(email);
-      
-      if (existingUser.success && existingUser.data) {
-        // Mettre à jour l'utilisateur existant
-        const updates = {
-          email: email,
-          first_name: additionalData.firstName || additionalData.first_name || firebaseUser.displayName?.split(' ')[0] || '',
-          last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
-          avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
-          phone: additionalData.phone || null,
-          firebase_uid: firebaseUser.uid || firebaseUser.id || null, // Stocker l'UID Firebase
-          updated_at: new Date().toISOString()
-        };
-
-        // Ne pas écraser le rôle s'il existe déjà dans Supabase
-        if (existingUser.data.role) {
-          updates.role = existingUser.data.role; // Garder le rôle existant
-        } else if (additionalData.role) {
-          updates.role = additionalData.role; // Utiliser le nouveau rôle si pas de rôle existant
-        }
-
-        // Ne pas écraser les points de fidélité s'ils existent
-        if (existingUser.data.loyalty_points !== undefined && existingUser.data.loyalty_points !== null) {
-          updates.loyalty_points = existingUser.data.loyalty_points;
-        } else if (additionalData.loyalty_points !== undefined) {
-          updates.loyalty_points = additionalData.loyalty_points;
-        }
-
-        const { data, error } = await this.getClient()
-          .from('users')
-          .update(updates)
-          .eq('email', email)
-          .select()
-          .single();
-
-        if (error) throw error;
-        console.log('✅ Supabase - Utilisateur synchronisé (mis à jour):', email);
-        console.log('   📋 Informations mises à jour:', {
-          email: data?.email,
-          first_name: data?.first_name,
-          last_name: data?.last_name,
-          phone: data?.phone,
-          role: data?.role,
-          firebase_uid: data?.firebase_uid
-        });
-        return { success: true, data, isNew: false };
-      } else {
-        // Créer un nouvel utilisateur dans Supabase
-        // Note: password_hash est requis mais on ne peut pas le récupérer depuis Firebase
-        // On utilise un hash spécial pour indiquer que c'est un utilisateur Firebase
-        // Déterminer le rôle selon l'email si non fourni
-        let role = additionalData.role;
-        if (!role) {
-          const emailLower = email.toLowerCase();
-          if (emailLower === 'admin@blossom.com') {
-            role = 'admin';
-          } else if (emailLower === 'manager@blossom.com' || emailLower.includes('manager@')) {
-            role = 'manager';
-          } else {
-            role = 'client';
-          }
-        }
-        
-        const newUser = {
-          email: email,
-          password_hash: '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED', // Hash spécial pour Firebase
-          first_name: additionalData.firstName || additionalData.first_name || firebaseUser.displayName?.split(' ')[0] || 'Utilisateur',
-          last_name: additionalData.lastName || additionalData.last_name || firebaseUser.displayName?.split(' ').slice(1).join(' ') || 'Firebase',
-          role: role, // Rôle déterminé
-          loyalty_points: additionalData.loyalty_points || additionalData.points || 0,
-          avatar_url: additionalData.photoURL || additionalData.avatar_url || firebaseUser.photoURL || null,
-          phone: additionalData.phone || null,
-          firebase_uid: firebaseUser.uid || firebaseUser.id || null, // Stocker l'UID Firebase
-          is_active: 1,
-          email_verified: firebaseUser.emailVerified ? 1 : 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const { data, error } = await this.getClient()
-          .from('users')
-          .insert(newUser)
-          .select()
-          .single();
-
-        if (error) {
-          // Si erreur de contrainte unique (email déjà existant), essayer de mettre à jour
-          if (error.code === '23505') {
-            console.log('⚠️ Supabase - Email déjà existant, tentative de mise à jour...');
-            return await this.syncFirebaseUser(firebaseUser, additionalData);
-          }
-          throw error;
-        }
-        console.log('✅ Supabase - Utilisateur synchronisé (créé):', email);
-        console.log('   📋 Informations transférées:', {
-          email: data?.email,
-          first_name: data?.first_name,
-          last_name: data?.last_name,
-          phone: data?.phone,
-          role: data?.role,
-          firebase_uid: data?.firebase_uid
-        });
-        return { success: true, data, isNew: true };
-      }
-    } catch (error) {
-      console.error('❌ Supabase - Erreur syncFirebaseUser:', error);
       return { success: false, error: error.message };
     }
   }
@@ -711,14 +584,36 @@ class SupabaseService {
 
   async getOrderById(orderId) {
     try {
-      const { data, error } = await this.getClient()
+      // ✅ Récupérer la commande avec les informations du code promo
+      const { data: orderData, error: orderError } = await this.getClient()
         .from('orders')
         .select('*, users(*), order_items(*, products(*))')
         .eq('id', orderId)
         .single();
 
-      if (error) throw error;
-      return { success: true, data };
+      if (orderError) throw orderError;
+      
+      // ✅ Récupérer les informations du code promo si présent
+      if (orderData.promo_code_id) {
+        try {
+          const { data: promoCodeData, error: promoError } = await this.getClient()
+            .from('promo_codes')
+            .select('code, description, discount_type, discount_value')
+            .eq('id', orderData.promo_code_id)
+            .single();
+          
+          if (!promoError && promoCodeData) {
+            orderData.promo_code = promoCodeData.code;
+            orderData.promo_code_description = promoCodeData.description;
+            orderData.promo_discount_type = promoCodeData.discount_type;
+            orderData.promo_discount_value = promoCodeData.discount_value;
+          }
+        } catch (promoErr) {
+          console.warn('⚠️ Supabase - Erreur récupération code promo:', promoErr);
+        }
+      }
+      
+      return { success: true, data: orderData };
     } catch (error) {
       console.error('❌ Supabase - Erreur getOrderById:', error);
       return { success: false, error: error.message };
@@ -727,11 +622,8 @@ class SupabaseService {
 
   async createOrder(orderData) {
     try {
-      // ✅ IMPORTANT: Les utilisateurs Firebase ne sont PAS dans la table users de Supabase
-      // La table users de Supabase contient uniquement les utilisateurs MySQL (avec password_hash)
-      // Pour Firebase, on met user_id à NULL et on stocke l'UID dans les notes
-      let userId = null; // Toujours NULL pour Firebase (pas de mapping avec Supabase users)
-      let firebaseUid = null;
+      // ✅ Récupérer les informations utilisateur pour associer la commande
+      let userId = null;
       let userName = null;
       
       if (typeof window !== 'undefined') {
@@ -739,12 +631,10 @@ class SupabaseService {
           const userStr = localStorage.getItem('user');
           if (userStr) {
             const user = JSON.parse(userStr);
-            // Récupérer l'UID Firebase et le nom pour les notes
             if (user && !user.isGuest) {
-              firebaseUid = user.uid || user.id; // UID Firebase (chaîne)
               userName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Client';
+              userId = user.id || user.uid || orderData.userId || userId;
             } else if (user && user.isGuest) {
-              // Invité - pas d'UID Firebase
               userName = user.name || user.firstName || 'Invité';
             }
           }
@@ -951,25 +841,18 @@ class SupabaseService {
         }
       }
 
-      // ✅ Construire les notes avec les informations utilisateur Firebase si nécessaire
+      // ✅ Construire les notes avec les informations utilisateur
       let orderNotes = orderData.notes || '';
-      if (firebaseUid) {
-        // Ajouter l'UID Firebase dans les notes pour traçabilité
-        const firebaseInfo = `[Firebase UID: ${firebaseUid}]`;
-        orderNotes = orderNotes ? `${orderNotes}\n${firebaseInfo}` : firebaseInfo;
-      }
       if (userName && !orderNotes.includes(userName)) {
-        // Ajouter le nom du client si pas déjà présent
         const clientInfo = `Client: ${userName}`;
         orderNotes = orderNotes ? `${orderNotes}\n${clientInfo}` : clientInfo;
       }
       
       // ✅ Créer la commande
-      // user_id est NULL pour Firebase (pas de mapping avec Supabase users)
       const { data: order, error: orderError } = await this.getClient()
         .from('orders')
         .insert({
-          user_id: userId, // NULL pour Firebase, INTEGER pour utilisateurs MySQL
+          user_id: userId,
           order_number: orderNumber,
           order_type: orderData.orderType || 'dine-in',
           status: orderData.status || 'pending',

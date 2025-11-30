@@ -19,9 +19,7 @@ import {
   Clock,
   PieChart as PieIcon,
   AlertTriangle,
-  Settings,
-  Maximize2,
-  Minimize2
+  Package
 } from 'lucide-react';
 import {
   AreaChart,
@@ -44,12 +42,57 @@ import Button from '../../components/common/Button';
 import dashboardService from '../../services/dashboardService';
 import { formatPrice } from '../../constants/pricing';
 import logger from '../../utils/logger';
+import useAuth from '../../hooks/useAuth';
+import useAuthStore from '../../store/authStore';
 
 /**
  * Dashboard CA - Version Mobile-First Responsive
  * Optimisé pour mobile, tablette et desktop
  */
 const DashboardCA = () => {
+  const { role: roleFromHook, user: userFromHook } = useAuth();
+  const roleFromStore = useAuthStore((state) => state.role);
+  const userFromStore = useAuthStore((state) => state.user);
+  
+  // Utiliser le rôle du store en priorité, puis celui du hook, puis localStorage comme fallback
+  const getRoleFromLocalStorage = () => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        return user?.role || null;
+      }
+    } catch (e) {
+      // Ignorer
+    }
+    return null;
+  };
+  
+  const role = roleFromStore || roleFromHook || getRoleFromLocalStorage();
+  const user = userFromStore || userFromHook;
+  
+  const hasDashboardAccess = role === 'admin' || role === 'manager';
+  
+  // Log pour déboguer
+  React.useEffect(() => {
+    logger.log('🔐 DashboardCA - Vérification du rôle:');
+    logger.log('   - roleFromStore:', roleFromStore);
+    logger.log('   - roleFromHook:', roleFromHook);
+    logger.log('   - localStorage:', getRoleFromLocalStorage());
+    logger.log('   - role final:', role);
+    logger.log('   - user:', user?.email || 'N/A');
+    logger.log('   - hasDashboardAccess:', hasDashboardAccess);
+    
+    if (role) {
+      if (hasDashboardAccess) {
+        logger.log('✅ DashboardCA - Accès autorisé pour le rôle:', role);
+      } else {
+        logger.warn('⚠️ DashboardCA - Accès refusé pour le rôle:', role);
+      }
+    } else {
+      logger.warn('⚠️ DashboardCA - Aucun rôle détecté');
+    }
+  }, [role, roleFromStore, roleFromHook, hasDashboardAccess, user]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('month');
   const [referenceDate, setReferenceDate] = useState(new Date());
@@ -74,31 +117,11 @@ const DashboardCA = () => {
   const [topProducts, setTopProducts] = useState([]);
   const [peakHours, setPeakHours] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [criticalStock, setCriticalStock] = useState([]);
-  const [criticalStockStats, setCriticalStockStats] = useState({ totalCritical: 0, totalLow: 0 });
+  const [stockValue, setStockValue] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [editMode, setEditMode] = useState(false);
+  const [accessError, setAccessError] = useState(null);
+  const [serverError, setServerError] = useState(null);
   
-  // Taille du widget Transactions (en hauteur, en pixels)
-  const getSavedTransactionsHeight = () => {
-    try {
-      const saved = localStorage.getItem('dashboard-transactions-height');
-      return saved ? parseInt(saved) : 600;
-    } catch (error) {
-      logger.warn('DashboardCA: lecture de la hauteur transactions impossible, valeur par défaut utilisée.', error);
-      return 600;
-    }
-  };
-  const [transactionsHeight, setTransactionsHeight] = useState(getSavedTransactionsHeight());
-
-  const saveTransactionsHeight = (height) => {
-    setTransactionsHeight(height);
-    try {
-      localStorage.setItem('dashboard-transactions-height', height.toString());
-    } catch (error) {
-      logger.warn('DashboardCA: impossible de sauvegarder la hauteur des transactions.', error);
-    }
-  };
 
   const [chartType, setChartType] = useState('area');
 
@@ -165,85 +188,381 @@ const DashboardCA = () => {
     };
   };
 
+  const handleApiError = (error, contextLabel = 'requête', isCritical = false) => {
+    if (!error) return;
+    
+    logger.error(`❌ DashboardCA - Erreur ${contextLabel}:`, error);
+    logger.error(`   - Status: ${error.status || 'N/A'}`);
+    logger.error(`   - Message: ${error.message || error.error || 'Erreur inconnue'}`);
+    
+    if (error.status === 401 || error.status === 403) {
+      setAccessError((prev) => prev || "Accès refusé. Cette section est réservée aux managers et administrateurs.");
+    } else if (isCritical) {
+      // Seulement afficher l'erreur globale pour les erreurs critiques
+      setServerError(`Erreur lors du chargement des ${contextLabel}. Merci de réessayer plus tard.`);
+    } else {
+      // Pour les erreurs non-critiques, juste logger sans bloquer l'affichage
+      logger.warn(`⚠️ DashboardCA - Erreur non-critique ${contextLabel}, utilisation des valeurs par défaut`);
+    }
+  };
+
+  const safeRequest = async (requestPromise, contextLabel, fallbackValue = null, isCritical = false) => {
+    try {
+      const result = await requestPromise;
+      
+      // Vérifier si result est null ou undefined
+      if (!result) {
+        logger.warn(`⚠️ DashboardCA - ${contextLabel} a retourné null/undefined`);
+        handleApiError({ status: 500, error: 'Réponse vide du serveur', message: 'Aucune donnée reçue' }, contextLabel, isCritical);
+        return fallbackValue;
+      }
+      
+      // Vérifier si c'est une erreur explicite
+      if (result.success === false || result.error) {
+        const errorMsg = result.error || result.message || 'Erreur inconnue';
+        logger.warn(`⚠️ DashboardCA - ${contextLabel} a retourné une erreur:`, errorMsg);
+        handleApiError({ 
+          status: result.status || 500, 
+          error: errorMsg, 
+          message: errorMsg 
+        }, contextLabel, isCritical);
+        return fallbackValue;
+      }
+      
+      // Si pas de success mais pas d'erreur non plus, vérifier si c'est une réponse valide
+      if (result.success === undefined && !result.data && !result.data === undefined) {
+        // Si c'est critique et qu'on n'a pas de données, c'est une erreur
+        if (isCritical) {
+          logger.warn(`⚠️ DashboardCA - ${contextLabel} n'a pas retourné de données`);
+          handleApiError({ 
+            status: 500, 
+            error: 'Format de réponse invalide', 
+            message: 'Le serveur n\'a pas retourné les données attendues' 
+          }, contextLabel, isCritical);
+          return fallbackValue;
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error(`❌ DashboardCA - Exception lors de ${contextLabel}:`, error);
+      // Extraire les informations d'erreur
+      const errorInfo = {
+        status: error.status || error.response?.status || 500,
+        error: error.message || error.error || 'Erreur réseau',
+        message: error.message || error.error || 'Erreur lors de la communication avec le serveur'
+      };
+      handleApiError(errorInfo, contextLabel, isCritical);
+      return fallbackValue;
+    }
+  };
+
   const loadAllData = async () => {
+    // Vérifier le rôle depuis le store directement
+    const currentRole = useAuthStore.getState().role || role;
+    const currentUser = useAuthStore.getState().user || user;
+    
+    // Vérifier aussi dans localStorage comme fallback
+    let localRole = null;
+    try {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const localUser = JSON.parse(userStr);
+        localRole = localUser?.role;
+      }
+    } catch (e) {
+      // Ignorer
+    }
+    
+    const finalRole = currentRole || localRole;
+    const currentHasAccess = finalRole === 'admin' || finalRole === 'manager';
+    
+    logger.log('🔐 DashboardCA.loadAllData - Vérification accès:');
+    logger.log('   - currentRole (store):', currentRole);
+    logger.log('   - localRole (localStorage):', localRole);
+    logger.log('   - finalRole:', finalRole);
+    logger.log('   - currentHasAccess:', currentHasAccess);
+    logger.log('   - user email:', currentUser?.email || 'N/A');
+    
+    if (!currentHasAccess) {
+      // Si le rôle n'est pas encore chargé, attendre un peu
+      if (!finalRole && currentUser) {
+        logger.log('⏳ DashboardCA - Rôle non chargé, attente...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const updatedRole = useAuthStore.getState().role || getRoleFromLocalStorage();
+        if (updatedRole === 'admin' || updatedRole === 'manager') {
+          logger.log('✅ DashboardCA - Rôle chargé après attente:', updatedRole);
+          return loadAllData();
+        }
+      }
+      
+      // Seulement définir l'erreur si vraiment le rôle n'est pas admin ou manager
+      logger.warn('⚠️ DashboardCA - Accès refusé. Rôle actuel:', finalRole || 'non défini');
+      setAccessError("Vous n'avez pas les droits requis pour consulter ces statistiques (manager ou admin).");
+      setLoading(false);
+      return;
+    }
+
+    // Nettoyer l'erreur d'accès si le rôle est correct
+    setAccessError(null);
+    setServerError(null);
     setLoading(true);
     try {
       const { startDate, endDate } = getDates();
       const { compareStartDate, compareEndDate } = getComparisonDates(startDate, endDate);
 
+      logger.log('📊 DashboardCA - Début du chargement des données...');
+      logger.log(`   - Période: ${startDate} à ${endDate}`);
+      logger.log(`   - Période comparaison: ${compareStartDate} à ${compareEndDate}`);
+      logger.log(`   - API Base URL: ${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}`);
+      
       const [
         revenueResponse,
         topProductsResponse,
         peakHoursResponse,
         categoriesResponse,
-        criticalStockResponse,
+        stockValueResponse,
         ordersPeriodResponse
       ] = await Promise.all([
-        dashboardService.getRevenueStatsWithComparison(startDate, endDate, compareStartDate, compareEndDate),
-        dashboardService.getTopProductsPeriod(startDate, endDate, 5),
-        dashboardService.getPeakHours(startDate, endDate),
-        dashboardService.getCategoryDistribution(startDate, endDate),
-        dashboardService.getCriticalStock(),
-        dashboardService.getOrdersPeriod(startDate, endDate)
+        safeRequest(
+          dashboardService.getRevenueStatsWithComparison(startDate, endDate, compareStartDate, compareEndDate),
+          'statistiques CA',
+          { success: false, error: 'Erreur de chargement' },
+          true // Critique - afficher l'erreur si elle échoue
+        ),
+        safeRequest(
+          dashboardService.getTopProductsPeriod(startDate, endDate, 5),
+          'top produits',
+          { success: true, data: [] },
+          false // Non-critique
+        ),
+        safeRequest(
+          dashboardService.getPeakHours(startDate, endDate),
+          'heures de pointe',
+          { success: true, data: [] },
+          false // Non-critique
+        ),
+        safeRequest(
+          dashboardService.getCategoryDistribution(startDate, endDate),
+          'répartition par catégorie',
+          { success: true, data: [] },
+          false // Non-critique
+        ),
+        safeRequest(
+          dashboardService.getStockValue(),
+          'valeur stock',
+          { success: true, data: [], total_products: 0, total_items: 0, total_value: 0 },
+          false // Non-critique
+        ),
+        safeRequest(
+          dashboardService.getOrdersPeriod(startDate, endDate),
+          'transactions',
+          { success: true, data: [] },
+          false // Non-critique
+        )
       ]);
+      
+      logger.log('📊 DashboardCA - Réponses reçues:');
+      logger.log(`   - Revenus: ${revenueResponse?.success ? '✅' : '❌'}`, revenueResponse);
+      logger.log(`   - Top produits: ${topProductsResponse?.success ? '✅' : '❌'}`, topProductsResponse?.data?.length || 0, 'produits');
+      logger.log(`   - Heures de pointe: ${peakHoursResponse?.success ? '✅' : '❌'}`, peakHoursResponse?.data?.length || 0, 'heures');
+      logger.log(`   - Catégories: ${categoriesResponse?.success ? '✅' : '❌'}`, categoriesResponse?.data?.length || 0, 'catégories');
+      logger.log(`   - Valeur stock: ${stockValueResponse?.success ? '✅' : '❌'}`, stockValueResponse?.total_value || 0, '€');
+      logger.log(`   - Transactions: ${ordersPeriodResponse?.success ? '✅' : '❌'}`, ordersPeriodResponse?.data?.length || 0, 'transactions');
+      if (ordersPeriodResponse?.data) {
+        logger.log('   - Détails transactions:', ordersPeriodResponse.data.slice(0, 3));
+      }
 
+      // Vérifier si la requête critique a échoué
+      if (!revenueResponse || revenueResponse.success === false || (revenueResponse.error && !revenueResponse.data)) {
+        logger.error('❌ DashboardCA - La requête critique de revenus a échoué');
+        logger.error('   - Réponse complète:', JSON.stringify(revenueResponse, null, 2));
+        logger.error('   - Status:', revenueResponse?.status);
+        logger.error('   - Error:', revenueResponse?.error);
+        logger.error('   - Message:', revenueResponse?.message);
+        
+        let errorMessage = 'Erreur lors du chargement des statistiques de revenus';
+        
+        // Extraire le message d'erreur de différentes sources
+        if (revenueResponse?.error) {
+          errorMessage = typeof revenueResponse.error === 'string' 
+            ? revenueResponse.error 
+            : revenueResponse.error.message || 'Erreur inconnue';
+        } else if (revenueResponse?.message) {
+          errorMessage = revenueResponse.message;
+        }
+        
+        // Ajouter des détails selon le type d'erreur
+        if (revenueResponse?.status === 401 || revenueResponse?.status === 403) {
+          errorMessage = 'Accès refusé. Vérifiez que votre compte a les droits admin ou manager.';
+        } else if (revenueResponse?.status === 500) {
+          errorMessage = 'Erreur serveur. Veuillez contacter l\'administrateur.';
+        } else if (revenueResponse?.status === 404) {
+          errorMessage = 'Endpoint non trouvé. Vérifiez la configuration du serveur.';
+        } else if (!revenueResponse) {
+          errorMessage = 'Aucune réponse du serveur. Vérifiez votre connexion.';
+        }
+        
+        setServerError(`${errorMessage} Vérifiez votre connexion et réessayez.`);
+        setLoading(false);
+        return;
+      }
+      
+      // Vérifier que les données sont présentes
+      if (!revenueResponse.data) {
+        logger.error('❌ DashboardCA - Réponse sans données:', revenueResponse);
+        setServerError('Le serveur a retourné une réponse sans données. Vérifiez votre connexion et réessayez.');
+        setLoading(false);
+        return;
+      }
+      
       if (revenueResponse.success && revenueResponse.data) {
         const { current, growth, details } = revenueResponse.data;
         const isSingleDay = startDate === endDate;
         
-        const formattedDetails = details.map(day => {
-          const totalTTC = parseFloat(day.total_revenue) || 0;
+        logger.log('📊 DashboardCA - Formatage des détails:', details?.length || 0, 'entrées');
+        
+        // S'assurer que details est un tableau
+        const detailsArray = Array.isArray(details) ? details : [];
+        
+        const formattedDetails = detailsArray.map(day => {
+          const totalTTC = parseFloat(day.total_revenue || day.totalTTC || 0) || 0;
           const totalHT = totalTTC / 1.10;
           const tva = totalTTC - totalHT;
           
           let displayLabel;
-          if (isSingleDay && day.hour !== undefined) {
+          if (isSingleDay && day.hour !== undefined && day.hour !== null) {
             displayLabel = `${day.hour}h`;
+          } else if (day.date) {
+            try {
+              const date = new Date(day.date);
+              if (!isNaN(date.getTime())) {
+                displayLabel = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+              } else {
+                displayLabel = day.date;
+              }
+            } catch (e) {
+              displayLabel = day.date || 'Date invalide';
+            }
           } else {
-            const date = new Date(day.date);
-            displayLabel = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+            displayLabel = 'Date inconnue';
           }
           
           return {
             date: displayLabel,
-            rawDate: day.date,
+            rawDate: day.date || day.rawDate,
             hour: day.hour,
-            orders: parseInt(day.total_orders) || 0,
-            totalHT,
-            tva,
-            totalTTC
+            orders: parseInt(day.total_orders || day.orders || 0) || 0,
+            totalHT: parseFloat(totalHT.toFixed(2)),
+            tva: parseFloat(tva.toFixed(2)),
+            totalTTC: parseFloat(totalTTC.toFixed(2))
           };
         });
 
+        logger.log('📊 DashboardCA - Statistiques calculées:');
+        logger.log('   - CA TTC:', current.totalRevenue);
+        logger.log('   - CA HT:', current.totalHT);
+        logger.log('   - TVA:', current.totalTVA);
+        logger.log('   - Commandes:', current.totalOrders);
+        logger.log('   - Panier moyen:', current.avgOrder);
+        logger.log('   - Détails formatés:', formattedDetails.length);
+
         setStats({
-          totalTTC: current.totalRevenue,
-          totalHT: current.totalHT,
-          tva: current.totalTVA,
-          totalOrders: current.totalOrders,
-          avgOrder: current.avgOrder,
-          revenueGrowth: growth.revenue,
-          ordersGrowth: growth.orders,
-          avgOrderGrowth: growth.avgOrder,
+          totalTTC: parseFloat((parseFloat(current.totalRevenue || 0)).toFixed(2)),
+          totalHT: parseFloat((parseFloat(current.totalHT || 0)).toFixed(2)),
+          tva: parseFloat((parseFloat(current.totalTVA || 0)).toFixed(2)),
+          totalOrders: parseInt(current.totalOrders || 0),
+          avgOrder: parseFloat((parseFloat(current.avgOrder || 0)).toFixed(2)),
+          revenueGrowth: parseFloat((parseFloat(growth?.revenue || 0)).toFixed(2)),
+          ordersGrowth: parseFloat((parseFloat(growth?.orders || 0)).toFixed(2)),
+          avgOrderGrowth: parseFloat((parseFloat(growth?.avgOrder || 0)).toFixed(2)),
           details: formattedDetails.reverse()
         });
+      } else {
+        logger.warn('⚠️ DashboardCA - Réponse revenue sans données valides:', revenueResponse);
       }
 
-      if (topProductsResponse.success) setTopProducts(topProductsResponse.data || []);
-      if (peakHoursResponse.success) setPeakHours(peakHoursResponse.data || []);
-      if (categoriesResponse.success) setCategories(categoriesResponse.data || []);
-      if (criticalStockResponse.success) {
-        setCriticalStock(criticalStockResponse.data || []);
-        setCriticalStockStats({
-          totalCritical: criticalStockResponse.total_critical || 0,
-          totalLow: criticalStockResponse.total_low || 0
-        });
+      // Top produits
+      if (topProductsResponse && topProductsResponse.success) {
+        const products = topProductsResponse.data || [];
+        logger.log(`✅ DashboardCA - ${products.length} top produits récupérés`);
+        setTopProducts(products);
+      } else {
+        logger.warn('⚠️ DashboardCA - Top produits non disponibles');
+        setTopProducts([]);
       }
 
-      if (ordersPeriodResponse.success) {
-        setTransactions(ordersPeriodResponse.data || []);
+      // Heures de pointe
+      if (peakHoursResponse && peakHoursResponse.success) {
+        const hours = peakHoursResponse.data || [];
+        logger.log(`✅ DashboardCA - ${hours.length} heures de pointe récupérées`);
+        setPeakHours(hours);
+      } else {
+        logger.warn('⚠️ DashboardCA - Heures de pointe non disponibles');
+        setPeakHours([]);
+      }
+
+      // Catégories
+      if (categoriesResponse && categoriesResponse.success) {
+        const cats = categoriesResponse.data || [];
+        logger.log(`✅ DashboardCA - ${cats.length} catégories récupérées`);
+        setCategories(cats);
+      } else {
+        logger.warn('⚠️ DashboardCA - Catégories non disponibles');
+        setCategories([]);
+      }
+
+      // Stock critique
+      // Valeur du stock
+      if (stockValueResponse && stockValueResponse.success) {
+        logger.log(`✅ DashboardCA - Valeur stock récupérée: ${stockValueResponse.total_value || 0}€`);
+        setStockValue(stockValueResponse);
+      } else {
+        logger.warn('⚠️ DashboardCA - Valeur stock non disponible');
+        setStockValue(null);
+      }
+
+      if (ordersPeriodResponse && ordersPeriodResponse.success && ordersPeriodResponse.data) {
+        logger.log(`✅ DashboardCA - ${ordersPeriodResponse.data.length} transactions récupérées`);
+        // S'assurer que les données sont bien formatées
+        const formattedTransactions = (ordersPeriodResponse.data || []).map(t => ({
+          id: t.id,
+          order_number: t.order_number,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+          total_amount: parseFloat(t.total_amount) || 0,
+          payment_method: t.payment_method || 'Non spécifié',
+          payment_status: t.payment_status || t.paymentStatus || 'pending',
+          paymentStatus: t.payment_status || t.paymentStatus || 'pending',
+          status: t.status || 'pending',
+          items_count: parseInt(t.items_count) || 0,
+          first_name: t.first_name || '',
+          last_name: t.last_name || '',
+          email: t.email || ''
+        }));
+        setTransactions(formattedTransactions);
+        logger.log('✅ DashboardCA - Transactions formatées et définies:', formattedTransactions.length);
+      } else {
+        logger.warn('⚠️ DashboardCA - Aucune transaction récupérée ou réponse invalide:', ordersPeriodResponse);
+        setTransactions([]);
       }
     } catch (error) {
-      logger.error('❌ Erreur:', error);
+      logger.error('❌ DashboardCA - Erreur globale dans loadAllData:', error);
+      logger.error('   - Type:', error?.constructor?.name);
+      logger.error('   - Message:', error?.message);
+      logger.error('   - Stack:', error?.stack);
+      
+      // Gérer les erreurs de connexion réseau
+      if (error?.message?.includes('Failed to fetch') || 
+          error?.message?.includes('NetworkError') || 
+          error?.message?.includes('ECONNREFUSED') ||
+          error?.name === 'ConnectionError') {
+        setServerError('Impossible de se connecter au serveur. Vérifiez que le serveur backend est démarré et que votre connexion internet fonctionne.');
+      } else if (error?.status === 401 || error?.status === 403) {
+        setAccessError('Accès refusé. Vérifiez que votre compte a les droits admin ou manager.');
+      } else {
+        handleApiError(error, 'chargement global', true);
+      }
     } finally {
       setLoading(false);
     }
@@ -270,9 +589,66 @@ const DashboardCA = () => {
   };
 
   useEffect(() => {
-    loadAllData();
+    // Attendre un peu que le rôle soit chargé depuis le store
+    const checkRoleAndLoad = async () => {
+      // Vérifier le rôle depuis toutes les sources
+      const currentRole = roleFromStore || roleFromHook || getRoleFromLocalStorage();
+      const currentUser = userFromStore || userFromHook;
+      
+      logger.log('🔐 DashboardCA.useEffect - Vérification du rôle:');
+      logger.log('   - roleFromStore:', roleFromStore);
+      logger.log('   - roleFromHook:', roleFromHook);
+      logger.log('   - localStorage:', getRoleFromLocalStorage());
+      logger.log('   - currentRole:', currentRole);
+      logger.log('   - currentUser:', currentUser?.email || 'N/A');
+      
+      // Si le rôle n'est pas encore chargé mais qu'on a un utilisateur, attendre un peu
+      if (!currentRole && currentUser) {
+        logger.log('⏳ DashboardCA - Rôle non chargé mais utilisateur présent, attente...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const updatedRole = useAuthStore.getState().role || getRoleFromLocalStorage();
+        if (updatedRole === 'admin' || updatedRole === 'manager') {
+          logger.log('✅ DashboardCA - Rôle chargé après attente:', updatedRole);
+          loadAllData();
+          return;
+        }
+      }
+      
+      // Si on a un rôle, vérifier l'accès
+      if (currentRole) {
+        if (currentRole === 'admin' || currentRole === 'manager') {
+          logger.log('✅ DashboardCA - Accès autorisé, chargement des données...');
+          loadAllData();
+        } else {
+          logger.warn('⚠️ DashboardCA - Accès refusé pour le rôle:', currentRole);
+          setAccessError("Vous n'avez pas les droits requis pour consulter ces statistiques (manager ou admin).");
+          setLoading(false);
+        }
+      } else if (currentUser) {
+        // Si on a un utilisateur mais pas de rôle, attendre encore un peu
+        logger.log('⏳ DashboardCA - Utilisateur présent mais rôle manquant, attente supplémentaire...');
+        setTimeout(() => {
+          const finalRole = useAuthStore.getState().role || getRoleFromLocalStorage();
+          if (finalRole === 'admin' || finalRole === 'manager') {
+            logger.log('✅ DashboardCA - Rôle chargé après attente supplémentaire:', finalRole);
+            loadAllData();
+          } else {
+            logger.warn('⚠️ DashboardCA - Rôle toujours manquant après attente');
+            setAccessError("Vous n'avez pas les droits requis pour consulter ces statistiques (manager ou admin).");
+            setLoading(false);
+          }
+        }, 1000);
+      } else {
+        // Pas d'utilisateur et pas de rôle
+        logger.warn('⚠️ DashboardCA - Aucun utilisateur ni rôle détecté');
+        setAccessError("Vous n'avez pas les droits requis pour consulter ces statistiques (manager ou admin).");
+        setLoading(false);
+      }
+    };
+    
+    checkRoleAndLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, customDateRange, referenceDate]);
+  }, [role, roleFromStore, roleFromHook, filter, customDateRange, referenceDate, hasDashboardAccess, user, userFromStore, userFromHook]);
 
   // KPI Card Mobile-First
   const KPICard = ({ icon: Icon, label, value, sublabel, gradient, trend, trendValue }) => {
@@ -319,6 +695,51 @@ const DashboardCA = () => {
     );
   };
 
+  // Nettoyer l'erreur si le rôle est maintenant correct
+  React.useEffect(() => {
+    const finalRoleCheck = roleFromStore || roleFromHook || getRoleFromLocalStorage();
+    const finalHasAccess = finalRoleCheck === 'admin' || finalRoleCheck === 'manager';
+    
+    if (accessError && finalHasAccess) {
+      logger.log('✅ DashboardCA - Rôle correct détecté, nettoyage de l\'erreur d\'accès');
+      logger.log('   - finalRoleCheck:', finalRoleCheck);
+      setAccessError(null);
+    }
+  }, [accessError, roleFromStore, roleFromHook]);
+  
+  // Vérifier le rôle une dernière fois avant d'afficher l'erreur
+  const finalRoleCheck = roleFromStore || roleFromHook || getRoleFromLocalStorage();
+  const finalHasAccess = finalRoleCheck === 'admin' || finalRoleCheck === 'manager';
+  
+  // Ne pas afficher l'erreur si le rôle est correct
+  if (accessError && !finalHasAccess) {
+    logger.warn('⚠️ DashboardCA - Affichage du message d\'erreur d\'accès');
+    logger.warn('   - accessError:', accessError);
+    logger.warn('   - finalRoleCheck:', finalRoleCheck);
+    logger.warn('   - finalHasAccess:', finalHasAccess);
+    
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 p-4">
+        <div className="bg-white shadow-2xl rounded-2xl p-8 max-w-xl text-center space-y-4">
+          <AlertTriangle className="w-12 h-12 mx-auto text-red-500" />
+          <h1 className="text-2xl font-bold text-gray-900">Accès restreint</h1>
+          <p className="text-gray-600">{accessError}</p>
+          <p className="text-sm text-gray-500">
+            Vérifie que ton compte dispose bien des droits manager ou admin, puis reconnecte-toi.
+          </p>
+          <div className="mt-4 p-4 bg-gray-100 rounded-lg text-left text-xs">
+            <p className="font-semibold mb-2">Informations de débogage:</p>
+            <p>Rôle détecté: <strong>{finalRoleCheck || 'non défini'}</strong></p>
+            <p>Email: <strong>{user?.email || 'non défini'}</strong></p>
+            <p>Rôle depuis store: <strong>{roleFromStore || 'non défini'}</strong></p>
+            <p>Rôle depuis hook: <strong>{roleFromHook || 'non défini'}</strong></p>
+            <p>Rôle depuis localStorage: <strong>{getRoleFromLocalStorage() || 'non défini'}</strong></p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && stats.totalTTC === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-4">
@@ -335,36 +756,53 @@ const DashboardCA = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 p-2 sm:p-4 md:p-6 lg:p-8">
-      <div className="max-w-[1800px] mx-auto space-y-4 md:space-y-6">
+      <div className="w-full max-w-full mx-auto space-y-4 md:space-y-6">
+        {serverError && (
+          <div className="flex items-start gap-3 p-4 rounded-2xl border border-red-200 bg-red-50 text-red-700">
+            <AlertTriangle className="w-5 h-5 mt-1 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold mb-1">Erreur de chargement</p>
+              <p className="text-sm mb-3">{serverError}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    setServerError(null);
+                    setLoading(true);
+                    loadAllData();
+                  }}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Réessayer
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.reload();
+                  }}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
+                >
+                  Recharger la page
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* EN-TÊTE RESPONSIVE */}
-        <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-2xl md:rounded-3xl p-4 md:p-6 lg:p-8 shadow-xl md:shadow-2xl text-white">
-          <div className="flex flex-col gap-4 md:gap-6">
+        <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-2xl md:rounded-3xl p-3 md:p-4 lg:p-5 shadow-xl md:shadow-2xl text-white">
+          <div className="flex flex-col gap-2 md:gap-3">
             {/* Titre et icône */}
-            <div className="flex items-center gap-3 md:gap-4">
-              <div className="p-2 md:p-3 lg:p-4 bg-white bg-opacity-20 rounded-xl md:rounded-2xl backdrop-blur-sm flex-shrink-0">
-                <BarChart3 className="w-6 h-6 md:w-8 md:h-8 lg:w-10 lg:h-10" />
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="p-1.5 md:p-2 lg:p-2.5 bg-white bg-opacity-20 rounded-xl md:rounded-2xl backdrop-blur-sm flex-shrink-0">
+                <BarChart3 className="w-5 h-5 md:w-6 md:h-6 lg:w-7 lg:h-7" />
               </div>
               <div className="flex-1 min-w-0">
-                <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold truncate">Dashboard CA</h1>
-                <p className="text-white text-opacity-90 text-xs sm:text-sm md:text-base mt-1 flex items-center gap-2 flex-wrap">
-                  <span>Analyse en temps réel</span>
-                  <span className="px-2 md:px-3 py-0.5 md:py-1 bg-white bg-opacity-20 rounded-full text-xs font-semibold">Live</span>
-                </p>
+                <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold truncate">Dashboard CA</h1>
               </div>
             </div>
 
             {/* Boutons - Adaptés mobile */}
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setEditMode(!editMode)}
-                className={`flex-1 sm:flex-none ${editMode ? 'bg-blue-600 bg-opacity-90 border-blue-500' : 'bg-white bg-opacity-20 border-white border-opacity-40'} text-white hover:bg-opacity-30 backdrop-blur-sm text-xs md:text-sm px-3 md:px-4 py-2`}
-                icon={<Settings className="w-4 h-4 md:w-5 md:h-5" />}
-              >
-                <span className="hidden sm:inline">{editMode ? 'Édition: ON' : 'Mode édition'}</span>
-                <span className="sm:hidden">{editMode ? 'ON' : 'Edit'}</span>
-              </Button>
               <Button
                 variant="outline"
                 onClick={loadAllData}
@@ -822,70 +1260,82 @@ const DashboardCA = () => {
             </div>
           </Card>
 
-          {/* STOCK CRITIQUE - Compact mobile */}
+          {/* PRODUITS EN STOCK - Valeur du stock */}
           <Card className="shadow-lg md:shadow-xl">
             <div className="p-4 md:p-6">
               <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
-                <div className="p-2 md:p-3 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg md:rounded-xl">
-                  <AlertTriangle className="w-5 h-5 md:w-6 md:h-6 text-white animate-pulse" />
+                <div className="p-2 md:p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg md:rounded-xl">
+                  <Package className="w-5 h-5 md:w-6 md:h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-base md:text-xl font-bold text-gray-900">Stock Critique</h2>
-                  <p className="text-xs md:text-sm text-gray-600 hidden sm:inline">À réapprovisionner</p>
+                  <h2 className="text-base md:text-xl font-bold text-gray-900">Produits en stock</h2>
+                  <p className="text-xs md:text-sm text-gray-600 hidden sm:inline">Valeur totale du stock</p>
                 </div>
               </div>
 
-              {criticalStock.length > 0 ? (
+              {stockValue && stockValue.success ? (
                 <div>
-                  {/* Stats - Grid 3 colonnes mobile */}
-                  <div className="grid grid-cols-3 gap-2 md:gap-3 mb-3 md:mb-4">
-                    <div className="p-2 md:p-3 bg-red-50 rounded-lg border border-red-200">
-                      <p className="text-xs text-red-700 font-semibold mb-1">Rupture</p>
-                      <p className="text-lg md:text-2xl font-bold text-red-900">
-                        {criticalStock.filter(p => p.status === 'out').length}
+                  {/* Stats principales */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-4 md:mb-6">
+                    <div className="p-3 md:p-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border-2 border-emerald-200">
+                      <p className="text-xs md:text-sm text-emerald-700 font-semibold mb-2">Valeur totale</p>
+                      <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-900">
+                        {formatPrice(stockValue.total_value || 0)}
                       </p>
                     </div>
-                    <div className="p-2 md:p-3 bg-orange-50 rounded-lg border border-orange-200">
-                      <p className="text-xs text-orange-700 font-semibold mb-1">Critique</p>
-                      <p className="text-lg md:text-2xl font-bold text-orange-900">{criticalStockStats.totalCritical}</p>
+                    <div className="p-3 md:p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200">
+                      <p className="text-xs md:text-sm text-blue-700 font-semibold mb-2">Produits</p>
+                      <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-blue-900">
+                        {stockValue.total_products || 0}
+                      </p>
                     </div>
-                    <div className="p-2 md:p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <p className="text-xs text-yellow-700 font-semibold mb-1">Bas</p>
-                      <p className="text-lg md:text-2xl font-bold text-yellow-900">{criticalStockStats.totalLow}</p>
+                    <div className="p-3 md:p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200">
+                      <p className="text-xs md:text-sm text-purple-700 font-semibold mb-2">Articles</p>
+                      <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-purple-900">
+                        {stockValue.total_items || 0}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Liste - Max 5, scrollable */}
-                  <div className="space-y-2 max-h-48 md:max-h-64 overflow-y-auto">
-                    {criticalStock.slice(0, 5).map((product) => (
-                      <div 
-                        key={product.id}
-                        className={`p-2 md:p-3 rounded-lg ${
-                          product.status === 'out' ? 'bg-red-50 border border-red-200' :
-                          product.status === 'critical' ? 'bg-orange-50 border border-orange-200' :
-                          'bg-yellow-50 border border-yellow-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="font-semibold text-xs md:text-sm text-gray-900 truncate flex-1 mr-2">{product.name}</p>
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                            product.status === 'out' ? 'bg-red-600 text-white' :
-                            product.status === 'critical' ? 'bg-orange-600 text-white' :
-                            'bg-yellow-600 text-white'
-                          }`}>
-                            {product.current_stock}/{product.min_stock}
-                          </span>
+                  {/* Liste des produits - Max 5, scrollable */}
+                  {stockValue.data && stockValue.data.length > 0 ? (
+                    <div className="space-y-2 max-h-48 md:max-h-64 overflow-y-auto">
+                      {stockValue.data.slice(0, 5).map((product) => (
+                        <div 
+                          key={product.id}
+                          className="p-2 md:p-3 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 mr-2">
+                              <p className="font-semibold text-xs md:text-sm text-gray-900 truncate">{product.name}</p>
+                              <p className="text-xs text-gray-600 mt-0.5">
+                                {product.stock} × {formatPrice(product.price)} = {formatPrice(product.value)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs md:text-sm font-bold text-emerald-700">
+                                {formatPrice(product.value)}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                      {stockValue.data.length > 5 && (
+                        <p className="text-xs text-gray-500 text-center pt-2">
+                          + {stockValue.data.length - 5} autre{stockValue.data.length - 5 > 1 ? 's' : ''} produit{stockValue.data.length - 5 > 1 ? 's' : ''}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-gray-500">
+                      <p className="text-sm">Aucun produit en stock</p>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="text-center py-8 md:py-12 text-green-600">
-                  <div className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl md:text-3xl">✓</span>
-                  </div>
-                  <p className="font-semibold text-sm md:text-base">Stocks OK</p>
+                <div className="text-center py-8 md:py-12 text-gray-500">
+                  <Package className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="font-semibold text-sm md:text-base">Chargement...</p>
                 </div>
               )}
             </div>
@@ -909,48 +1359,68 @@ const DashboardCA = () => {
             {/* Tableau - Scroll horizontal sur mobile */}
             <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
               <div className="bg-gradient-to-br from-gray-50 to-indigo-50 rounded-xl p-3 md:p-4 min-w-[600px] md:min-w-0">
-                {stats.details.length > 0 ? (
-                  <table className="w-full text-xs md:text-sm">
-                    <thead>
-                      <tr className="border-b-2 border-indigo-200">
-                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Date</th>
-                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">Cmd</th>
-                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">CA HT</th>
-                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">TVA</th>
-                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">CA TTC</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats.details.map((row, i) => (
-                        <tr key={i} className="border-b border-gray-200 hover:bg-white transition-colors">
-                          <td className="p-2 md:p-3 font-medium text-gray-900">{row.date}</td>
+                {stats.details && stats.details.length > 0 ? (
+                  <>
+                    <div className="mb-3 p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+                      <p className="text-sm font-semibold text-indigo-700">
+                        {stats.details.length} période{stats.details.length > 1 ? 's' : ''} trouvée{stats.details.length > 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <table className="w-full text-xs md:text-sm">
+                      <thead>
+                        <tr className="border-b-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+                          <th className="text-left p-2 md:p-3 font-bold text-gray-900">Date/Heure</th>
+                          <th className="text-right p-2 md:p-3 font-bold text-gray-900">Commandes</th>
+                          <th className="text-right p-2 md:p-3 font-bold text-gray-900">CA HT</th>
+                          <th className="text-right p-2 md:p-3 font-bold text-gray-900">TVA (10%)</th>
+                          <th className="text-right p-2 md:p-3 font-bold text-gray-900">CA TTC</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stats.details.map((row, i) => (
+                          <tr key={i} className="border-b border-gray-200 hover:bg-white transition-colors">
+                            <td className="p-2 md:p-3 font-medium text-gray-900 whitespace-nowrap">{row.date}</td>
+                            <td className="p-2 md:p-3 text-right">
+                              <span className="px-2 md:px-3 py-0.5 md:py-1 bg-blue-100 text-blue-800 rounded-full font-semibold">
+                                {row.orders || 0}
+                              </span>
+                            </td>
+                            <td className="p-2 md:p-3 text-right text-gray-700 whitespace-nowrap">{formatPrice(row.totalHT || 0)}</td>
+                            <td className="p-2 md:p-3 text-right text-gray-700 whitespace-nowrap">{formatPrice(row.tva || 0)}</td>
+                            <td className="p-2 md:p-3 text-right font-bold text-green-700 whitespace-nowrap">{formatPrice(row.totalTTC || 0)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-gradient-to-r from-green-50 to-emerald-50 border-t-2 border-green-300 font-bold">
+                          <td className="p-2 md:p-3 font-bold text-gray-900">TOTAL</td>
                           <td className="p-2 md:p-3 text-right">
-                            <span className="px-2 md:px-3 py-0.5 md:py-1 bg-blue-100 text-blue-800 rounded-full font-semibold">
-                              {row.orders}
+                            <span className="px-2 md:px-3 py-0.5 md:py-1 bg-green-600 text-white rounded-full font-bold">
+                              {stats.totalOrders || 0}
                             </span>
                           </td>
-                          <td className="p-2 md:p-3 text-right text-gray-700">{formatPrice(row.totalHT)}</td>
-                          <td className="p-2 md:p-3 text-right text-gray-700">{formatPrice(row.tva)}</td>
-                          <td className="p-2 md:p-3 text-right font-bold text-green-700">{formatPrice(row.totalTTC)}</td>
+                          <td className="p-2 md:p-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatPrice(stats.totalHT || 0)}</td>
+                          <td className="p-2 md:p-3 text-right font-bold text-gray-900 whitespace-nowrap">{formatPrice(stats.tva || 0)}</td>
+                          <td className="p-2 md:p-3 text-right font-bold text-green-700 text-base md:text-lg whitespace-nowrap">{formatPrice(stats.totalTTC || 0)}</td>
                         </tr>
-                      ))}
-                      <tr className="bg-gradient-to-r from-green-50 to-emerald-50 border-t-2 border-green-300">
-                        <td className="p-2 md:p-3 font-bold text-gray-900">TOTAL</td>
-                        <td className="p-2 md:p-3 text-right">
-                          <span className="px-2 md:px-3 py-0.5 md:py-1 bg-green-600 text-white rounded-full font-bold">
-                            {stats.totalOrders}
-                          </span>
-                        </td>
-                        <td className="p-2 md:p-3 text-right font-bold text-gray-900">{formatPrice(stats.totalHT)}</td>
-                        <td className="p-2 md:p-3 text-right font-bold text-gray-900">{formatPrice(stats.tva)}</td>
-                        <td className="p-2 md:p-3 text-right font-bold text-green-700 text-base md:text-lg">{formatPrice(stats.totalTTC)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                      </tbody>
+                    </table>
+                  </>
                 ) : (
                   <div className="text-center py-8 md:py-12 text-gray-500">
                     <FileText className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 opacity-30" />
-                    <p className="text-sm md:text-base">Aucune donnée</p>
+                    <p className="text-sm md:text-base font-semibold mb-2">Aucune donnée pour cette période</p>
+                    <p className="text-xs text-gray-400">
+                      Période: {(() => {
+                        const { startDate, endDate } = getDates();
+                        return `${startDate} à ${endDate}`;
+                      })()}
+                    </p>
+                    <button
+                      onClick={loadAllData}
+                      className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-2 mx-auto"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Recharger les données
+                    </button>
                   </div>
                 )}
               </div>
@@ -964,7 +1434,7 @@ const DashboardCA = () => {
         </Card>
 
       {/* TRANSACTIONS PAR PÉRIODE */}
-      <Card className={`shadow-lg md:shadow-xl transition-all ${editMode ? 'ring-2 ring-blue-400 ring-offset-2' : ''}`}>
+      <Card className="shadow-lg md:shadow-xl transition-all">
         <div className="p-4 md:p-6">
           <div className="flex items-center justify-between gap-2 md:gap-3 mb-4 md:mb-6">
             <div className="flex items-center gap-2 md:gap-3">
@@ -977,97 +1447,119 @@ const DashboardCA = () => {
               </div>
             </div>
             
-            {/* Contrôles de taille en mode édition */}
-            {editMode && (
-              <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-                <span className="text-xs font-semibold text-blue-700 hidden sm:inline">Hauteur:</span>
-                <button
-                  onClick={() => saveTransactionsHeight(Math.max(300, transactionsHeight - 50))}
-                  className="p-1.5 bg-white rounded hover:bg-blue-100 transition-colors"
-                  title="Réduire"
-                >
-                  <Minimize2 className="w-4 h-4 text-blue-600" />
-                </button>
-                <span className="text-xs font-bold text-blue-700 min-w-[50px] text-center">
-                  {transactionsHeight}px
-                </span>
-                <button
-                  onClick={() => saveTransactionsHeight(Math.min(1200, transactionsHeight + 50))}
-                  className="p-1.5 bg-white rounded hover:bg-blue-100 transition-colors"
-                  title="Augmenter"
-                >
-                  <Maximize2 className="w-4 h-4 text-blue-600" />
-                </button>
-                <button
-                  onClick={() => saveTransactionsHeight(600)}
-                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                  title="Réinitialiser"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
           </div>
 
-          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0" style={{ height: editMode ? `${transactionsHeight}px` : 'auto', maxHeight: editMode ? `${transactionsHeight}px` : 'none', overflowY: editMode ? 'auto' : 'visible' }}>
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
             <div className="bg-white rounded-xl p-3 md:p-4 min-w-[700px] md:min-w-0 border border-gray-100">
               {transactions.length > 0 ? (
-                <table className="w-full text-xs md:text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-emerald-200">
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Date</th>
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">N°</th>
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Client</th>
-                      <th className="text-right p-2 md:p-3 font-bold text-gray-900">Articles</th>
-                      <th className="text-right p-2 md:p-3 font-bold text-gray-900">Total</th>
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Méthode</th>
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Paiement</th>
-                      <th className="text-left p-2 md:p-3 font-bold text-gray-900">Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions.map((t) => {
-                      const rawPaymentStatus = (t.payment_status || t.paymentStatus || '').toLowerCase();
-                      const isTransactionPaid = ['completed', 'paid', 'completed_payment'].includes(rawPaymentStatus);
-                      const paymentLabel = isTransactionPaid ? 'Payé' : 'Non payé';
-                      const paymentBadgeClass = isTransactionPaid
-                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                        : 'bg-red-100 text-red-600 border border-red-200';
-
-                      return (
-                      <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="p-2 md:p-3 text-gray-700">
-                          {new Date(t.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="p-2 md:p-3 font-semibold text-gray-900">{formatOrderNumber(t.order_number, t.id)}</td>
-                        <td className="p-2 md:p-3 text-gray-700 truncate">
-                          {t.first_name || t.last_name ? `${t.first_name || ''} ${t.last_name || ''}`.trim() : 'Invité'}
-                        </td>
-                        <td className="p-2 md:p-3 text-right text-gray-700">{t.items_count}</td>
-                        <td className="p-2 md:p-3 text-right font-semibold text-emerald-700">{formatPrice(parseFloat(t.total_amount || 0))}</td>
-                        <td className="p-2 md:p-3 text-gray-700">{t.payment_method || 'N/A'}</td>
-                        <td className="p-2 md:p-3">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${paymentBadgeClass}`}>
-                            {paymentLabel}
-                          </span>
-                        </td>
-                        <td className="p-2 md:p-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                            t.status === 'served' ? 'bg-green-100 text-green-700' :
-                            t.status === 'preparing' ? 'bg-yellow-100 text-yellow-700' :
-                            t.status === 'pending' ? 'bg-blue-100 text-blue-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>{t.status}</span>
-                        </td>
+                <>
+                  <div className="mb-3 p-2 bg-emerald-50 rounded-lg border border-emerald-200">
+                    <p className="text-sm font-semibold text-emerald-700">
+                      {transactions.length} transaction{transactions.length > 1 ? 's' : ''} trouvée{transactions.length > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <table className="w-full text-xs md:text-sm">
+                    <thead>
+                      <tr className="border-b-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Date</th>
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">N° Commande</th>
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Client</th>
+                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">Articles</th>
+                        <th className="text-right p-2 md:p-3 font-bold text-gray-900">Total</th>
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Méthode</th>
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Paiement</th>
+                        <th className="text-left p-2 md:p-3 font-bold text-gray-900">Statut</th>
                       </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {transactions.map((t) => {
+                        const rawPaymentStatus = (t.payment_status || t.paymentStatus || '').toLowerCase();
+                        const isTransactionPaid = ['completed', 'paid', 'completed_payment'].includes(rawPaymentStatus);
+                        const paymentLabel = isTransactionPaid ? 'Payé' : 'Non payé';
+                        const paymentBadgeClass = isTransactionPaid
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : 'bg-red-100 text-red-600 border border-red-200';
+
+                        // Formater la date
+                        let formattedDate = 'Date invalide';
+                        try {
+                          const date = new Date(t.created_at);
+                          if (!isNaN(date.getTime())) {
+                            formattedDate = date.toLocaleString('fr-FR', { 
+                              day: '2-digit', 
+                              month: 'short', 
+                              year: 'numeric', 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            });
+                          }
+                        } catch (e) {
+                          logger.warn('⚠️ Erreur formatage date transaction:', t.id, t.created_at);
+                        }
+
+                        // Formater le nom du client
+                        const clientName = (t.first_name || t.last_name) 
+                          ? `${t.first_name || ''} ${t.last_name || ''}`.trim() 
+                          : 'Invité';
+
+                        // Formater le statut
+                        const statusLabels = {
+                          'served': 'Servie',
+                          'preparing': 'En préparation',
+                          'pending': 'En attente',
+                          'ready': 'Prête',
+                          'cancelled': 'Annulée'
+                        };
+                        const statusLabel = statusLabels[t.status] || t.status || 'Inconnu';
+                        const statusClass = {
+                          'served': 'bg-green-100 text-green-700',
+                          'preparing': 'bg-yellow-100 text-yellow-700',
+                          'pending': 'bg-blue-100 text-blue-700',
+                          'ready': 'bg-purple-100 text-purple-700',
+                          'cancelled': 'bg-red-100 text-red-700'
+                        }[t.status] || 'bg-gray-100 text-gray-700';
+
+                        return (
+                          <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                            <td className="p-2 md:p-3 text-gray-700 whitespace-nowrap">{formattedDate}</td>
+                            <td className="p-2 md:p-3 font-semibold text-gray-900">{formatOrderNumber(t.order_number, t.id)}</td>
+                            <td className="p-2 md:p-3 text-gray-700 truncate max-w-[150px]" title={clientName}>
+                              {clientName}
+                            </td>
+                            <td className="p-2 md:p-3 text-right text-gray-700">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                                {t.items_count || 0}
+                              </span>
+                            </td>
+                            <td className="p-2 md:p-3 text-right font-semibold text-emerald-700 whitespace-nowrap">
+                              {formatPrice(parseFloat(t.total_amount || 0))}
+                            </td>
+                            <td className="p-2 md:p-3 text-gray-700 capitalize">
+                              {t.payment_method || 'Non spécifié'}
+                            </td>
+                            <td className="p-2 md:p-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${paymentBadgeClass}`}>
+                                {paymentLabel}
+                              </span>
+                            </td>
+                            <td className="p-2 md:p-3">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusClass}`}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
               ) : (
                 <div className="text-center py-8 md:py-12 text-gray-500">
                   <Receipt className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 opacity-30" />
-                  <p className="text-sm md:text-base">Aucune transaction sur la période</p>
+                  <p className="text-sm md:text-base font-semibold mb-2">Aucune transaction sur la période</p>
+                  <p className="text-xs text-gray-400">
+                    Période: {customDateRange.from} à {customDateRange.to}
+                  </p>
                 </div>
               )}
             </div>

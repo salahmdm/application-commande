@@ -1,8 +1,8 @@
 -- ============================================================================
 -- Migration : Permettre user_id NULL dans la table orders
 -- ============================================================================
--- Cette migration permet de créer des commandes pour les utilisateurs Firebase
--- qui ne sont pas dans la table users de Supabase
+-- Cette migration permet de créer des commandes pour les utilisateurs
+-- qui ne sont pas encore présents dans la table users de Supabase
 -- ============================================================================
 -- Date : 2025
 -- ============================================================================
@@ -19,8 +19,8 @@ ALTER TABLE "orders"
 -- Vérification : La contrainte FOREIGN KEY existante devrait déjà permettre NULL
 -- car PostgreSQL permet les valeurs NULL dans les clés étrangères par défaut
 
--- Note : Les commandes avec user_id NULL sont pour :
--- - Les utilisateurs Firebase (UID stocké dans notes)
--- - Les invités (nom stocké dans notes)
--- - Les commandes depuis le kiosk
+-- Note : Les commandes avec user_id NULL sont utilisées pour :
+-- - Les invités (nom stocké dans les notes)
+-- - Les commandes issues du kiosk
+-- - Les commandes créées avant la synchronisation complète des comptes
 

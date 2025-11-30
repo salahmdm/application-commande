@@ -107,9 +107,10 @@ const useCartStore = create(
       // Actions
       addItem: (product) => {
         // ✅ Vérifier que le panier appartient à l'utilisateur actuel
-        get().checkUserCart();
+        const state = get();
+        state.checkUserCart();
         
-        const { items } = get();
+        const { items } = state;
         const existingItem = items.find(item => item.id === product.id);
         
         if (existingItem) {
@@ -123,13 +124,19 @@ const useCartStore = create(
         } else {
           set({ items: [...items, { ...product, quantity: 1 }] });
         }
+        
+        // ✅ Revalider le code promo après modification du panier
+        setTimeout(() => {
+          get().revalidatePromoCode();
+        }, 100);
       },
       
       updateQuantity: (productId, change) => {
         // ✅ Vérifier que le panier appartient à l'utilisateur actuel
-        get().checkUserCart();
+        const state = get();
+        state.checkUserCart();
         
-        const { items } = get();
+        const { items } = state;
         set({
           items: items
             .map(item => {
@@ -141,15 +148,45 @@ const useCartStore = create(
             })
             .filter(Boolean)
         });
+        
+        // ✅ Revalider le code promo après modification du panier
+        setTimeout(() => {
+          get().revalidatePromoCode();
+        }, 100);
       },
       
       removeItem: (productId) => {
         // ✅ Vérifier que le panier appartient à l'utilisateur actuel
-        get().checkUserCart();
+        const state = get();
+        state.checkUserCart();
         
-        set(state => ({
-          items: state.items.filter(item => item.id !== productId)
+        set(prevState => ({
+          items: prevState.items.filter(item => item.id !== productId)
         }));
+        
+        // ✅ Revalider le code promo après modification du panier
+        setTimeout(() => {
+          get().revalidatePromoCode();
+        }, 100);
+      },
+      
+      // ✅ Alias pour compatibilité avec CartDrawer
+      increment: (productId) => {
+        const state = get();
+        const product = state.items.find(item => item.id === productId);
+        if (product) {
+          state.addItem(product);
+        }
+      },
+      
+      decrement: (productId) => {
+        const state = get();
+        state.updateQuantity(productId, -1);
+      },
+      
+      remove: (productId) => {
+        const state = get();
+        state.removeItem(productId);
       },
       
       clearCart: () => {
@@ -326,6 +363,54 @@ const useCartStore = create(
         
         set({ promoCode: null, discount: 0, discountPercentage: 0, promoData: null });
         // Note: Ne pas supprimer les réductions de fidélité, elles sont séparées
+      },
+      
+      // ✅ Revalider le code promo après modification du panier
+      revalidatePromoCode: async () => {
+        const state = get();
+        // ✅ Vérifier que le panier appartient à l'utilisateur actuel
+        state.checkUserCart();
+        
+        // Si aucun code promo n'est appliqué, ne rien faire
+        if (!state.promoCode) {
+          return;
+        }
+        
+        try {
+          const subtotal = state.getSubtotal();
+          const result = await orderService.validatePromoCode(state.promoCode, subtotal);
+          
+          if (result.success && result.data) {
+            const promo = result.data;
+            let discountAmount = 0;
+            let discountPercentage = 0;
+            
+            if (promo.discount_type === 'percentage') {
+              discountPercentage = parseFloat(promo.discount_value);
+              discountAmount = (subtotal * discountPercentage) / 100;
+            } else {
+              discountAmount = parseFloat(promo.discount_value);
+              discountPercentage = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
+            }
+            
+            // Mettre à jour les valeurs de réduction
+            set({ 
+              discount: discountAmount,
+              discountPercentage: discountPercentage,
+              promoData: promo
+            });
+            
+            logger.log(`✅ Code promo revalidé: ${state.promoCode} (-${discountAmount.toFixed(2)} €)`);
+          } else {
+            // Code promo invalide (montant minimum non respecté, expiré, etc.)
+            logger.warn(`⚠️ Code promo "${state.promoCode}" invalide après modification du panier. Retrait automatique.`);
+            set({ promoCode: null, discount: 0, discountPercentage: 0, promoData: null });
+          }
+        } catch (error) {
+          logger.error('❌ Erreur revalidation code promo:', error);
+          // En cas d'erreur, retirer le code promo pour éviter des réductions incorrectes
+          set({ promoCode: null, discount: 0, discountPercentage: 0, promoData: null });
+        }
       },
       
       // Appliquer une récompense de fidélité

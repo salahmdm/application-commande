@@ -154,19 +154,78 @@ const getAuthToken = () => {
   return token; // Retourner null si pas de token (les cookies seront utilisés automatiquement)
 };
 
+const getUserContext = () => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem('user');
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed) {
+      return null;
+    }
+
+    const normalizeRole = (role) => {
+      if (!role) return null;
+      return role.toString().trim().toLowerCase();
+    };
+
+    const firstName = parsed.first_name ?? parsed.firstName ?? '';
+    const lastName = parsed.last_name ?? parsed.lastName ?? '';
+
+    const normalizedRole = normalizeRole(parsed.role);
+    
+    // ✅ CRITIQUE: Logger le rôle récupéré pour diagnostic
+    if (!normalizedRole) {
+      logger.warn('⚠️ getUserContext - Rôle manquant ou invalide dans localStorage:', {
+        hasRole: !!parsed.role,
+        roleRaw: parsed.role,
+        roleType: typeof parsed.role,
+        userId: parsed.uid || parsed.id || parsed.user_id
+      });
+    }
+    
+    return {
+      id: parsed.uid || parsed.id || parsed.user_id || null,
+      email: parsed.email || null,
+      role: normalizedRole || 'client', // ✅ Toujours retourner un rôle (fallback: 'client')
+      name: parsed.name || `${firstName} ${lastName}`.trim() || parsed.email || '',
+      isGuest: parsed.isGuest === true,
+    };
+  } catch (error) {
+    logger.warn('⚠️ Erreur récupération user context:', error);
+    return null;
+  }
+};
+
 /**
  * Wrapper pour les appels fetch avec gestion des erreurs et authentification
  */
 export const apiCall = async (endpoint, options = {}) => {
+  // ✅ Vérification de sécurité : endpoint doit être défini
+  if (!endpoint || typeof endpoint !== 'string') {
+    throw new Error(`Endpoint invalide pour l'appel API: ${endpoint}`);
+  }
+  
   // ✅ Vérifier si c'est une route publique (pas besoin de token)
-  const isPublicRoute = endpoint.includes('/restaurant-info') || 
-                        endpoint.includes('/settings/') || 
-                        endpoint.includes('/products') || 
-                        endpoint.includes('/categories') ||
-                        endpoint.includes('/news') ||
-                        endpoint.includes('/loyalty-rewards') ||
-                        endpoint.includes('/csrf-token') ||
-                        endpoint.includes('/health');
+  // ⚠️ CRITIQUE: Exclure les routes admin/manager de la liste des routes publiques
+  const isAdminRoute = endpoint.startsWith('/admin/') || endpoint.startsWith('/manager/');
+  const isPublicRoute = !isAdminRoute && (
+                        endpoint === '/restaurant-info' ||
+                        endpoint.startsWith('/restaurant-info') && !endpoint.includes('/admin/') ||
+                        endpoint.startsWith('/settings/') ||
+                        (endpoint === '/products' || endpoint.startsWith('/products/') || endpoint === '/products/all') ||
+                        (endpoint === '/categories' || endpoint.startsWith('/categories/')) ||
+                        endpoint.startsWith('/news') ||
+                        endpoint.startsWith('/loyalty-rewards') ||
+                        endpoint === '/csrf-token' ||
+                        endpoint === '/health' ||
+                        endpoint.startsWith('/auth/login') ||
+                        endpoint.startsWith('/auth/register'));
   
   // ✅ SÉCURITÉ: Vérifier l'expiration du token avant la requête
   // ✅ Seulement pour les routes non publiques
@@ -198,39 +257,96 @@ export const apiCall = async (endpoint, options = {}) => {
   
   const url = `${API_BASE_URL}${endpoint}`;
   
+  // ✅ Sécuriser options pour éviter les erreurs (DOIT être fait AVANT toute utilisation)
+  const safeOptions = options || {};
+  const method = safeOptions.method || 'GET';
+  
   try {
     // ✅ SÉCURITÉ: Masquer les tokens dans les URLs avant de logger
     const sanitizedUrl = url.replace(/([?&]token=)[^&]*/gi, '$1***MASKED***').replace(/\/token\/[^/\s]+/gi, '/token/***MASKED***');
-    logger.debug('🌐 API Call:', options.method || 'GET', sanitizedUrl);
+    logger.debug('🌐 API Call:', method, sanitizedUrl);
     
     // ✅ SÉCURITÉ: Récupérer le token CSRF pour les requêtes modifiantes
     let csrfToken = null;
-    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method || 'GET')) {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(safeOptions.method || 'GET')) {
       csrfToken = await getCsrfToken();
     }
-
+    
+    // Construire les headers
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      ...options.headers,
+      ...(safeOptions.headers || {}),
     };
+
+    const userContext = getUserContext();
+    if (userContext) {
+      if (userContext.id) {
+        headers['X-User-Id'] = userContext.id;
+      }
+      if (userContext.email) {
+        headers['X-User-Email'] = userContext.email;
+      }
+      if (userContext.role) {
+        headers['X-User-Role'] = userContext.role;
+        headers['X-User-Is-Admin'] = (userContext.role === 'admin').toString();
+      }
+      headers['X-User-Is-Guest'] = userContext.isGuest ? 'true' : 'false';
+    }
     
     // Préparer le body - stringify si c'est un objet
-    const body = options.body 
-      ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body))
+    const body = safeOptions.body 
+      ? (typeof safeOptions.body === 'string' ? safeOptions.body : JSON.stringify(safeOptions.body))
       : undefined;
     
     // ✅ CRITIQUE: Inclure les cookies dans toutes les requêtes (credentials: 'include')
     // Cela permet d'envoyer automatiquement les cookies HTTP-only
     // ✅ STABILITÉ: Supporter AbortController signal pour les timeouts
-    const response = await fetch(url, {
-      ...options,
+    // ✅ CORRECTION: Ne pas écraser headers, body, credentials avec le spread options
+    // Construire fetchOptions en excluant explicitement les propriétés qu'on gère séparément
+    const signal = safeOptions.signal;
+    
+    // ✅ Construire les options fetch en préservant les valeurs critiques
+    // Construire explicitement fetchOptions avec seulement les propriétés nécessaires
+    const fetchOptions = {
+      method: safeOptions.method || 'GET',
       headers,
-      body,
-      credentials: 'include', // ✅ Nécessaire pour envoyer les cookies HTTP-only
-      signal: options.signal // ✅ Support du signal AbortController pour les timeouts
-    });
+      credentials: 'include', // ✅ Nécessaire pour envoyer les cookies HTTP-only (priorité absolue)
+    };
+    
+    // Ajouter les propriétés optionnelles de safeOptions (cache, redirect, etc.) si présentes
+    if (safeOptions.cache !== undefined) fetchOptions.cache = safeOptions.cache;
+    if (safeOptions.redirect !== undefined) fetchOptions.redirect = safeOptions.redirect;
+    if (safeOptions.referrer !== undefined) fetchOptions.referrer = safeOptions.referrer;
+    if (safeOptions.referrerPolicy !== undefined) fetchOptions.referrerPolicy = safeOptions.referrerPolicy;
+    if (safeOptions.mode !== undefined) fetchOptions.mode = safeOptions.mode;
+    if (safeOptions.keepalive !== undefined) fetchOptions.keepalive = safeOptions.keepalive;
+    
+    // ✅ Ajouter body seulement s'il est défini (évite les erreurs si undefined)
+    if (body !== undefined && body !== null) {
+      fetchOptions.body = body;
+    }
+    
+    // ✅ Ajouter le signal seulement s'il est défini (évite les erreurs si undefined)
+    if (signal) {
+      fetchOptions.signal = signal;
+    }
+    
+    // ✅ Vérifications de sécurité avant l'appel fetch
+    if (!url || typeof url !== 'string' || url.trim() === '') {
+      throw new Error(`URL invalide pour l'appel API: ${url}`);
+    }
+    
+    if (!fetchOptions || typeof fetchOptions !== 'object') {
+      throw new Error('Options fetch invalides');
+    }
+    
+    if (!fetchOptions.headers || typeof fetchOptions.headers !== 'object') {
+      throw new Error('Headers fetch invalides');
+    }
+    
+    const response = await fetch(url, fetchOptions);
     
     // ✅ Log seulement si erreur (niveau INFO)
     if (!response.ok) {
@@ -238,20 +354,45 @@ export const apiCall = async (endpoint, options = {}) => {
     }
     
     if (!response.ok) {
+      const isSettingsParam404 = response.status === 404 && endpoint?.startsWith('/settings/');
+      if (isSettingsParam404) {
+        logger.debug(`ℹ️ Paramètre ${endpoint} introuvable (404). Retour valeur par défaut.`);
+        return { success: false, error: 'Paramètre non trouvé', status: 404 };
+      }
       const errorData = await response.json().catch(() => ({}));
       // Reporter l'erreur HTTP si activé
       reportDiag({
         message: `HTTP ${response.status} on ${url}`,
-        details: { endpoint, method: options.method || 'GET', error: errorData?.error || errorData?.message },
+        details: { endpoint, method: method, error: errorData?.error || errorData?.message },
         endpoint,
-        method: options.method || 'GET',
+        method: method,
         responseStatus: response.status
       });
-      logger.error('❌ ERREUR RÉPONSE API (HTTP', response.status, ')');
-      logger.error('Error Data:', errorData);
-      logger.error('Error Message:', errorData.error || errorData.message);
-      logger.error('Endpoint:', endpoint);
-      logger.error('URL complète:', url);
+      // ✅ LOGGING INTELLIGENT: Ne logger que les erreurs importantes
+      // - Les erreurs 401/403 sont déjà gérées par le fallback Supabase → logger.debug()
+      // - Les erreurs 404 attendues (settings) → logger.debug()
+      // - Les erreurs critiques (500, etc.) → logger.error()
+      // - Les erreurs de validation → logger.warn()
+      
+      const isAuthError = response.status === 401 || response.status === 403;
+      const isExpected404 = response.status === 404 && endpoint?.startsWith('/settings/');
+      const isValidationError = errorData?.code === 'VALIDATION_ERROR';
+      const isCriticalError = response.status >= 500;
+      
+      // ✅ Grouper toutes les infos dans un seul message compact
+      if (isCriticalError) {
+        // Erreurs serveur critiques → logger.error() (toujours visible)
+        logger.error(`❌ ERREUR API [${response.status}] ${endpoint}:`, errorData?.error || errorData?.message || 'Erreur serveur');
+      } else if (isValidationError) {
+        // Erreurs de validation → logger.warn() (avertissement)
+        logger.warn(`⚠️ Validation [${endpoint}]:`, errorData?.error || errorData?.message);
+      } else if (isAuthError || isExpected404) {
+        // Erreurs d'auth ou 404 attendus → logger.debug() (détails seulement en debug)
+        logger.debug(`🔍 API [${response.status}] ${endpoint}:`, errorData?.error || errorData?.message || 'Non disponible');
+      } else {
+        // Autres erreurs (400, etc.) → logger.warn() (avertissement)
+        logger.warn(`⚠️ API [${response.status}] ${endpoint}:`, errorData?.error || errorData?.message || 'Erreur');
+      }
       // ✅ Afficher les détails de validation si disponibles
       if (errorData.code === 'VALIDATION_ERROR' && errorData.details && Array.isArray(errorData.details)) {
         logger.debug('Détails de validation:', errorData.details);
@@ -263,6 +404,13 @@ export const apiCall = async (endpoint, options = {}) => {
       
       // Gestion spécifique des erreurs d'authentification
       if (response.status === 401 || response.status === 403) {
+        // ✅ CRÉER UNE ERREUR STRUCTURÉE AVEC LE STATUS POUR PERMETTRE LE FALLBACK
+        const authError = new Error(errorData?.error || errorData?.message || `HTTP ${response.status}`);
+        authError.status = response.status;
+        authError.statusCode = response.status;
+        authError.isAuthError = true;
+        authError.errorData = errorData;
+        
         // Vérifier si c'est un invité (pas de token attendu)
         const userStr = localStorage.getItem('user');
         const isGuest = userStr ? JSON.parse(userStr).isGuest : false;
@@ -317,19 +465,12 @@ export const apiCall = async (endpoint, options = {}) => {
                 // Le backend gère déjà l'erreur, pas besoin de modifier l'état frontend
               }
               // ✅ Pas de log pour les invités ou routes publiques - c'est normal
-            }
+          }
         }
-      }
-      
-      // ✅ CORRECTION CRITIQUE: Pour les erreurs 401/403, ne pas throw immédiatement
-      // Cela permet aux composants de gérer l'erreur sans déclencher de re-renders
-      // Seulement throw si ce n'est pas une erreur d'auth (pour les autres erreurs)
-      if (response.status === 401 || response.status === 403) {
-        // Ne pas throw pour les erreurs 401/403, retourner une erreur silencieuse
-        // Les composants pourront gérer l'affichage sans causer de re-renders
-        const authError = new Error(errorData.error || errorData.message || `Erreur HTTP ${response.status}`);
-        authError.status = response.status;
-        authError.silent = true; // Flag pour indiquer que c'est une erreur silencieuse
+        
+        // ✅ PROPAGER L'ERREUR D'AUTHENTIFICATION POUR PERMETTRE LES FALLBACKS
+        // Les services qui appellent cette fonction peuvent alors détecter l'erreur 401/403
+        // et activer leurs mécanismes de fallback (par exemple, Supabase direct)
         throw authError;
       }
       
@@ -391,9 +532,9 @@ export const apiCall = async (endpoint, options = {}) => {
     // Reporter l'exception réseau si activé
     reportDiag({
       message: `Fetch error on ${url}`,
-      details: { endpoint, method: options.method || 'GET', name: error?.name, message: error?.message },
+      details: { endpoint, method: method, name: error?.name, message: error?.message },
       endpoint,
-      method: options.method || 'GET',
+      method: method,
       responseStatus: error?.status || null,
       stack: error?.stack || null
     });

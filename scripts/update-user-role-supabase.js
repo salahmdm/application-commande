@@ -30,9 +30,9 @@ const updateUserRole = async (email, newRole) => {
       console.log('\n💡 Vérifications:');
       console.log('   1. L\'utilisateur existe-t-il dans la table "users" de Supabase ?');
       console.log('   2. L\'email est-il exactement: ' + email);
-      console.log('   3. L\'utilisateur a-t-il été synchronisé depuis Firebase ?');
+      console.log('   3. L\'utilisateur s\'est-il déjà connecté au moins une fois ?');
       console.log('\n💡 Si l\'utilisateur n\'existe pas, connectez-vous une fois avec cet email');
-      console.log('   pour qu\'il soit automatiquement créé dans Supabase.');
+      console.log('   afin qu\'il soit automatiquement créé dans Supabase.');
       return { success: false, error: 'Utilisateur non trouvé' };
     }
 

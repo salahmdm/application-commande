@@ -21,19 +21,6 @@ const supabaseKey =
 
 // Logs pour diagnostic (toujours actifs pour voir la configuration)
 const hasEnvVars = !!(import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL);
-if (!hasEnvVars) {
-  console.warn('⚠️ Supabase - Variables d\'environnement non détectées, utilisation des valeurs par défaut');
-  console.warn('   → Configurez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY dans Vercel pour une meilleure sécurité');
-}
-
-if (import.meta.env.DEV || !hasEnvVars) {
-  console.log('🔍 Supabase - Configuration :');
-  console.log('   VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL || '❌ non défini (valeur par défaut utilisée)');
-  console.log('   NEXT_PUBLIC_SUPABASE_URL:', import.meta.env.NEXT_PUBLIC_SUPABASE_URL || '❌ non défini (valeur par défaut utilisée)');
-  console.log('   VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY ? '✅ défini' : '❌ non défini (valeur par défaut utilisée)');
-  console.log('   NEXT_PUBLIC_SUPABASE_ANON_KEY:', import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '✅ défini' : '❌ non défini (valeur par défaut utilisée)');
-  console.log('   URL utilisée:', supabaseUrl);
-}
 
 // Création du client
 const supabase = createClient(supabaseUrl, supabaseKey, {

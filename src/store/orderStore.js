@@ -1,6 +1,24 @@
 import { create } from 'zustand';
 import orderService from '../services/orderService';
 import logger from '../utils/logger';
+import useAuthStore from './authStore';
+
+const getAuthContext = () => {
+  try {
+    const state = useAuthStore.getState();
+    return {
+      role: state.role,
+      userId: state.user?.id || state.user?.uid || null
+    };
+  } catch (_error) {
+    return { role: null, userId: null };
+  }
+};
+
+const hasManagerAccess = () => {
+  const { role } = getAuthContext();
+  return role === 'manager' || role === 'admin';
+};
 
 /**
  * Store des commandes
@@ -12,15 +30,19 @@ const useOrderStore = create((set, get) => ({
   isLoading: false,
   error: null,
   
-  // Charger toutes les commandes depuis MySQL
+  // Charger les commandes adaptées au rôle
   fetchOrders: async () => {
     set({ isLoading: true, error: null });
     try {
       logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       logger.log('📋 orderStore.fetchOrders - Début chargement');
       logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      const privilegedAccess = hasManagerAccess();
+      logger.log('📋 orderStore.fetchOrders - Accès manager/admin:', privilegedAccess);
       
-      const response = await orderService.getUserOrders();
+      const response = privilegedAccess
+        ? await orderService.getAllOrders()
+        : await orderService.getUserOrders();
       
       logger.log('📋 orderStore.fetchOrders - Réponse reçue');
       logger.log('   - success:', response?.success);
@@ -97,6 +119,11 @@ const useOrderStore = create((set, get) => ({
   // Mettre à jour le statut d'une commande - Sauvegarde dans MySQL
   updateOrderStatus: async (orderId, newStatus) => {
     try {
+      if (!hasManagerAccess()) {
+        const errorMessage = 'Accès manager ou admin requis pour modifier une commande';
+        logger.warn('⚠️ orderStore.updateOrderStatus - Accès refusé');
+        throw new Error(errorMessage);
+      }
       const response = await orderService.updateOrderStatus(orderId, newStatus);
       if (response.success) {
         set(state => ({
@@ -116,6 +143,11 @@ const useOrderStore = create((set, get) => ({
   
   // Annuler une commande
   cancelOrder: async (orderId) => {
+    if (!hasManagerAccess()) {
+      const errorMessage = 'Accès manager ou admin requis pour annuler une commande';
+      logger.warn('⚠️ orderStore.cancelOrder - Accès refusé');
+      throw new Error(errorMessage);
+    }
     return await get().updateOrderStatus(orderId, 'cancelled');
   },
   

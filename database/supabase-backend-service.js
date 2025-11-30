@@ -249,6 +249,9 @@ class SupabaseBackendService {
           }
         }
       }
+      
+      // ✅ Support pour plusieurs conditions WHERE avec AND
+      // Si options.where est un objet avec plusieurs clés, toutes sont appliquées avec AND
 
       // ORDER BY
       if (options.orderBy) {

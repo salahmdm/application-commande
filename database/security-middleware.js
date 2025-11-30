@@ -300,13 +300,40 @@ const csrfProtection = (req, res, next) => {
 
 // Auth: require JWT in cookie or Authorization Bearer
 const authenticateToken = (req, res, next) => {
-  // ✅ Support des cookies token (normal) et kiosk_token (pour les bornes)
-  const tokenFromCookie = req.cookies && (req.cookies.token || req.cookies.kiosk_token);
+  // ✅ INTELLIGENT: Choisir le bon token selon la route
+  // - Pour /api/kiosk/* : utiliser kiosk_token en priorité
+  // - Pour toutes les autres routes : utiliser token (NE PAS utiliser kiosk_token)
+  const isKioskRoute = req.path && req.path.startsWith('/api/kiosk/');
+  const isAdminOrManagerRoute = req.path && (req.path.startsWith('/api/admin/') || req.path.startsWith('/api/manager/'));
+  
+  let tokenFromCookie = null;
+  if (isKioskRoute) {
+    // Pour les routes kiosk, accepter kiosk_token OU token
+    tokenFromCookie = req.cookies && (req.cookies.kiosk_token || req.cookies.token);
+  } else if (isAdminOrManagerRoute) {
+    // Pour les routes admin/manager, NE JAMAIS utiliser kiosk_token (sécurité)
+    tokenFromCookie = req.cookies && req.cookies.token;
+  } else {
+    // Pour les autres routes, utiliser token en priorité, kiosk_token en fallback
+    tokenFromCookie = req.cookies && (req.cookies.token || req.cookies.kiosk_token);
+  }
+  
   const authHeader = req.headers['authorization'];
   const tokenFromHeader = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.split(' ')[1]
     : null;
   const token = tokenFromCookie || tokenFromHeader;
+
+  // ✅ DEBUG: Logger la présence du token pour diagnostiquer les problèmes d'authentification
+  if (process.env.NODE_ENV === 'development') {
+    logger.debug('🔐 authenticateToken - Vérification:', {
+      path: req.path,
+      hasTokenFromCookie: !!tokenFromCookie,
+      hasTokenFromHeader: !!tokenFromHeader,
+      hasToken: !!token,
+      cookiesKeys: req.cookies ? Object.keys(req.cookies) : []
+    });
+  }
 
   if (!token) {
     // ✅ SÉCURITÉ: Vérifier si le bypass dev est autorisé avec toutes les conditions
@@ -316,9 +343,11 @@ const authenticateToken = (req, res, next) => {
       req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
       return next();
     }
+    logger.warn('❌ authenticateToken - Token manquant:', { path: req.path, ip: req.ip });
     return res.status(401).json({ error: 'Authentification requise' });
   }
   if (!config || !config.jwt || !config.jwt.secret) {
+    logger.error('❌ authenticateToken - JWT non configuré');
     return res.status(500).json({ error: 'JWT non configuré' });
   }
   jwt.verify(token, config.jwt.secret, (err, payload) => {
@@ -330,13 +359,64 @@ const authenticateToken = (req, res, next) => {
         req.user = { id: 0, email: 'dev@local', role: 'manager', devBypass: true };
         return next();
       }
+      logger.warn('❌ authenticateToken - Token invalide ou expiré:', { path: req.path, error: err.message });
       return res.status(403).json({ error: 'Token invalide ou expiré' });
     }
+    
+    // ✅ CRITIQUE: Normaliser le rôle depuis le JWT token
+    const normalizedRoleFromToken = payload.role ? String(payload.role).trim().toLowerCase() : null;
+    
+    // ✅ DEBUG: Logger les informations utilisateur extraites du token (toujours actif)
+    logger.debug('✅ authenticateToken - Token valide:', {
+      userId: payload.id,
+      email: payload.email,
+      roleRaw: payload.role,
+      roleNormalized: normalizedRoleFromToken,
+      roleType: typeof payload.role,
+      roleValue: JSON.stringify(payload.role),
+      path: req.path
+    });
+    
+    // ✅ CRITIQUE: S'assurer que le rôle est toujours présent et normalisé
+    if (!normalizedRoleFromToken) {
+      logger.error('❌ authenticateToken - Rôle manquant dans le JWT token:', {
+        userId: payload.id,
+        email: payload.email,
+        payload: JSON.stringify(payload)
+      });
+      return res.status(500).json({ error: 'Erreur serveur: rôle manquant dans le token' });
+    }
+    
+    // ✅ SÉCURITÉ: Empêcher les comptes kiosk d'accéder aux routes admin/manager
+    if (isAdminOrManagerRoute && normalizedRoleFromToken === 'kiosk') {
+      logger.warn('❌ authenticateToken - Tentative d\'accès admin/manager avec compte kiosk:', {
+        userId: payload.id,
+        email: payload.email,
+        role: normalizedRoleFromToken,
+        path: req.path,
+        ip: req.ip
+      });
+      return res.status(403).json({ 
+        error: 'Accès refusé. Les comptes kiosk ne peuvent pas accéder aux routes admin/manager.',
+        message: 'Veuillez vous connecter avec un compte admin ou manager.'
+      });
+    }
+    
     req.user = {
       id: payload.id,
-      email: payload.email,
-      role: payload.role,
+      email: payload.email || '',
+      role: normalizedRoleFromToken, // ✅ Utiliser le rôle normalisé
+      isGuest: false
     };
+    
+    logger.debug('✅ authenticateToken - Utilisateur configuré:', {
+      userId: req.user.id,
+      email: req.user.email,
+      role: req.user.role,
+      isKioskRoute,
+      isAdminOrManagerRoute
+    });
+    
     return next();
   });
 };
@@ -355,11 +435,63 @@ const requireRole = (roles) => (req, res, next) => {
     }
     return next();
   }
-  if (!req.user) return res.status(401).json({ error: 'Authentification requise' });
-  const allowed = Array.isArray(roles) ? roles : [roles];
-  if (!allowed.includes(req.user.role)) {
-    return res.status(403).json({ error: 'Accès refusé' });
+  
+  // ✅ Vérifier que req.user existe (doit être défini par authenticateToken)
+  if (!req.user) {
+    logger.warn('❌ requireRole - req.user non défini:', { path: req.path, ip: req.ip });
+    return res.status(401).json({ error: 'Authentification requise' });
   }
+  
+  const allowed = Array.isArray(roles) ? roles : [roles];
+  // ✅ NORMALISATION: Normaliser le rôle utilisateur (trim, lowercase) pour éviter les problèmes de casse/espaces
+  const userRole = req.user.role ? String(req.user.role).trim().toLowerCase() : null;
+  // ✅ NORMALISATION: Normaliser les rôles autorisés également
+  const normalizedAllowed = allowed.map(r => String(r).trim().toLowerCase());
+  
+  // ✅ DEBUG: Logger les informations de rôle pour diagnostiquer les problèmes (toujours actif)
+  logger.debug('🔐 requireRole - Vérification:', {
+    path: req.path,
+    userId: req.user.id,
+    userEmail: req.user.email,
+    userRoleRaw: req.user.role,
+    userRoleNormalized: userRole,
+    userRoleType: typeof req.user.role,
+    userRoleValue: JSON.stringify(req.user.role),
+    allowedRolesRaw: allowed,
+    allowedRolesNormalized: normalizedAllowed,
+    hasAccess: normalizedAllowed.includes(userRole),
+    comparison: {
+      'userRole === "admin"': userRole === 'admin',
+      'userRole === "manager"': userRole === 'manager',
+      'normalizedAllowed.includes("admin")': normalizedAllowed.includes('admin'),
+      'normalizedAllowed.includes("manager")': normalizedAllowed.includes('manager'),
+      'normalizedAllowed.includes(userRole)': normalizedAllowed.includes(userRole)
+    }
+  });
+  
+  if (!userRole || !normalizedAllowed.includes(userRole)) {
+    logger.warn('❌ requireRole - Accès refusé:', {
+      path: req.path,
+      userId: req.user.id,
+      userEmail: req.user.email,
+      userRoleRaw: req.user.role,
+      userRoleNormalized: userRole,
+      userRoleType: typeof req.user.role,
+      userRoleValue: JSON.stringify(req.user.role),
+      allowedRolesRaw: allowed,
+      allowedRolesNormalized: normalizedAllowed,
+      ip: req.ip
+    });
+    
+    // ✅ Message d'erreur plus précis selon le contexte
+    const isManagerRoute = Array.isArray(roles) && roles.includes('manager');
+    const errorMessage = isManagerRoute 
+      ? 'Accès refusé. Droits manager ou admin requis.'
+      : 'Accès refusé. Droits admin requis.';
+    
+    return res.status(403).json({ error: errorMessage });
+  }
+  
   next();
 };
 const requireAdmin = requireRole('admin');

@@ -34,15 +34,10 @@ const useProducts = () => {
   useEffect(() => {
     // Ne pas charger si un chargement est déjà en cours
     if (isLoading) {
-      logger.log('⏸️ useProducts - Chargement déjà en cours, attente...');
       return;
     }
     
-    // Si on a déjà des produits, ne pas recharger automatiquement
-    // Cela évite les appels API inutiles et améliore la fluidité
     if (products && products.length > 0) {
-      logger.log('✅ useProducts - Produits déjà chargés, pas de rechargement automatique');
-      // Charger quand même les catégories si elles ne sont pas chargées
       if (!categories || categories.length === 0) {
         fetchCategories().catch(err => {
           logger.error('❌ Erreur chargement catégories:', err);
@@ -53,20 +48,11 @@ const useProducts = () => {
     
     const loadData = async () => {
       try {
-        // ✅ SÉCURITÉ: Ne pas logger le rôle (données sensibles)
-        logger.debug('🔄 useProducts - Chargement des produits...');
-        // Utiliser la route appropriée selon le rôle
-        if (role === 'admin' || role === 'manager') {
-          // Admin/Manager - route admin qui charge TOUS les produits depuis la BDD
-          logger.log('👤 Utilisation route admin');
+        if (role === 'admin') {
           await fetchAllProductsAdmin();
         } else if (isAuthenticated) {
-          // Utilisateur authentifié (client ou autre) - route authentifiée qui charge depuis la BDD
-          logger.log('👤 Utilisation route authentifiée pour client');
           await fetchProductsForClient();
         } else {
-          // Invité non authentifié - route publique
-          logger.log('👤 Utilisation route publique');
           await fetchProductsPublic();
         }
         await fetchCategories();
@@ -130,9 +116,9 @@ const useProducts = () => {
   
   // Rafraîchir les produits
   const refresh = useCallback(async () => {
-    if (role === 'admin' || role === 'manager') {
+    if (role === 'admin') {
       await fetchAllProductsAdmin();
-    } else if (isAuthenticated && role === 'client') {
+    } else if (isAuthenticated) {
       await fetchProductsForClient();
     } else {
       await fetchProductsPublic();

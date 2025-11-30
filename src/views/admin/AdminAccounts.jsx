@@ -524,8 +524,8 @@ const AdminAccounts = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
-      <div className="max-w-7xl xl:max-w-[90rem] 2xl:max-w-[100rem] mx-auto space-y-4 sm:space-y-5 md:space-y-6 lg:space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 p-3 sm:p-4 md:p-6 lg:p-8">
+      <div className="w-full max-w-full mx-auto space-y-4 sm:space-y-5 md:space-y-6 lg:space-y-8">
         {/* En-tête */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 lg:gap-6">
           <div className="flex-1 min-w-0">
@@ -670,28 +670,28 @@ const AdminAccounts = () => {
             <>
               {/* Version Desktop - Tableau (≥1024px) - Optimisé PC */}
               <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full min-w-[1200px]">
+                <table className="w-full">
                   <thead className="bg-neutral-100 border-b-2 border-neutral-300">
                     <tr>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Nom</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Email</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Téléphone</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Rôle</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Statut</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Commandes</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">CA Total</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Date inscription</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-left font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Dernière activité</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-center font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Voir</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-center font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Modifier</th>
-                      <th className="px-4 lg:px-6 py-4 lg:py-5 text-center font-heading font-semibold text-black text-sm lg:text-base whitespace-nowrap">Supprimer</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Nom</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Email</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Téléphone</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Rôle</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Statut</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Commandes</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">CA Total</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Date inscription</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-left font-heading font-semibold text-black text-sm xl:text-base">Dernière activité</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-center font-heading font-semibold text-black text-sm xl:text-base">Voir</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-center font-heading font-semibold text-black text-sm xl:text-base">Modifier</th>
+                      <th className="px-4 xl:px-6 py-4 xl:py-5 text-center font-heading font-semibold text-black text-sm xl:text-base">Supprimer</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-200">
                     {filteredUsers.map((user) => (
                       <tr key={user.id} className="hover:bg-neutral-50 transition-colors">
                         {/* Nom */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white font-heading font-bold text-xs flex-shrink-0">
                               {(user.first_name?.[0] || user.email?.[0] || '?').toUpperCase()}
@@ -703,17 +703,17 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Email */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="text-sm lg:text-base text-neutral-700 font-sans whitespace-nowrap">{user.email || '-'}</div>
                         </td>
                         
                         {/* Téléphone */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="text-sm lg:text-base text-neutral-600 font-sans whitespace-nowrap">{user.phone || '-'}</div>
                         </td>
                         
                         {/* Rôle */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs lg:text-sm font-heading font-semibold border ${getRoleColor(user.role)}`}>
                             {getRoleIcon(user.role)}
                             {getRoleLabel(user.role)}
@@ -721,7 +721,7 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Statut */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           {user.is_active ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs lg:text-sm font-heading font-semibold bg-green-100 text-green-700 border border-green-300">
                               <UserCheck className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
@@ -736,7 +736,7 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Commandes */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex items-center gap-1.5 text-sm lg:text-base">
                             <TrendingUp className="w-4 h-4 lg:w-5 lg:h-5 text-green-600 flex-shrink-0" />
                             <span className="font-heading font-semibold text-black">{user.total_orders || 0}</span>
@@ -744,7 +744,7 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* CA Total */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex items-center gap-1.5 text-sm lg:text-base">
                             <DollarSign className="w-4 h-4 lg:w-5 lg:h-5 text-blue-600 flex-shrink-0" />
                             <span className="font-heading font-semibold text-black">{formatPrice(user.total_spent || 0)}</span>
@@ -752,21 +752,21 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Date inscription */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="text-xs lg:text-sm text-neutral-600 font-sans whitespace-nowrap">
                             {formatDate(user.created_at)}
                           </div>
                         </td>
                         
                         {/* Dernière activité */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="text-xs lg:text-sm">
                             {getActivityBadge(user)}
                           </div>
                         </td>
                         
                         {/* Action : Voir les détails */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex justify-center">
                             <button
                               onClick={() => handleViewDetails(user)}
@@ -779,7 +779,7 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Action : Modifier */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex justify-center">
                             <button
                               onClick={() => handleEdit(user)}
@@ -792,7 +792,7 @@ const AdminAccounts = () => {
                         </td>
                         
                         {/* Action : Supprimer */}
-                        <td className="px-4 lg:px-6 py-4 lg:py-5">
+                        <td className="px-4 xl:px-6 py-4 xl:py-5">
                           <div className="flex justify-center">
                             {user.id !== currentUser?.id ? (
                               <button

@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 // ⚠️ PERSIST TEMPORAIREMENT DÉSACTIVÉ pour debug "React is null"
 // import { persist } from 'zustand/middleware';
-// ✅ Firebase Authentication activé
-import authServiceFirebase from '../services/authServiceFirebase';
-import firebaseService from '../services/firebaseService';
+// ✅ Authentification via backend API (Supabase)
+import authService from '../services/authService';
+import supabaseClient from '../services/supabaseClient';
 import logger from '../utils/logger';
 
 /**
  * Store d'authentification
- * Connecté à Firebase Authentication + Firestore
+ * Connecté au backend API avec Supabase comme base de données
  * ⚠️ VERSION SANS PERSIST pour debug
  */
 
@@ -36,16 +36,6 @@ try {
   // Ignorer les erreurs de parsing/capacités localStorage
 }
 
-// ✅ Lazy import d'apiCall pour éviter problèmes d'initialisation React
-let apiCallRef = null;
-const getApiCall = async () => {
-  if (!apiCallRef) {
-    const module = await import('../services/api');
-    apiCallRef = module.apiCall;
-  }
-  return apiCallRef;
-};
-
 const useAuthStore = create(
   // persist(
     (set, get) => ({
@@ -54,12 +44,7 @@ const useAuthStore = create(
       role: initialUser?.role || null, // 'client' | 'manager' | 'admin'
       token: null, // Token JWT pour les requêtes API
       
-      // Actions de mise à jour directe (pour synchronisation Firebase)
-      setUser: (user) => set({ user }),
-      setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
-      setRole: (role) => set({ role }),
-      
-      // Actions de mise à jour directe (pour synchronisation Firebase)
+      // Actions de mise à jour directe (pour synchronisation)
       setUser: (user) => set({ user }),
       setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
       setRole: (role) => set({ role }),
@@ -67,8 +52,8 @@ const useAuthStore = create(
       // Actions
       login: async (email, password) => {
         try {
-          // Connexion avec Firebase Auth
-          const response = await authServiceFirebase.login(email, password);
+          // Connexion via backend API
+          const response = await authService.login(email, password);
           
           if (response.success && response.user) {
             // ✅ SÉCURITÉ: Empêcher les comptes kiosk de se connecter dans l'application principale
@@ -80,12 +65,34 @@ const useAuthStore = create(
             // ✅ Le token est maintenant dans un cookie HTTP-only (sécurisé)
             // Ne plus stocker le token dans le store ou localStorage
             
+            // ✅ CRITIQUE: Normaliser le rôle avant de le stocker
+            const normalizedRole = response.user.role 
+              ? String(response.user.role).trim().toLowerCase() 
+              : null;
+            
+            if (!normalizedRole) {
+              logger.error('❌ authStore.login - Rôle manquant dans la réponse du backend:', {
+                user: response.user,
+                hasRole: !!response.user.role,
+                roleRaw: response.user.role
+              });
+              throw new Error('Rôle utilisateur manquant. Veuillez contacter l\'administrateur.');
+            }
+            
             // Stocker uniquement les informations utilisateur
             const userWithPoints = {
               ...response.user,
+              role: normalizedRole, // ✅ Utiliser le rôle normalisé
               points: response.user.loyalty_points || response.user.points || 0,
               loyalty_points: response.user.loyalty_points || response.user.points || 0
             };
+            
+            logger.debug('✅ authStore.login - Utilisateur prêt à être stocké:', {
+              id: userWithPoints.id,
+              email: userWithPoints.email,
+              role: userWithPoints.role,
+              roleNormalized: normalizedRole
+            });
             
             // ✅ SÉCURITÉ: Nettoyer le flag de déconnexion volontaire lors d'une connexion réussie
             try {
@@ -98,13 +105,27 @@ const useAuthStore = create(
             set({ 
               user: userWithPoints, 
               isAuthenticated: true, 
-              role: response.user.role,
+              role: normalizedRole, // ✅ Utiliser le rôle normalisé
               token: null // ✅ Plus de token dans le store (cookie HTTP-only uniquement)
             });
             
             // Mettre à jour localStorage avec les données utilisateur uniquement
             try {
               localStorage.setItem('user', JSON.stringify(userWithPoints));
+              
+              // ✅ Vérification: Vérifier que le rôle est bien stocké
+              const storedUserStr = localStorage.getItem('user');
+              if (storedUserStr) {
+                const storedUser = JSON.parse(storedUserStr);
+                if (storedUser.role !== normalizedRole) {
+                  logger.error('❌ authStore.login - ERREUR: Rôle non stocké correctement dans localStorage!', {
+                    expected: normalizedRole,
+                    actual: storedUser.role
+                  });
+                } else {
+                  logger.debug('✅ authStore.login - Rôle vérifié dans localStorage:', storedUser.role);
+                }
+              }
             } catch (storageError) {
               logger.error('❌ authStore.login - Erreur lors du stockage localStorage:', storageError);
               // Ne pas bloquer la connexion si localStorage échoue
@@ -170,8 +191,8 @@ const useAuthStore = create(
             return { success: false, error: 'Nom requis' };
           }
 
-          // Inscription avec Firebase Auth
-          const response = await authServiceFirebase.register(userData);
+          // Inscription via backend API
+          const response = await authService.register(userData);
           
           if (response && response.success) {
             logger.log('✅ Inscription réussie, connexion automatique...');
@@ -220,10 +241,10 @@ const useAuthStore = create(
         const uid = currentUser?.uid || currentUser?.id;
         
         try {
-          // Déconnexion Firebase
-          await authServiceFirebase.logout();
+          // Déconnexion via backend API
+          await authService.logout();
         } catch (error) {
-          logger.warn('⚠️ Erreur lors du logout Firebase:', error);
+          logger.warn('⚠️ Erreur lors du logout:', error);
           // Continuer quand même pour nettoyer le frontend
         }
         
@@ -252,24 +273,24 @@ const useAuthStore = create(
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           
-          // ✅ SÉCURITÉ: Nettoyer tous les caches Firestore de cet utilisateur
+          // ✅ SÉCURITÉ: Nettoyer tous les caches Supabase de cet utilisateur
           if (uid) {
-            localStorage.removeItem(`firestore_user_${uid}`);
-            localStorage.removeItem(`firestore_user_${uid}_time`);
+            localStorage.removeItem(`supabase_user_${uid}`);
+            localStorage.removeItem(`supabase_user_${uid}_time`);
           }
           
-          // ✅ SÉCURITÉ: Nettoyer tous les caches Firestore (par sécurité)
+          // ✅ SÉCURITÉ: Nettoyer tous les caches utilisateur (par sécurité)
           try {
             const keysToRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
               const key = localStorage.key(i);
-              if (key && (key.startsWith('firestore_user_') || key.startsWith('user_'))) {
+              if (key && (key.startsWith('supabase_user_') || key.startsWith('user_'))) {
                 keysToRemove.push(key);
               }
             }
             keysToRemove.forEach(key => localStorage.removeItem(key));
           } catch (e) {
-            logger.warn('⚠️ Erreur lors du nettoyage des caches Firestore:', e);
+            logger.warn('⚠️ Erreur lors du nettoyage des caches:', e);
           }
         } catch (e) {
           logger.warn('⚠️ Erreur lors du nettoyage localStorage:', e);
@@ -288,7 +309,6 @@ const useAuthStore = create(
         logger.log('✅ authStore.logout - Déconnexion complète et sécurisée');
         
         // ✅ SÉCURITÉ: Forcer un petit délai pour s'assurer que le flag est bien défini
-        // avant que Firebase Auth ne tente de restaurer la session
         await new Promise(resolve => setTimeout(resolve, 100));
       },
       
@@ -331,19 +351,29 @@ const useAuthStore = create(
         }
       },
       
-      // Rafraîchir les points depuis Firestore
+      // Rafraîchir les points depuis Supabase
       refreshPoints: async () => {
         try {
           const currentUser = get().user;
-          if (!currentUser || !currentUser.uid || currentUser.isGuest) {
+          if (!currentUser || (!currentUser.id && !currentUser.uid) || currentUser.isGuest) {
             return null;
           }
           
-          // Récupérer le profil utilisateur depuis Firestore
-          const userData = await firebaseService.getDocument('users', currentUser.uid);
+          const userId = currentUser.id || currentUser.uid;
+          
+          // Récupérer le profil utilisateur depuis Supabase
+          const { data: userData, error } = await supabaseClient
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
+          
+          if (error && error.code !== 'PGRST116') {
+            throw error;
+          }
           
           if (userData) {
-            // Mettre à jour les points avec les valeurs de Firestore
+            // Mettre à jour les points avec les valeurs de Supabase
             const loyaltyPoints = userData.loyalty_points || userData.points || 0;
             
             // ✅ Mettre à jour avec toutes les données utilisateur
@@ -358,7 +388,7 @@ const useAuthStore = create(
             localStorage.setItem('user', JSON.stringify(updatedUser));
             return updatedUser;
           } else {
-            logger.warn('⚠️ refreshPoints - Utilisateur non trouvé dans Firestore');
+            logger.warn('⚠️ refreshPoints - Utilisateur non trouvé dans Supabase');
             return null;
           }
         } catch (error) {
@@ -409,234 +439,50 @@ const useAuthStore = create(
             try {
               const cachedUser = JSON.parse(userStr);
               if (cachedUser && cachedUser.role !== 'kiosk' && !cachedUser.isGuest) {
-                // Vérifier si un utilisateur Firebase est connecté (vérification rapide)
-                const firebaseUser = firebaseService.getCurrentUser();
-                if (firebaseUser && firebaseUser.uid === cachedUser.uid) {
-                  // ✅ OPTIMISATION: Restaurer depuis le cache immédiatement
-                  set({ 
-                    user: cachedUser, 
-                    isAuthenticated: true, 
-                    role: cachedUser.role,
-                    token: null
-                  });
-                  
-                  // Mettre à jour depuis Firestore en arrière-plan (sans bloquer)
-                  firebaseService.getDocument('users', firebaseUser.uid).then(userData => {
-                    if (userData) {
-                      const updatedUser = {
-                        ...cachedUser,
-                        ...userData,
-                        points: userData.loyalty_points || userData.points || 0,
-                        loyalty_points: userData.loyalty_points || userData.points || 0
-                      };
-                      set({ user: updatedUser });
-                      localStorage.setItem('user', JSON.stringify(updatedUser));
-                      // Mettre en cache Firestore
-                      try {
-                        localStorage.setItem(`firestore_user_${firebaseUser.uid}`, JSON.stringify(userData));
-                        localStorage.setItem(`firestore_user_${firebaseUser.uid}_time`, Date.now().toString());
-                      } catch (e) {
-                        // Ignorer
-                      }
-                    }
-                  }).catch(err => {
-                    logger.warn('⚠️ Erreur mise à jour Firestore en arrière-plan:', err);
-                  });
-                  
-                  return { success: true, user: cachedUser };
-                }
-              }
-            } catch (parseError) {
-              // Ignorer les erreurs de parsing
-            }
-          }
-          
-          // ✅ CORRECTION: Attendre un peu que Firebase Auth s'initialise
-          // Firebase Auth peut prendre quelques millisecondes à s'initialiser
-          let firebaseUser = firebaseService.getCurrentUser();
-          
-          // Si Firebase Auth n'est pas encore prêt, attendre un peu
-          if (!firebaseUser && userStr) {
-            // Attendre jusqu'à 1 seconde pour que Firebase s'initialise
-            for (let i = 0; i < 10; i++) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-              firebaseUser = firebaseService.getCurrentUser();
-              if (firebaseUser) break;
-            }
-          }
-          
-          if (!firebaseUser) {
-            if (!userStr) {
-              set({ user: null, isAuthenticated: false, role: null, token: null });
-              return { success: false, error: 'Aucun utilisateur trouvé' };
-            }
-            
-            // ✅ CORRECTION: Si on a des données en cache mais Firebase n'est pas prêt,
-            // garder l'utilisateur connecté temporairement (Firebase peut s'initialiser plus tard)
-            try {
-              const cachedUser = JSON.parse(userStr);
-              if (cachedUser && cachedUser.uid && cachedUser.role !== 'kiosk' && !cachedUser.isGuest) {
-                logger.warn('⚠️ Firebase Auth pas encore initialisé, utilisation du cache temporaire');
+                const userId = cachedUser.id || cachedUser.uid;
+                
+                // ✅ OPTIMISATION: Restaurer depuis le cache immédiatement
                 set({ 
                   user: cachedUser, 
                   isAuthenticated: true, 
                   role: cachedUser.role,
                   token: null
                 });
-                // Firebase s'initialisera via onAuthStateChange dans App.jsx
+                
+                // Mettre à jour depuis Supabase en arrière-plan (sans bloquer)
+                if (userId) {
+                  supabaseClient
+                    .from('users')
+                    .select('*')
+                    .eq('id', userId)
+                    .maybeSingle()
+                    .then(({ data: userData, error: fetchError }) => {
+                      if (!fetchError && userData) {
+                        const updatedUser = {
+                          ...cachedUser,
+                          ...userData,
+                          points: userData.loyalty_points || userData.points || 0,
+                          loyalty_points: userData.loyalty_points || userData.points || 0
+                        };
+                        set({ user: updatedUser });
+                        localStorage.setItem('user', JSON.stringify(updatedUser));
+                      }
+                    })
+                    .catch(err => {
+                      logger.warn('⚠️ Erreur mise à jour Supabase en arrière-plan:', err);
+                    });
+                }
+                
                 return { success: true, user: cachedUser };
               }
-            } catch (e) {
-              // Ignorer
-            }
-            
-            // Seulement si vraiment aucune donnée valide, déconnecter
-            localStorage.removeItem('user');
-            set({ user: null, isAuthenticated: false, role: null, token: null });
-            return { success: false, error: 'Session expirée' };
-          }
-          
-          // ✅ OPTIMISATION: Vérifier le cache Firestore d'abord
-          const cacheKey = `firestore_user_${firebaseUser.uid}`;
-          let userData = null;
-          try {
-            const cached = localStorage.getItem(cacheKey);
-            const cacheTime = localStorage.getItem(`${cacheKey}_time`);
-            if (cached && cacheTime && Date.now() - parseInt(cacheTime) < 300000) {
-              userData = JSON.parse(cached);
-              logger.log('⚡ authStore.restoreAuth - Utilisation du cache Firestore');
-            }
-          } catch (e) {
-            // Ignorer
-          }
-          
-          // Si pas de cache, récupérer depuis Firestore
-          if (!userData) {
-            try {
-              userData = await firebaseService.getDocument('users', firebaseUser.uid);
-              
-              // Mettre en cache
-              if (userData) {
-                try {
-                  localStorage.setItem(cacheKey, JSON.stringify(userData));
-                  localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-                } catch (e) {
-                  // Ignorer
-                }
-              }
-            } catch (firestoreError) {
-              // ✅ CORRECTION: Si Firestore est hors ligne, utiliser les données localStorage
-              logger.warn('⚠️ Firestore hors ligne, utilisation du cache localStorage:', firestoreError);
-              
-              // Essayer de récupérer depuis localStorage 'user' si disponible
-              if (userStr) {
-                try {
-                  const cachedUser = JSON.parse(userStr);
-                  if (cachedUser && cachedUser.uid === firebaseUser.uid) {
-                    // Utiliser les données en cache même si Firestore est hors ligne
-                    set({ 
-                      user: cachedUser, 
-                      isAuthenticated: true, 
-                      role: cachedUser.role,
-                      token: null
-                    });
-                    return { success: true, user: cachedUser };
-                  }
-                } catch (e) {
-                  // Ignorer
-                }
-              }
+            } catch (parseError) {
+              // Ignorer les erreurs de parsing
             }
           }
           
-          // ✅ CORRECTION: Si pas de userData mais Firebase Auth est connecté, utiliser les données de base
-          if (!userData) {
-            // Vérifier si on a des données dans localStorage 'user'
-            if (userStr) {
-              try {
-                const cachedUser = JSON.parse(userStr);
-                if (cachedUser && cachedUser.uid === firebaseUser.uid) {
-                  logger.warn('⚠️ Firestore indisponible, utilisation des données en cache');
-                  set({ 
-                    user: cachedUser, 
-                    isAuthenticated: true, 
-                    role: cachedUser.role,
-                    token: null
-                  });
-                  return { success: true, user: cachedUser };
-                }
-              } catch (e) {
-                // Ignorer
-              }
-            }
-            
-            // Si vraiment aucune donnée, créer un utilisateur minimal depuis Firebase Auth
-            logger.warn('⚠️ Utilisateur Firebase connecté mais pas de données Firestore, création profil minimal');
-            const minimalUser = {
-              id: firebaseUser.uid,
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              firstName: firebaseUser.displayName?.split(' ')[0] || '',
-              lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
-              name: firebaseUser.displayName || '',
-              role: 'client', // Par défaut
-              loyalty_points: 0,
-              points: 0,
-              emailVerified: firebaseUser.emailVerified || false,
-              photoURL: firebaseUser.photoURL || null
-            };
-            
-            set({ 
-              user: minimalUser, 
-              isAuthenticated: true, 
-              role: 'client',
-              token: null
-            });
-            
-            try {
-              localStorage.setItem('user', JSON.stringify(minimalUser));
-            } catch (e) {
-              // Ignorer
-            }
-            
-            return { success: true, user: minimalUser };
-          }
-          
-          // ✅ SÉCURITÉ: Ne pas restaurer les comptes kiosk
-          if (userData.role === 'kiosk') {
-            logger.warn('⚠️ authStore.restoreAuth - Compte kiosk détecté, déconnexion');
-            await authServiceFirebase.logout();
-            set({ user: null, isAuthenticated: false, role: null, token: null });
-            return { success: false, error: 'Les comptes kiosk ne peuvent pas être utilisés dans l\'application principale' };
-          }
-          
-          // Construire l'objet utilisateur
-          const user = {
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            firstName: userData.firstName || '',
-            lastName: userData.lastName || '',
-            name: userData.displayName || firebaseUser.displayName || '',
-            role: userData.role || 'client',
-            loyalty_points: userData.loyalty_points || userData.points || 0,
-            points: userData.points || userData.loyalty_points || 0,
-            emailVerified: firebaseUser.emailVerified,
-            photoURL: firebaseUser.photoURL || userData.photoURL,
-            phone: userData.phone || null,
-            address: userData.address || null
-          };
-          
-          set({ 
-            user, 
-            isAuthenticated: true, 
-            role: user.role,
-            token: null
-          });
-          
-          localStorage.setItem('user', JSON.stringify(user));
-          
-          return { success: true, user };
+          // Si pas de cache, pas d'utilisateur connecté
+          set({ user: null, isAuthenticated: false, role: null, token: null });
+          return { success: false, error: 'Aucun utilisateur trouvé' };
         } catch (error) {
           logger.error('❌ authStore.restoreAuth - Exception:', error);
           set({ user: null, isAuthenticated: false, role: null, token: null });

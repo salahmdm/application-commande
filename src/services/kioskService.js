@@ -1,4 +1,5 @@
 import { apiCall } from './api';
+import productService from './productService';
 import supabaseService from './supabaseService';
 import logger from '../utils/logger';
 
@@ -12,16 +13,20 @@ const kioskService = {
    * ou le backend API (développement local)
    */
   shouldUseSupabase() {
-    // ✅ CORRECTION: Si VITE_API_URL n'est pas défini, utiliser Supabase directement
-    // Cela fonctionne sur Vercel où il n'y a pas de backend Express
     const hasBackend = !!import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL !== '';
-    
+    const isLocalhost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (isLocalhost) {
+      return false;
+    }
+
     // Si pas de backend configuré, utiliser Supabase directement
     if (!hasBackend) {
       return true;
     }
-    
-    // Si backend disponible, l'utiliser
+
     return false;
   },
 
@@ -91,17 +96,27 @@ const kioskService = {
         count: response?.data?.length || 0
       });
       
-      if (response.success && response.data) {
+      if (response.success && response.data?.length) {
         logger.log(`✅ kioskService.getCategories - ${response.data.length} catégories récupérées depuis la BDD`);
+        return response;
       }
-      
-      return response;
+
+      logger.warn('⚠️ kioskService.getCategories - Réponse vide, fallback /categories');
+      const fallbackResponse = await productService.getCategories();
+      return fallbackResponse;
     } catch (error) {
       logger.error('❌ kioskService.getCategories - Erreur:', error);
       logger.error('   Détails:', {
         message: error.message,
         stack: error.stack
       });
+
+      if (error?.status === 404 || error?.status === 500 || error?.name === 'ConnectionError') {
+        logger.warn('⚠️ kioskService.getCategories - Fallback route publique /categories');
+        const fallbackResponse = await productService.getCategories();
+        return fallbackResponse;
+      }
+
       throw error;
     }
   },
@@ -149,11 +164,14 @@ const kioskService = {
         categoryId
       });
       
-      if (response.success && response.data) {
+      if (response.success && response.data?.length) {
         logger.log(`✅ kioskService.getProductsByCategory - ${response.data.length} produits récupérés depuis la BDD${categoryId ? ` (catégorie: ${categoryId})` : ' (tous)'}`);
+        return response;
       }
-      
-      return response;
+
+      logger.warn('⚠️ kioskService.getProductsByCategory - Réponse vide, fallback productService');
+      const fallbackProducts = await productService.getAllProducts(categoryId ? { category: categoryId } : {});
+      return fallbackProducts;
     } catch (error) {
       logger.error('❌ kioskService.getProductsByCategory - Erreur:', error);
       logger.error('   Détails:', {
@@ -161,6 +179,13 @@ const kioskService = {
         stack: error.stack,
         categoryId
       });
+
+      if (error?.status === 404 || error?.status === 500 || error?.name === 'ConnectionError') {
+        logger.warn('⚠️ kioskService.getProductsByCategory - Fallback route /products');
+        const fallbackProducts = await productService.getAllProducts(categoryId ? { category: categoryId } : {});
+        return fallbackProducts;
+      }
+
       throw error;
     }
   },

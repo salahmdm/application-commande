@@ -113,43 +113,33 @@ const orderService = {
       if (shouldUseSupabase()) {
         logger.log('🔄 orderService.getUserOrders - Utilisation Supabase direct');
         
-        // Récupérer l'UID Firebase depuis localStorage
-        let firebaseUid = null;
-        if (typeof window !== 'undefined') {
-          try {
-            const userStr = localStorage.getItem('user');
-            if (userStr) {
-              const user = JSON.parse(userStr);
-              if (user && !user.isGuest) {
-                firebaseUid = user.uid || user.id;
-              }
+        // Identifier l'utilisateur connecté via Supabase
+        let userId = null;
+        try {
+          const { data: { user: supabaseUser } } = await supabaseService.getClient().auth.getUser();
+          if (supabaseUser?.email) {
+            const userResult = await supabaseService.getUserByEmail(supabaseUser.email);
+            if (userResult.success && userResult.data) {
+              userId = userResult.data.id;
             }
-          } catch (e) {
-            logger.warn('⚠️ Erreur récupération user depuis localStorage:', e);
           }
+        } catch (e) {
+          logger.warn('⚠️ Erreur récupération utilisateur Supabase:', e);
         }
         
-        // Filtrer les commandes par UID Firebase dans les notes
         const filters = {};
-        if (firebaseUid) {
-          // Note: Supabase ne peut pas filtrer directement dans les notes JSON
-          // On récupère toutes les commandes et on filtre côté client
-          // Ou on utilise user_id NULL pour Firebase
+        if (userId) {
+          filters.userId = userId;
         }
         
         const result = await supabaseService.getOrders(filters);
         if (result.success) {
-          // Filtrer par UID Firebase si nécessaire
+          // Filtrer les commandes pour l'utilisateur authentifié
           let orders = result.data || [];
-          if (firebaseUid) {
-            orders = orders.filter(order => 
-              !order.user_id && 
-              order.notes && 
-              order.notes.includes(`[Firebase UID: ${firebaseUid}]`)
-            );
+          if (userId) {
+            orders = orders.filter(order => order.user_id === userId);
           } else {
-            // Pour les invités, récupérer les commandes sans user_id
-            orders = orders.filter(order => !order.user_id);
+            orders = [];
           }
           
           logger.log(`✅ orderService.getUserOrders - ${orders.length} commandes récupérées via Supabase`);
@@ -295,17 +285,67 @@ const orderService = {
    */
   async completePaymentWorkflow(orderId, payload) {
     try {
+      logger.debug('📤 completePaymentWorkflow - Envoi requête:', {
+        orderId,
+        itemsCount: payload?.items?.length || 0,
+        paymentsCount: payload?.payments?.length || 0,
+        total: payload?.totals?.total,
+        amountPaid: payload?.totals?.amountPaid
+      });
+
       const response = await apiCall(`/admin/orders/${orderId}/payment-workflow`, {
         method: 'PUT',
         body: JSON.stringify(payload)
       });
+
+      logger.debug('📥 completePaymentWorkflow - Réponse reçue:', {
+        success: response?.success,
+        hasError: !!response?.error,
+        hasData: !!response?.data
+      });
+
       return response;
     } catch (error) {
-      logger.error('❌ completePaymentWorkflow - Erreur:', error?.message);
+      logger.error('❌ completePaymentWorkflow - Erreur complète:', {
+        message: error?.message,
+        name: error?.name,
+        status: error?.status,
+        statusCode: error?.statusCode,
+        stack: error?.stack,
+        orderId,
+        errorDetails: error?.errorData || error?.details
+      });
+      
+      // ✅ Retourner une erreur structurée avec le statut HTTP si disponible
       return {
         success: false,
-        error: error?.message || 'Erreur workflow paiement'
+        error: error?.message || 'Erreur workflow paiement',
+        status: error?.status || error?.statusCode || 500
       };
+    }
+  },
+
+  /**
+   * Valider un code promo (client)
+   * POST /api/promo-codes/validate
+   */
+  async validatePromoCode(code, subtotal) {
+    try {
+      logger.log('🎫 orderService.validatePromoCode - Validation code:', code);
+      const response = await apiCall('/promo-codes/validate', {
+        method: 'POST',
+        body: JSON.stringify({ code, subtotal })
+      });
+
+      if (response.success && response.data) {
+        logger.log('✅ orderService.validatePromoCode - Code valide:', response.data);
+        return response;
+      }
+
+      return { success: false, error: response.error || 'Code promo invalide' };
+    } catch (error) {
+      logger.error('❌ orderService.validatePromoCode - Erreur:', error);
+      return { success: false, error: error.message || 'Erreur validation code promo' };
     }
   }
 };

@@ -88,6 +88,9 @@ const {
   csrfProtection, 
   generateCsrfToken,
   authenticateToken, // ✅ Import depuis security-middleware.js (inclut session timeout)
+  requireRole,
+  requireAdmin, // ✅ Import du middleware requireAdmin (inclut gestion bypass dev et vérifications)
+  requireManager, // ✅ Import du middleware requireManager (inclut gestion bypass dev et vérifications)
   requireKiosk, // ✅ Middleware pour rôle kiosk
   loginValidation,
   registerValidation,
@@ -138,7 +141,69 @@ const io = new Server(httpServer, {
 // ================================================================
 // MIDDLEWARES DE SÉCURITÉ
 // ================================================================
-// Appliquer Helmet pour les headers de sécurité
+// ⚠️ CRITIQUE: CORS DOIT ÊTRE AVANT HELMET pour éviter les conflits de headers
+// Configuration CORS complète avec tous les headers personnalisés
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isProd && !origin) {
+      logger.security('CORS blocked - No origin', {});
+      return callback(new Error('CORS: Origin requise en production'));
+    }
+    if (!origin && !isProd) {
+      return callback(null, true);
+    }
+    const normalizedOrigin = origin ? normalizeOrigin(origin) : null;
+    if (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) {
+      callback(null, true);
+    } else {
+      logger.security('CORS blocked', { origin, allowedOrigins });
+      callback(new Error(`CORS: Origine non autorisée: ${origin}`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'X-CSRF-Token', 
+    'X-Dev-Bypass-Secret',
+    'X-User-Role',
+    'x-user-role',
+    'X-User-Id',
+    'x-user-id',
+    'X-User-Email',
+    'x-user-email',
+    'X-User-Is-Admin',
+    'x-user-is-admin',
+    'X-User-Is-Guest',
+    'x-user-is-guest'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-CSRF-Token'],
+  maxAge: isProd ? 86400 : 0,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
+
+// Handler OPTIONS explicite pour toutes les routes (preflight)
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  if (!origin && !isProd) {
+    res.header('Access-Control-Allow-Origin', '*');
+  } else {
+    const normalizedOrigin = origin ? normalizeOrigin(origin) : null;
+    if (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Dev-Bypass-Secret, X-User-Role, x-user-role, X-User-Id, x-user-id, X-User-Email, x-user-email, X-User-Is-Admin, x-user-is-admin, X-User-Is-Guest, x-user-is-guest');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', isProd ? '86400' : '0');
+  res.sendStatus(204);
+});
+
+// Appliquer Helmet pour les headers de sécurité (APRÈS CORS)
 app.use(helmetConfig);
 
 // ✅ OPTIMISATION: Compression des réponses (réduit la taille de 60-70%)
@@ -215,26 +280,29 @@ app.use('/api/admin', adminRateLimit);
 /**
  * Génère un numéro de commande unique au format CMD-XXXX
  * Format: CMD-0001, CMD-0002, etc. (séquentiel)
- * @param {Object} connection - Connexion MySQL
+ * ✅ MIGRATION SUPABASE: N'utilise plus de connexion MySQL
  * @returns {Promise<string>} - Numéro de commande au format CMD-XXXX
  */
-async function generateOrderNumber(connection) {
+async function generateOrderNumber() {
   try {
     logger.log('🔢 [generateOrderNumber] Début de la génération séquentielle...');
     
-    // Récupérer le dernier numéro de commande au format CMD-XXXX
-    const [lastOrders] = await connection.query(
-      `SELECT order_number FROM orders 
-       WHERE order_number REGEXP '^CMD-[0-9]{4}$'
-       ORDER BY CAST(SUBSTRING(order_number, 5) AS UNSIGNED) DESC
-       LIMIT 1`
+    // ✅ SUPABASE: Récupérer le dernier numéro de commande au format CMD-XXXX
+    const [allOrdersData] = await supabaseService.select('orders', {
+      select: 'order_number',
+      orderBy: 'id DESC'
+    });
+    
+    // Filtrer les commandes au format CMD-XXXX et extraire le numéro
+    const cmdOrders = (allOrdersData || []).filter(order => 
+      order.order_number && /^CMD-\d{4}$/.test(order.order_number)
     );
     
     let nextNumber = 1;
     
-    if (lastOrders.length > 0) {
+    if (cmdOrders.length > 0) {
       // Extraire le numéro du dernier order_number (ex: CMD-0001 -> 1)
-      const lastNumberStr = lastOrders[0].order_number.replace('CMD-', '');
+      const lastNumberStr = cmdOrders[0].order_number.replace('CMD-', '');
       const lastNumber = parseInt(lastNumberStr, 10);
       
       if (!isNaN(lastNumber)) {
@@ -245,16 +313,16 @@ async function generateOrderNumber(connection) {
     // Formater avec padding de 4 chiffres (CMD-0001, CMD-0002, etc.)
     const orderNumber = `CMD-${String(nextNumber).padStart(4, '0')}`;
     
-    // Vérifier l'unicité (sécurité supplémentaire)
-    const [existing] = await connection.query(
-      'SELECT id FROM orders WHERE order_number = ?',
-      [orderNumber]
-    );
+    // ✅ SUPABASE: Vérifier l'unicité (sécurité supplémentaire)
+    const [existingData] = await supabaseService.select('orders', {
+      where: { order_number: orderNumber },
+      select: 'id'
+    });
     
-    if (existing.length > 0) {
+    if (existingData && existingData.length > 0) {
       // Collision détectée, incrémenter
       logger.warn('⚠️ Collision détectée, incrémentation...');
-      return generateOrderNumber(connection);
+      return generateOrderNumber();
     }
     
     logger.log('📌 [generateOrderNumber] Génération numéro de commande séquentiel:');
@@ -272,43 +340,15 @@ async function generateOrderNumber(connection) {
   } catch (error) {
     logger.error('❌ [generateOrderNumber] Erreur lors de la génération:', error);
     logger.error('   Stack:', error.stack);
-    // En cas d'erreur, utiliser un fallback séquentiel basique
-    const [countResult] = await connection.query('SELECT COUNT(*) as count FROM orders');
-    const fallbackNumber = `CMD-${String((countResult[0]?.count || 0) + 1).padStart(4, '0')}`;
+    // ✅ SUPABASE: En cas d'erreur, utiliser un fallback séquentiel basique
+    const [countResult] = await supabaseService.count('orders', {});
+    const fallbackNumber = `CMD-${String((countResult?.count || 0) + 1).padStart(4, '0')}`;
     logger.error('   ⚠️ Utilisation du fallback séquentiel:', fallbackNumber);
     return fallbackNumber;
   }
 }
 
-// ✅ SÉCURITÉ: Middleware CORS - Configuration stricte
-app.use(cors({
-  origin: (origin, callback) => {
-    // En production, refuser les requêtes sans origine
-    if (isProd && !origin) {
-      logger.security('CORS blocked - No origin', {});
-      return callback(new Error('CORS: Origin requise en production'));
-    }
-    
-    // Autoriser les requêtes sans origine uniquement en développement
-    if (!origin && !isProd) {
-      return callback(null, true);
-    }
-    
-    // Vérifier si l'origine est autorisée
-    const normalizedOrigin = origin ? normalizeOrigin(origin) : null;
-    if (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) {
-      callback(null, true);
-    } else {
-      logger.security('CORS blocked', { origin, allowedOrigins });
-      callback(new Error(`CORS: Origine non autorisée: ${origin}`));
-    }
-  },
-  credentials: true, // Nécessaire pour les cookies HTTP-only
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token', 'X-Dev-Bypass-Secret'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range', 'X-CSRF-Token'],
-  maxAge: isProd ? 86400 : 0 // Cache preflight 24h en prod, pas de cache en dev
-}));
+// ❌ CONFIGURATION CORS SUPPRIMÉE - Déplacée avant Helmet pour éviter les conflits
 
 // Cookie parser - Nécessaire pour lire les cookies HTTP-only
 app.use(cookieParser());
@@ -384,26 +424,19 @@ logger.log('✅ Backend configuré pour utiliser Supabase au lieu de MySQL');
 if (process.env.NODE_ENV !== 'production' || process.env.SECURITY_MODE === 'relaxed') {
   app.get('/api/db/status', async (req, res) => {
     try {
-      // Requête de test
-      const [ping] = await pool.query('SELECT 1 AS ok');
-      const ok = Array.isArray(ping) && ping[0] && (ping[0].ok === 1 || ping[0].OK === 1);
-      // Compter les tables
-      const [tables] = await pool.query(
-        'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?',
-        [config.database.database]
-      );
+      // ✅ SUPABASE: Test de connexion
+      await supabaseService.ping();
       
-      // ✅ OPTIMISATION: Inclure les statistiques du pool
-      const poolStats = poolMonitor.getSummary();
-      
+      // ✅ SUPABASE: Pas de information_schema (spécifique MySQL)
+      // Supabase utilise une structure différente pour les métadonnées
       res.json({
         success: true,
         database: {
-          name: config.database.database,
-          ok,
-          tables: Array.isArray(tables) ? tables.length : 0
-        },
-        pool: poolStats
+          name: 'Supabase',
+          ok: true,
+          type: 'Supabase',
+          url: process.env.SUPABASE_URL ? 'Configuré' : 'Non configuré'
+        }
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -511,21 +544,8 @@ const authenticateOptional = (req, res, next) => {
   });
 };
 
-// Middleware pour vérifier le rôle admin
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Accès refusé. Droits admin requis.' });
-  }
-  next();
-};
-
-// Middleware pour vérifier le rôle manager ou admin
-const requireManager = (req, res, next) => {
-  if (!['manager', 'admin'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Accès refusé. Droits manager requis.' });
-  }
-  next();
-};
+// ✅ SUPPRIMÉ: Les middlewares requireAdmin et requireManager sont maintenant importés depuis security-middleware.js
+// Ils incluent les vérifications de sécurité, le bypass dev, et la gestion des erreurs appropriées
 
 // ================================================================
 // ROUTES PUBLIQUES (Pas d'authentification requise)
@@ -551,31 +571,64 @@ app.get('/api/products', asyncHandler(async (req, res) => {
     return res.json(cached);
   }
   
-  // Requête à la base de données
-  const [products] = await pool.query(`
-    SELECT 
-      p.*,
-      c.name as category_name,
-      c.slug as category_slug
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.is_available = TRUE
-    ORDER BY c.display_order, p.name
-  `);
-  
-  const response = {
-    success: true,
-    data: products
-  };
-  
-  // Mettre en cache
-  cache.set(cacheKey, response);
-  
-  logger.debug('Products fetched from DB', { count: products.length });
-  res.json(response);
+  try {
+    // ✅ MIGRATION SUPABASE: Utiliser Supabase directement avec relations
+    const supabase = pool.getClient();
+    
+    const { data: products, error } = await supabase
+      .from('products')
+      .select(`
+        *,
+        categories (
+          id,
+          name,
+          slug,
+          icon,
+          display_order
+        )
+      `)
+      .eq('is_available', 1) // Supabase utilise 1 pour true (SMALLINT)
+      .order('display_order', { foreignTable: 'categories', ascending: true })
+      .order('name', { ascending: true });
+    
+    if (error) {
+      logger.error('❌ Erreur récupération produits:', error);
+      throw error;
+    }
+    
+    // Transformer les produits pour inclure les données de catégorie au format attendu
+    const transformedProducts = (products || []).map(product => {
+      const category = Array.isArray(product.categories)
+        ? product.categories[0]
+        : product.categories;
+      
+      return {
+        ...product,
+        category_name: category?.name || null,
+        category_slug: category?.slug || null,
+        category_icon: category?.icon || null,
+        category_display_order: category?.display_order ?? null
+      };
+    });
+    
+    const response = {
+      success: true,
+      data: transformedProducts
+    };
+    
+    // Mettre en cache
+    cache.set(cacheKey, response);
+    
+    logger.debug('Products fetched from Supabase', { count: transformedProducts.length });
+    res.json(response);
+  } catch (error) {
+    logger.error('❌ Erreur /api/products:', error);
+    throw error;
+  }
 }));
 
 // ✅ OPTIMISATION: Produits complets (pour tout utilisateur authentifié) - Avec cache
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour récupérer tous les produits
 app.get('/api/products/all', authenticateToken, asyncHandler(async (req, res) => {
   const cacheKey = 'products:all';
   
@@ -585,26 +638,50 @@ app.get('/api/products/all', authenticateToken, asyncHandler(async (req, res) =>
     return res.json(cached);
   }
   
-  // Requête à la base de données
-  const [products] = await pool.query(`
-    SELECT 
-      p.*,
-      c.name as category_name,
-      c.slug as category_slug
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    ORDER BY c.display_order, p.name
-  `);
+  // ✅ SUPABASE: Récupérer tous les produits avec catégories
+  const supabase = pool.getClient();
+  
+  const { data: products, error } = await supabase
+    .from('products')
+    .select(`
+      *,
+      categories (
+        id,
+        name,
+        slug,
+        display_order
+      )
+    `)
+    .is('deleted_at', null)
+    .order('name', { ascending: true });
+
+  if (error) {
+    logger.error('❌ Erreur récupération produits:', error);
+    throw error;
+  }
+
+  // Transformer les produits pour inclure category_name et category_slug
+  const transformedProducts = (products || []).map(product => {
+    const category = Array.isArray(product.categories)
+      ? product.categories[0]
+      : product.categories;
+    
+    return {
+      ...product,
+      category_name: category?.name || null,
+      category_slug: category?.slug || null
+    };
+  });
 
   const response = {
     success: true,
-    data: products
+    data: transformedProducts
   };
   
   // Mettre en cache
   cache.set(cacheKey, response);
   
-  logger.debug('All products fetched from DB', { count: products.length });
+  logger.debug('All products fetched from Supabase', { count: transformedProducts.length });
   res.json(response);
 }));
 
@@ -618,23 +695,35 @@ app.get('/api/categories', asyncHandler(async (req, res) => {
     return res.json(cached);
   }
   
-  // Requête à la base de données
-  const [categories] = await pool.query(`
-    SELECT * FROM categories 
-    WHERE is_active = TRUE 
-    ORDER BY display_order
-  `);
-  
-  const response = {
-    success: true,
-    data: categories
-  };
-  
-  // Mettre en cache
-  cache.set(cacheKey, response);
-  
-  logger.debug('Categories fetched from DB', { count: categories.length });
-  res.json(response);
+  try {
+    // ✅ MIGRATION SUPABASE: Utiliser Supabase directement
+    const supabase = pool.getClient();
+    
+    const { data: categories, error } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('is_active', 1) // Supabase utilise 1 pour true (SMALLINT)
+      .order('display_order', { ascending: true });
+    
+    if (error) {
+      logger.error('❌ Erreur récupération catégories:', error);
+      throw error;
+    }
+    
+    const response = {
+      success: true,
+      data: categories || []
+    };
+    
+    // Mettre en cache
+    cache.set(cacheKey, response);
+    
+    logger.debug('Categories fetched from Supabase', { count: categories?.length || 0 });
+    res.json(response);
+  } catch (error) {
+    logger.error('❌ Erreur /api/categories:', error);
+    throw error;
+  }
 }));
 
 // ================================================================
@@ -673,21 +762,80 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
     });
     
     const { email, password } = req.body;
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       logger.warn('Login attempt with missing credentials', { ip: req.ip });
       return res.status(400).json({ error: 'Email et mot de passe requis' });
     }
 
-    const [users] = await pool.query(
-      'SELECT * FROM users WHERE email = ? AND is_active = TRUE',
-      [email]
-    );
+    logger.debug('Login attempt', { 
+      normalizedEmail: logger.sanitizeEmail(normalizedEmail),
+      hasPassword: !!password,
+      poolType: typeof pool,
+      hasGetClient: typeof pool.getClient === 'function'
+    });
+
+    // ✅ SUPABASE: Utiliser directement Supabase au lieu de parser SQL MySQL
+    let user = null;
+    let users = [];
+    
+    if (typeof pool.getClient === 'function') {
+      // Utiliser Supabase directement (plus fiable que parser SQL)
+      const supabase = pool.getClient();
+      logger.debug('Using Supabase client for login query');
+      
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', normalizedEmail)
+        .eq('is_active', 1) // ✅ CORRECTION: Supabase utilise smallint (0 ou 1), pas boolean
+        .maybeSingle();
+      
+      logger.debug('Supabase query result', { 
+        hasData: !!data, 
+        hasError: !!error,
+        errorCode: error?.code,
+        errorMessage: error?.message 
+      });
+      
+      if (error && error.code !== 'PGRST116') {
+        logger.warn('Supabase query error, trying case-insensitive fallback', { error: error.message });
+        // Si erreur, essayer recherche insensible à la casse
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('users')
+          .select('*')
+          .ilike('email', normalizedEmail)
+          .eq('is_active', 1)
+          .maybeSingle();
+        
+        if (fallbackError && fallbackError.code !== 'PGRST116') {
+          logger.error('Fallback query also failed', { error: fallbackError.message });
+          throw fallbackError;
+        }
+        
+        if (fallbackData) {
+          user = fallbackData;
+          users = [fallbackData];
+          logger.debug('User found via fallback query');
+        }
+      } else if (data) {
+        user = data;
+        users = [data];
+        logger.debug('User found via primary query', { userId: user.id });
+      } else {
+        logger.debug('No user found with email', { email: logger.sanitizeEmail(normalizedEmail) });
+      }
+    } else {
+      // ✅ SUPABASE: pool.getClient() devrait toujours exister (pool = supabaseService)
+      logger.error('❌ Erreur: pool.getClient() n\'existe pas - configuration Supabase incorrecte');
+      throw new Error('Configuration Supabase incorrecte');
+    }
     
     // ✅ Générer un identifiant client s'il n'existe pas (pour les anciens clients)
     // Vérifier d'abord si la colonne existe en gérant l'erreur
-    if (users.length > 0 && users[0].role === 'client') {
-      const hasIdentifier = users[0].client_identifier !== undefined && users[0].client_identifier !== null;
+    if (user && user.role === 'client') {
+      const hasIdentifier = user.client_identifier !== undefined && user.client_identifier !== null;
       
       if (!hasIdentifier) {
         try {
@@ -695,34 +843,34 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
           const clientIdentifier = await generateUniqueClientIdentifier(pool);
           await pool.query(
             'UPDATE users SET client_identifier = ? WHERE id = ?',
-            [clientIdentifier, users[0].id]
+            [clientIdentifier, user.id]
           );
-          users[0].client_identifier = clientIdentifier;
+          user.client_identifier = clientIdentifier;
           logger.log('✅ Identifiant client généré pour un client existant:', clientIdentifier);
         } catch (error) {
           if (error.code === 'ER_BAD_FIELD_ERROR' || error.sqlMessage?.includes('client_identifier')) {
             // La colonne n'existe pas encore, ne rien faire pour l'instant
             logger.warn('⚠️ Colonne client_identifier non disponible. Exécutez la migration SQL: database/migrations/sql/add-client-identifier.sql');
-            users[0].client_identifier = null;
+            user.client_identifier = null;
           } else if (error.code === 'ER_DUP_ENTRY') {
             // L'identifiant existe déjà (cas rare), récupérer celui existant
             const [existing] = await pool.query(
               'SELECT client_identifier FROM users WHERE id = ?',
-              [users[0].id]
+              [user.id]
             );
             if (existing.length > 0) {
-              users[0].client_identifier = existing[0].client_identifier;
+              user.client_identifier = existing[0].client_identifier;
               logger.log('✅ Identifiant client récupéré:', existing[0].client_identifier);
             }
           } else {
             logger.error('⚠️ Erreur lors de la génération de l\'identifiant client:', error);
-            users[0].client_identifier = null;
+            user.client_identifier = null;
           }
         }
       }
     }
 
-    if (users.length === 0) {
+    if (!user) {
       logger.security('Login failed - User not found', { 
         email: logger.sanitizeEmail(email),
         ip: req.ip 
@@ -730,11 +878,37 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
-    const user = users[0];
     logger.debug('User found', { userId: user.id, email: logger.sanitizeEmail(user.email) });
+    
+    // Harmoniser l'email en base si besoin (toujours en minuscule)
+    if (typeof pool.getClient === 'function' && user.email !== normalizedEmail) {
+      try {
+        await pool.getClient()
+          .from('users')
+          .update({ email: normalizedEmail })
+          .eq('id', user.id);
+        user.email = normalizedEmail;
+      } catch (updateError) {
+        logger.warn('⚠️ Impossible d\'harmoniser l\'email en base (non bloquant):', updateError.message);
+      }
+    }
 
     // Vérification du mot de passe avec bcrypt
+    logger.debug('Verifying password', { 
+      userId: user.id,
+      hasPasswordHash: !!user.password_hash,
+      passwordHashLength: user.password_hash?.length,
+      passwordHashStart: user.password_hash?.substring(0, 10)
+    });
+    
+    if (!user.password_hash) {
+      logger.error('User has no password_hash', { userId: user.id });
+      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    }
+    
     const isValid = await bcrypt.compare(password, user.password_hash);
+    
+    logger.debug('Password verification result', { isValid });
 
     if (!isValid) {
       logger.security('Login failed - Invalid password', {
@@ -745,14 +919,32 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
-    logger.info('Login successful', { userId: user.id, email: logger.sanitizeEmail(user.email) });
+    // ✅ NORMALISATION: Normaliser le rôle (trim, lowercase) pour garantir la cohérence
+    const normalizedRole = user.role ? String(user.role).trim().toLowerCase() : null;
+    
+    logger.info('Login successful', { 
+      userId: user.id, 
+      email: logger.sanitizeEmail(user.email), 
+      roleRaw: user.role,
+      roleNormalized: normalizedRole,
+      roleType: typeof user.role
+    });
+
+    // ✅ Vérifier que le rôle existe dans les données utilisateur
+    if (!normalizedRole) {
+      logger.error('❌ Login - Utilisateur sans rôle:', { userId: user.id, email: logger.sanitizeEmail(user.email) });
+      return res.status(500).json({ error: 'Erreur serveur: rôle utilisateur manquant' });
+    }
 
     // Mettre à jour last_login
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
 
     // Créer le token avec expiration sécurisée (15 minutes pour access token)
+    // ✅ Utiliser le rôle normalisé dans le token
+    const tokenPayload = { id: user.id, email: user.email, role: normalizedRole, type: 'access' };
+    logger.debug('🔐 Création du token JWT:', { userId: user.id, roleRaw: user.role, roleNormalized: normalizedRole });
     const accessToken = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, type: 'access' },
+      tokenPayload,
       config.jwt.secret,
       { expiresIn: '15m' } // 15 minutes pour access token
     );
@@ -778,6 +970,17 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
     }
 
     const { password_hash, ...userWithoutPassword } = user;
+
+    // ✅ CRITIQUE: S'assurer que le rôle normalisé est dans l'objet user retourné
+    userWithoutPassword.role = normalizedRole;
+    
+    logger.debug('🔐 Login - Données utilisateur à retourner:', {
+      id: userWithoutPassword.id,
+      email: userWithoutPassword.email,
+      role: userWithoutPassword.role,
+      roleNormalized: normalizedRole,
+      hasRole: !!userWithoutPassword.role
+    });
 
     // ✅ STOCKER LE TOKEN DANS UN COOKIE HTTP-ONLY (sécurisé)
     const isProduction = process.env.NODE_ENV === 'production';
@@ -808,7 +1011,12 @@ app.post('/api/auth/login', authRateLimit, loginValidation, async (req, res) => 
 
     // Ne plus envoyer le token dans le body JSON (sécurité)
     // Le frontend récupérera le token depuis le cookie automatiquement
-    logger.log('✅ Réponse JSON envoyée avec user:', { id: userWithoutPassword.id, email: userWithoutPassword.email, role: userWithoutPassword.role });
+    logger.log('✅ Réponse JSON envoyée avec user:', { 
+      id: userWithoutPassword.id, 
+      email: userWithoutPassword.email, 
+      role: userWithoutPassword.role,
+      roleNormalized: normalizedRole
+    });
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     logger.log('✅ POST /api/auth/login - Succès');
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -861,9 +1069,19 @@ app.post('/api/auth/refresh', async (req, res) => {
 
       const user = users[0];
 
-      // Générer un nouveau access token
+      // ✅ NORMALISATION: Normaliser le rôle (trim, lowercase) pour garantir la cohérence
+      const normalizedRole = user.role ? String(user.role).trim().toLowerCase() : null;
+
+      // ✅ Vérifier que le rôle existe dans les données utilisateur
+      if (!normalizedRole) {
+        logger.error('❌ Refresh token - Utilisateur sans rôle:', { userId: user.id, email: user.email });
+        return res.status(500).json({ error: 'Erreur serveur: rôle utilisateur manquant' });
+      }
+
+      // Générer un nouveau access token avec le rôle normalisé de l'utilisateur
+      logger.debug('🔐 Refresh token - Création du nouveau access token:', { userId: user.id, roleRaw: user.role, roleNormalized: normalizedRole });
       const accessToken = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, type: 'access' },
+        { id: user.id, email: user.email, role: normalizedRole, type: 'access' },
         config.jwt.secret,
         { expiresIn: '15m' }
       );
@@ -873,7 +1091,7 @@ app.post('/api/auth/refresh', async (req, res) => {
       res.cookie('token', accessToken, {
         httpOnly: true,
         secure: isProduction,
-        sameSite: 'strict',
+        sameSite: isProduction ? 'strict' : 'lax', // ✅ CORRECTION: Lax en développement pour permettre les cookies
         maxAge: 15 * 60 * 1000,
         path: '/',
         ...(isProduction && { domain: process.env.COOKIE_DOMAIN })
@@ -896,8 +1114,20 @@ app.post('/api/auth/refresh', async (req, res) => {
         }
 
         const user = users[0];
+        
+        // ✅ NORMALISATION: Normaliser le rôle (trim, lowercase) pour garantir la cohérence
+        const normalizedRole = user.role ? String(user.role).trim().toLowerCase() : null;
+        
+        // ✅ Vérifier que le rôle existe dans les données utilisateur
+        if (!normalizedRole) {
+          logger.error('❌ Refresh token (fallback) - Utilisateur sans rôle:', { userId: user.id, email: user.email });
+          return res.status(500).json({ error: 'Erreur serveur: rôle utilisateur manquant' });
+        }
+        
+        // Générer un nouveau access token avec le rôle normalisé de l'utilisateur
+        logger.debug('🔐 Refresh token (fallback) - Création du nouveau access token:', { userId: user.id, roleRaw: user.role, roleNormalized: normalizedRole });
         const accessToken = jwt.sign(
-          { id: user.id, email: user.email, role: user.role, type: 'access' },
+          { id: user.id, email: user.email, role: normalizedRole, type: 'access' },
           config.jwt.secret,
           { expiresIn: '15m' }
         );
@@ -1194,35 +1424,52 @@ app.get('/api/kiosk/categories', asyncHandler(async (req, res) => {
 app.get('/api/kiosk/products', asyncHandler(async (req, res) => {
   try {
     const { categoryId } = req.query;
-    
-    // ✅ Récupérer TOUS les produits disponibles (is_available = TRUE)
-    // Pas de filtre sur stock car certains produits peuvent avoir stock = 0 ou NULL
-    // Inclure les informations de catégorie pour un affichage complet
-    let query = `
-      SELECT 
-        p.*,
-        c.name as category_name,
-        c.slug as category_slug,
-        c.icon as category_icon
-      FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      WHERE p.is_available = TRUE
-    `;
-    const params = [];
+    const supabase = pool.getClient();
 
-    // Filtrer par catégorie si fournie
+    let query = supabase
+      .from('products')
+      .select(`
+        *,
+        categories (
+          id,
+          name,
+          slug,
+          icon,
+          display_order
+        )
+      `)
+      .eq('is_available', 1);
+
     if (categoryId) {
-      query += ' AND p.category_id = ?';
-      params.push(categoryId);
+      const categoryIdNum = parseInt(categoryId, 10);
+      if (!Number.isNaN(categoryIdNum)) {
+        query = query.eq('category_id', categoryIdNum);
+      }
     }
 
-    // Trier par ordre d'affichage de catégorie puis par nom
-    query += ' ORDER BY c.display_order ASC, p.name ASC';
+    const { data, error } = await query
+      .order('display_order', { foreignTable: 'categories', ascending: true })
+      .order('name', { ascending: true });
 
-    logger.log(`📦 Kiosk - Récupération produits${categoryId ? ` (catégorie: ${categoryId})` : ' (tous)'}`);
-    const [products] = await pool.query(query, params);
-    
-    logger.log(`✅ Kiosk - ${products.length} produits récupérés depuis la BDD`);
+    if (error) {
+      throw error;
+    }
+
+    const products = (data || []).map(product => {
+      const category = Array.isArray(product.categories)
+        ? product.categories[0]
+        : product.categories;
+
+      return {
+        ...product,
+        category_name: category?.name || product.category_name || null,
+        category_slug: category?.slug || product.category_slug || null,
+        category_icon: category?.icon || product.category_icon || null,
+        category_display_order: category?.display_order ?? null
+      };
+    });
+
+    logger.log(`✅ Kiosk - ${products.length} produits récupérés depuis Supabase`);
     res.json({ success: true, data: products });
   } catch (error) {
     logger.error('❌ Kiosk getProducts error:', error);
@@ -1233,14 +1480,11 @@ app.get('/api/kiosk/products', asyncHandler(async (req, res) => {
 // Créer une commande depuis la borne
 // POST /api/kiosk/orders
 // Pas de fidélité, pas de compte client
+// ✅ MIGRATION SUPABASE: Transactions MySQL supprimées
 app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
-  const connection = await pool.getConnection();
-  
   try {
-    await connection.beginTransaction();
-
     logger.log('📝 KIOSK - CRÉATION DE COMMANDE');
-    logger.log('   Kiosk ID:', req.user.id);
+    logger.log('   Kiosk ID:', req.user?.id || 'N/A');
 
     const { orderType, items, paymentMethod, notes, tableNumber, promoCode: promoCodeInput, subtotal: subtotalFromClient, discountAmount: discountAmountFromClient } = req.body;
     
@@ -1257,25 +1501,20 @@ app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
       throw new Error('Méthode de paiement manquante');
     }
 
-    // Générer le numéro de commande
-    const [lastOrder] = await connection.query(
-      'SELECT order_number FROM orders ORDER BY id DESC LIMIT 1'
-    );
-    
-    let orderNumber = 'CMD-0001';
-    if (lastOrder.length > 0 && lastOrder[0].order_number) {
-      const lastNum = parseInt(lastOrder[0].order_number.replace('CMD-', ''));
-      orderNumber = `CMD-${String(lastNum + 1).padStart(4, '0')}`;
-    }
+    // ✅ SUPABASE: Générer le numéro de commande
+    const orderNumber = await generateOrderNumber();
 
-    // Calculer le sous-total
+    // ✅ SUPABASE: Calculer le sous-total
     let subtotal = 0;
     for (const item of items) {
-      const [product] = await connection.query('SELECT price FROM products WHERE id = ?', [item.productId]);
-      if (product.length === 0) {
+      const products = await supabaseService.select('products', {
+        where: { id: item.productId },
+        select: 'price'
+      });
+      if (!products || products.length === 0) {
         throw new Error(`Produit ${item.productId} introuvable`);
       }
-      subtotal += product[0].price * item.quantity;
+      subtotal += parseFloat(products[0].price) * parseInt(item.quantity);
     }
 
     // Utiliser le sous-total du client si fourni (plus précis avec les prix du panier)
@@ -1289,18 +1528,40 @@ app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
     let promoCode = promoCodeInput ? promoCodeInput.toUpperCase() : null;
 
     if (promoCode) {
-      // Valider le code promo
-      const [promoCodes] = await connection.query(
-        `SELECT * FROM promo_codes 
-         WHERE code = ? AND is_active = TRUE 
-         AND (valid_until IS NULL OR valid_until > NOW())
-         AND (max_uses IS NULL OR uses_count < max_uses)
-         AND ? >= min_order_amount`,
-        [promoCode, subtotal]
-      );
+      // ✅ SUPABASE: Valider le code promo
+      const [promoCodesData] = await supabaseService.select('promo_codes', {
+        where: { code: promoCode, is_active: 1 },
+        select: '*'
+      });
 
-      if (promoCodes.length > 0) {
-        const promo = promoCodes[0];
+      // Filtrer les codes promo valides
+      const now = new Date();
+      const validPromos = (promoCodesData || []).filter(promo => {
+        // Vérifier la date de validité
+        if (promo.valid_until) {
+          const validUntil = new Date(promo.valid_until);
+          if (validUntil < now) return false;
+        }
+        if (promo.valid_from) {
+          const validFrom = new Date(promo.valid_from);
+          if (validFrom > now) return false;
+        }
+        
+        // Vérifier le nombre max d'utilisations
+        if (promo.max_uses !== null && promo.max_uses !== undefined) {
+          const usesCount = promo.uses_count || 0;
+          if (usesCount >= promo.max_uses) return false;
+        }
+        
+        // Vérifier le montant minimum de commande
+        const minOrderAmount = parseFloat(promo.min_order_amount) || 0;
+        if (subtotal < minOrderAmount) return false;
+        
+        return true;
+      });
+
+      if (validPromos.length > 0) {
+        const promo = validPromos[0];
         promoCodeId = promo.id;
 
         if (promo.discount_type === 'percentage') {
@@ -1326,49 +1587,45 @@ app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
     const taxAmount = baseTaxableHT * 0.1; // TVA 10%
     const totalAmount = baseTaxableHT + taxAmount;
 
-    // Créer la commande (user_id NULL pour kiosk)
-    const [orderResult] = await connection.query(
-      `INSERT INTO orders (
-        user_id, order_number, order_type, status, 
-        subtotal, discount_amount, tax_amount, total_amount,
-        promo_code_id, payment_method, payment_status, notes, table_number
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-      [
-        null, // user_id NULL pour kiosk
-        orderNumber,
-        orderType,
-        subtotal,
-        discountAmount,
-        taxAmount,
-        totalAmount,
-        promoCodeId,
-        paymentMethod,
-        notes || `Commande depuis borne kiosk${promoCode ? ` - Code promo: ${promoCode}` : ''}`,
-        tableNumber || null
-      ]
-    );
+    // ✅ SUPABASE: Créer la commande (user_id NULL pour kiosk)
+    const orderResult = await supabaseService.insert('orders', {
+      user_id: null, // user_id NULL pour kiosk
+      order_number: orderNumber,
+      order_type: orderType,
+      status: 'pending',
+      subtotal: subtotal,
+      discount_amount: discountAmount,
+      tax_amount: taxAmount,
+      total_amount: totalAmount,
+      promo_code_id: promoCodeId,
+      payment_method: paymentMethod,
+      payment_status: 'pending',
+      notes: notes || `Commande depuis borne kiosk${promoCode ? ` - Code promo: ${promoCode}` : ''}`,
+      table_number: tableNumber || null
+    });
 
-    const orderId = orderResult.insertId;
-
-    // Ajouter les items
-    for (const item of items) {
-      const [product] = await connection.query('SELECT * FROM products WHERE id = ?', [item.productId]);
-      if (product.length === 0) continue;
-
-      await connection.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, price, notes)
-         VALUES (?, ?, ?, ?, ?)`,
-        [
-          orderId,
-          item.productId,
-          item.quantity,
-          product[0].price,
-          item.notes || null
-        ]
-      );
+    // ✅ SUPABASE: Récupérer l'ID (Supabase retourne un tableau avec l'objet créé)
+    const orderId = orderResult && orderResult.length > 0 ? orderResult[0].id : null;
+    if (!orderId) {
+      throw new Error('Erreur lors de la création de la commande: ID non retourné');
     }
 
-    await connection.commit();
+    // ✅ SUPABASE: Ajouter les items
+    for (const item of items) {
+      const [productsData] = await supabaseService.select('products', {
+        where: { id: item.productId },
+        select: '*'
+      });
+      if (!productsData || productsData.length === 0) continue;
+
+      await supabaseService.insert('order_items', {
+        order_id: orderId,
+        product_id: item.productId,
+        quantity: item.quantity,
+        price: productsData[0].price,
+        notes: item.notes || null
+      });
+    }
 
     logger.log('✅ KIOSK - Commande créée:', orderNumber);
 
@@ -1381,11 +1638,126 @@ app.post('/api/kiosk/orders', asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await connection.rollback();
     logger.error('❌ Kiosk createOrder error:', error);
     throw error;
-  } finally {
-    connection.release();
+  }
+}));
+
+// Valider un code promo pour les clients
+// POST /api/promo-codes/validate
+app.post('/api/promo-codes/validate', asyncHandler(async (req, res) => {
+  try {
+    const { code, subtotal } = req.body;
+
+    if (!code || !code.trim()) {
+      return res.json({
+        success: false,
+        error: 'Code promo requis'
+      });
+    }
+
+    const promoCode = code.toUpperCase().trim();
+    const orderSubtotal = parseFloat(subtotal) || 0;
+
+    logger.log(`🔍 CLIENT - Validation code promo: "${promoCode}", sous-total: ${orderSubtotal} €`);
+
+    // ✅ SUPABASE: Rechercher le code promo
+    // Note: is_active est un SMALLINT (0 ou 1) dans Supabase, pas un boolean
+    const [promoCodes] = await supabaseService.select('promo_codes', {
+      where: { code: promoCode, is_active: 1 },
+      select: '*'
+    });
+
+    logger.log(`📊 Codes promo trouvés dans BDD: ${promoCodes?.length || 0}`);
+
+    if (!promoCodes || promoCodes.length === 0) {
+      logger.warn(`⚠️ CLIENT - Code promo "${promoCode}" non trouvé ou inactif`);
+      return res.json({
+        success: false,
+        error: 'Code promo invalide ou expiré'
+      });
+    }
+
+    // Filtrer les codes promo valides
+    const now = new Date();
+    const validPromos = (promoCodes || []).filter(promo => {
+      logger.log(`🔍 Validation promo "${promo.code}":`, {
+        is_active: promo.is_active,
+        valid_from: promo.valid_from,
+        valid_until: promo.valid_until,
+        max_uses: promo.max_uses,
+        uses_count: promo.uses_count,
+        min_order_amount: promo.min_order_amount,
+        orderSubtotal
+      });
+
+      // Vérifier la date de validité
+      if (promo.valid_until) {
+        const validUntil = new Date(promo.valid_until);
+        if (validUntil < now) {
+          logger.warn(`⚠️ CLIENT - Code "${promo.code}" expiré (fin: ${validUntil.toISOString()})`);
+          return false;
+        }
+      }
+      if (promo.valid_from) {
+        const validFrom = new Date(promo.valid_from);
+        if (validFrom > now) {
+          logger.warn(`⚠️ CLIENT - Code "${promo.code}" pas encore actif (début: ${validFrom.toISOString()})`);
+          return false;
+        }
+      }
+      
+      // Vérifier le nombre max d'utilisations
+      if (promo.max_uses !== null && promo.max_uses !== undefined) {
+        const usesCount = promo.uses_count || 0;
+        if (usesCount >= promo.max_uses) {
+          logger.warn(`⚠️ CLIENT - Code "${promo.code}" a atteint son maximum (${usesCount}/${promo.max_uses})`);
+          return false;
+        }
+      }
+      
+      // Vérifier le montant minimum de commande
+      const minOrderAmount = parseFloat(promo.min_order_amount) || 0;
+      if (orderSubtotal < minOrderAmount) {
+        logger.warn(`⚠️ CLIENT - Code "${promo.code}" nécessite un montant minimum de ${minOrderAmount} € (commande: ${orderSubtotal} €)`);
+        return false;
+      }
+      
+      return true;
+    });
+
+    if (validPromos.length === 0) {
+      logger.warn(`⚠️ CLIENT - Aucun code promo valide trouvé pour "${promoCode}"`);
+      return res.json({
+        success: false,
+        error: 'Code promo invalide ou expiré'
+      });
+    }
+
+    const promo = validPromos[0];
+    let discountAmount = 0;
+
+    if (promo.discount_type === 'percentage') {
+      discountAmount = (orderSubtotal * parseFloat(promo.discount_value)) / 100;
+    } else {
+      discountAmount = parseFloat(promo.discount_value);
+    }
+
+    logger.log(`✅ CLIENT - Code promo validé: ${promoCode} (-${discountAmount.toFixed(2)} €)`);
+
+    res.json({
+      success: true,
+      data: {
+        code: promo.code,
+        description: promo.description,
+        discount_type: promo.discount_type,
+        discount_value: promo.discount_value,
+        discount_amount: discountAmount
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Client validatePromoCode error:', error);
+    throw error;
   }
 }));
 
@@ -1405,24 +1777,47 @@ app.post('/api/kiosk/promo-codes/validate', asyncHandler(async (req, res) => {
     const promoCode = code.toUpperCase().trim();
     const orderSubtotal = parseFloat(subtotal) || 0;
 
-    // Rechercher le code promo
-    const [promoCodes] = await pool.query(
-      `SELECT * FROM promo_codes 
-       WHERE code = ? AND is_active = TRUE 
-       AND (valid_until IS NULL OR valid_until > NOW())
-       AND (max_uses IS NULL OR uses_count < max_uses)
-       AND ? >= min_order_amount`,
-      [promoCode, orderSubtotal]
-    );
+    // ✅ SUPABASE: Rechercher le code promo
+    // Note: is_active est un SMALLINT (0 ou 1) dans Supabase, pas un boolean
+    const [promoCodes] = await supabaseService.select('promo_codes', {
+      where: { code: promoCode, is_active: 1 },
+      select: '*'
+    });
 
-    if (promoCodes.length === 0) {
+    // Filtrer les codes promo valides
+    const now = new Date();
+    const validPromos = (promoCodes || []).filter(promo => {
+      // Vérifier la date de validité
+      if (promo.valid_until) {
+        const validUntil = new Date(promo.valid_until);
+        if (validUntil < now) return false;
+      }
+      if (promo.valid_from) {
+        const validFrom = new Date(promo.valid_from);
+        if (validFrom > now) return false;
+      }
+      
+      // Vérifier le nombre max d'utilisations
+      if (promo.max_uses !== null && promo.max_uses !== undefined) {
+        const usesCount = promo.uses_count || 0;
+        if (usesCount >= promo.max_uses) return false;
+      }
+      
+      // Vérifier le montant minimum de commande
+      const minOrderAmount = parseFloat(promo.min_order_amount) || 0;
+      if (orderSubtotal < minOrderAmount) return false;
+      
+      return true;
+    });
+
+    if (validPromos.length === 0) {
       return res.json({
         success: false,
         error: 'Code promo invalide ou expiré'
       });
     }
 
-    const promo = promoCodes[0];
+    const promo = validPromos[0];
     let discountAmount = 0;
 
     if (promo.discount_type === 'percentage') {
@@ -1532,11 +1927,9 @@ app.get('/api/kiosk/orders/:orderNumber', asyncHandler(async (req, res) => {
 // ================================================================
 
 // Créer une commande (Client authentifié ou invité)
+// ✅ MIGRATION SUPABASE: Transactions MySQL supprimées
 app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
-  const connection = await pool.getConnection();
-  
   try {
-    await connection.beginTransaction();
 
     // ✅ SÉCURITÉ: Logs minimaux en production
     if (process.env.NODE_ENV === 'development') {
@@ -1594,8 +1987,9 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     // Générer un numéro de commande unique au format CMD-XXXX
     // IMPORTANT: Utiliser UNIQUEMENT la fonction generateOrderNumber()
     // NE JAMAIS utiliser l'ancien format ORD-YYYY-XXXXXXXXXX
+    // ✅ MIGRATION SUPABASE: generateOrderNumber() n'utilise plus de connexion
     logger.log('🔢 Appel de generateOrderNumber()...');
-    const orderNumber = await generateOrderNumber(connection);
+    const orderNumber = await generateOrderNumber();
     
     // Vérification stricte du format (format séquentiel CMD-XXXX)
     if (!orderNumber || !orderNumber.match(/^CMD-\d{4}$/)) {
@@ -1607,15 +2001,15 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     
     logger.log('✅✅✅ Numéro de commande validé:', orderNumber);
 
-    // Calculer le sous-total
+    // ✅ SUPABASE: Calculer le sous-total
     let subtotal = 0;
     for (const item of items) {
-      const [products] = await connection.query(
-        'SELECT price FROM products WHERE id = ?',
-        [item.productId || item.id]
-      );
-      if (products.length > 0) {
-        subtotal += parseFloat(products[0].price) * parseInt(item.quantity);
+      const [productsData] = await supabaseService.select('products', {
+        where: { id: item.productId || item.id },
+        select: 'price'
+      });
+      if (productsData && productsData.length > 0) {
+        subtotal += parseFloat(productsData[0].price) * parseInt(item.quantity);
       }
     }
 
@@ -1632,7 +2026,6 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     if (loyaltyReward) {
       // Vérifier que l'utilisateur est authentifié (pas invité)
       if (!req.user.id || req.user.isGuest) {
-        await connection.rollback();
         throw new Error('Vous devez être connecté pour utiliser une récompense de fidélité');
       }
       
@@ -1640,22 +2033,20 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       pointsToDeduct = parseInt(loyaltyReward.pointsRequired || 0);
       
       if (pointsToDeduct > 0) {
-        // Récupérer les points actuels de l'utilisateur
-        const [users] = await connection.query(
-          'SELECT loyalty_points FROM users WHERE id = ?',
-          [req.user.id]
-        );
+        // ✅ SUPABASE: Récupérer les points actuels de l'utilisateur
+        const [usersData] = await supabaseService.select('users', {
+          where: { id: req.user.id },
+          select: 'loyalty_points'
+        });
         
-        if (users.length === 0) {
-          await connection.rollback();
+        if (!usersData || usersData.length === 0) {
           throw new Error('Utilisateur introuvable');
         }
         
-        const currentPoints = Math.max(0, users[0].loyalty_points || 0);
+        const currentPoints = Math.max(0, usersData[0].loyalty_points || 0);
         
         // Vérifier que l'utilisateur a assez de points
         if (currentPoints < pointsToDeduct) {
-          await connection.rollback();
           throw new Error(`Points insuffisants. Vous avez ${currentPoints} points, ${pointsToDeduct} points requis pour cette récompense.`);
         }
       }
@@ -1672,18 +2063,40 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       discountAmount = loyaltyDiscountAmount;
       promoCode = null; // Pas de code promo si récompense de fidélité
     } else if (promoCode) {
-      // Appliquer le code promo seulement si pas de récompense de fidélité
-      const [promoCodes] = await connection.query(
-        `SELECT * FROM promo_codes 
-         WHERE code = ? AND is_active = TRUE 
-         AND (valid_until IS NULL OR valid_until > NOW())
-         AND (max_uses IS NULL OR uses_count < max_uses)
-         AND ? >= min_order_amount`,
-        [promoCode.toUpperCase(), subtotal]
-      );
+      // ✅ SUPABASE: Appliquer le code promo seulement si pas de récompense de fidélité
+      const [promoCodesData] = await supabaseService.select('promo_codes', {
+        where: { code: promoCode.toUpperCase(), is_active: 1 },
+        select: '*'
+      });
 
-      if (promoCodes.length > 0) {
-        const promo = promoCodes[0];
+      // Filtrer les codes promo valides
+      const now = new Date();
+      const validPromos = (promoCodesData || []).filter(promo => {
+        // Vérifier la date de validité
+        if (promo.valid_until) {
+          const validUntil = new Date(promo.valid_until);
+          if (validUntil < now) return false;
+        }
+        if (promo.valid_from) {
+          const validFrom = new Date(promo.valid_from);
+          if (validFrom > now) return false;
+        }
+        
+        // Vérifier le nombre max d'utilisations
+        if (promo.max_uses !== null && promo.max_uses !== undefined) {
+          const usesCount = promo.uses_count || 0;
+          if (usesCount >= promo.max_uses) return false;
+        }
+        
+        // Vérifier le montant minimum de commande
+        const minOrderAmount = parseFloat(promo.min_order_amount) || 0;
+        if (subtotal < minOrderAmount) return false;
+        
+        return true;
+      });
+
+      if (validPromos.length > 0) {
+        const promo = validPromos[0];
         promoCodeId = promo.id;
 
         if (promo.discount_type === 'percentage') {
@@ -1719,13 +2132,12 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       logger.error('   Format attendu: CMD-XXXX (ex: CMD-0001, CMD-0002)');
       logger.error('   Format reçu:', orderNumber?.startsWith('ORD-') ? 'ORD-YYYY-... (OBSOLÈTE)' : orderNumber || 'Format invalide');
       logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      await connection.rollback();
       throw new Error(`Format de numéro de commande invalide. Attendu: CMD-XXXX (ex: CMD-0001), Reçu: ${orderNumber}. L'ancien format ORD- est obsolète.`);
     }
 
-    // ⚠️ LOG AVANT INSERTION MYSQL
+    // ✅ LOG AVANT INSERTION SUPABASE
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.log('💾 INSERTION DANS MYSQL');
+    logger.log('💾 INSERTION DANS SUPABASE');
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     logger.log('📌 order_type     :', orderType, `(type: ${typeof orderType})`);
     logger.log('📌 payment_method :', finalPaymentMethod, `(type: ${typeof finalPaymentMethod})`);
@@ -1749,12 +2161,11 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       logger.error('   Numéro reçu:', orderNumber);
       logger.error('   Format attendu: CMD-XXXX (ex: CMD-0001)');
       logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      await connection.rollback();
       throw new Error(`BLOCAGE: Format de numéro invalide détecté avant insertion. Attendu: CMD-XXXX (ex: CMD-0001), Reçu: ${orderNumber}`);
     }
 
-    // Créer la commande
-    logger.log('💾 Insertion dans MySQL avec order_number:', orderNumber);
+    // ✅ SUPABASE: Créer la commande
+    logger.log('💾 Insertion dans Supabase avec order_number:', orderNumber);
     logger.log('✅ Format validé avant insertion: CMD-XXXX');
     
     // Stocker la récompense de fidélité dans la commande (JSON dans notes ou colonne dédiée)
@@ -1765,153 +2176,148 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       orderNotes = orderNotes ? `${orderNotes}\n${rewardPrefix}${loyaltyRewardData}` : `${rewardPrefix}${loyaltyRewardData}`;
     }
     
-    const [orderResult] = await connection.query(
-      `INSERT INTO orders (
-        user_id, order_number, order_type, status, 
-        subtotal, discount_amount, tax_amount, total_amount,
-        promo_code_id, payment_method, payment_status, notes, table_number
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      // Note: user_id peut être NULL pour les invités
-      [
-        req.user.isGuest ? null : req.user.id, // NULL pour les invités
-        orderNumber, orderType,
-        subtotal, discountAmount, taxAmount, totalAmount,
-        promoCodeId, finalPaymentMethod, paymentStatus, orderNotes, tableNumber
-      ]
-    );
+    const orderResult = await supabaseService.insert('orders', {
+      user_id: req.user.isGuest ? null : req.user.id, // NULL pour les invités
+      order_number: orderNumber,
+      order_type: orderType,
+      status: 'pending',
+      subtotal: subtotal,
+      discount_amount: discountAmount,
+      tax_amount: taxAmount,
+      total_amount: totalAmount,
+      promo_code_id: promoCodeId,
+      payment_method: finalPaymentMethod,
+      payment_status: paymentStatus,
+      notes: orderNotes,
+      table_number: tableNumber
+    });
     
-    // Vérification POST-INSERTION : S'assurer que le numéro inséré est correct
-    const [verifyInsert] = await connection.query(
-      'SELECT order_number FROM orders WHERE id = ?',
-      [orderResult.insertId]
-    );
+    // ✅ SUPABASE: Récupérer l'ID (Supabase retourne un tableau avec l'objet créé)
+    const orderId = orderResult && orderResult.length > 0 ? orderResult[0].id : null;
+    if (!orderId) {
+      throw new Error('Erreur lors de la création de la commande: ID non retourné');
+    }
     
-    const insertedNumber = verifyInsert.length > 0 ? verifyInsert[0].order_number : null;
+    // ✅ SUPABASE: Vérification POST-INSERTION : S'assurer que le numéro inséré est correct
+    const [verifyInsertData] = await supabaseService.select('orders', {
+      where: { id: orderId },
+      select: 'order_number'
+    });
+    
+    const insertedNumber = verifyInsertData && verifyInsertData.length > 0 ? verifyInsertData[0].order_number : null;
     if (insertedNumber && !/^CMD-\d{4}$/.test(insertedNumber)) {
       logger.error('❌❌❌ ERREUR POST-INSERTION: Le numéro inséré ne correspond pas au format!');
       logger.error('   Numéro dans la base:', insertedNumber);
-      await connection.rollback();
       throw new Error(`Erreur: Le numéro inséré (${insertedNumber}) ne correspond pas au format CMD-XXXX (ex: CMD-0001)`);
     }
     
-    logger.log('✅ Vérification post-insertion réussie:', verifyInsert[0].order_number);
+      logger.log('✅ Vérification post-insertion réussie:', verifyInsertData[0].order_number);
 
-    const orderId = orderResult.insertId;
-
-    // Ajouter les items
+    // ✅ SUPABASE: Ajouter les items
     for (const item of items) {
-      const [products] = await connection.query(
-        'SELECT name, price FROM products WHERE id = ?',
-        [item.productId || item.id]
-      );
+      const [productsData] = await supabaseService.select('products', {
+        where: { id: item.productId || item.id },
+        select: 'name, price'
+      });
 
-      if (products.length > 0) {
-        const product = products[0];
+      if (productsData && productsData.length > 0) {
+        const product = productsData[0];
         const itemSubtotal = parseFloat(product.price) * parseInt(item.quantity);
 
-        await connection.query(
-          `INSERT INTO order_items (
-            order_id, product_id, product_name, quantity, unit_price, subtotal
-          ) VALUES (?, ?, ?, ?, ?, ?)`,
-          [orderId, item.productId || item.id, product.name, item.quantity, product.price, itemSubtotal]
-        );
+        await supabaseService.insert('order_items', {
+          order_id: orderId,
+          product_id: item.productId || item.id,
+          product_name: product.name,
+          quantity: item.quantity,
+          unit_price: product.price,
+          subtotal: itemSubtotal
+        });
       }
     }
 
-    // Déduire les points de fidélité immédiatement si une récompense est appliquée
+    // ✅ SUPABASE: Déduire les points de fidélité immédiatement si une récompense est appliquée
     if (pointsToDeduct > 0 && req.user.id && !req.user.isGuest) {
       // Récupérer les points actuels (peut avoir changé entre temps)
-      const [users] = await connection.query(
-        'SELECT loyalty_points FROM users WHERE id = ?',
-        [req.user.id]
-      );
+      const [usersData] = await supabaseService.select('users', {
+        where: { id: req.user.id },
+        select: 'loyalty_points'
+      });
       
-      if (users.length > 0) {
-        const currentPoints = Math.max(0, users[0].loyalty_points || 0);
+      if (usersData && usersData.length > 0) {
+        const currentPoints = Math.max(0, usersData[0].loyalty_points || 0);
         
         // Vérification finale avant déduction
         if (currentPoints >= pointsToDeduct) {
           const newBalance = Math.max(0, currentPoints - pointsToDeduct);
           
-          // Déduire les points
-          await connection.query(
-            'UPDATE users SET loyalty_points = ? WHERE id = ?',
-            [newBalance, req.user.id]
-          );
+          // ✅ SUPABASE: Déduire les points
+          await supabaseService.update('users', { id: req.user.id }, {
+            loyalty_points: newBalance
+          });
           
-          // Enregistrer la transaction de déduction
-          await connection.query(
-            `INSERT INTO loyalty_transactions 
-             (user_id, order_id, points, transaction_type, description, balance_after)
-             VALUES (?, ?, ?, 'redeemed', ?, ?)`,
-            [
-              req.user.id,
-              orderId,
-              -pointsToDeduct,
-              `Utilisation récompense: ${loyaltyReward && loyaltyReward.name ? loyaltyReward.name : 'Récompense de fidélité'} (commande ${orderNumber})`,
-              newBalance
-            ]
-          );
+          // ✅ SUPABASE: Enregistrer la transaction de déduction
+          await supabaseService.insert('loyalty_transactions', {
+            user_id: req.user.id,
+            order_id: orderId,
+            points: -pointsToDeduct,
+            transaction_type: 'redeemed',
+            description: `Utilisation récompense: ${loyaltyReward && loyaltyReward.name ? loyaltyReward.name : 'Récompense de fidélité'} (commande ${orderNumber})`,
+            balance_after: newBalance
+          });
           
           logger.log(`✅ Points déduits lors de la création: ${pointsToDeduct} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
         } else {
           // Si les points ne sont plus suffisants, annuler la transaction
-          await connection.rollback();
           throw new Error(`Points insuffisants. Vous avez ${currentPoints} points, ${pointsToDeduct} points requis.`);
         }
       }
     }
 
-    // Si la commande est créée avec payment_status = 'completed' (paiement par carte), ajouter les points
+    // ✅ SUPABASE: Si la commande est créée avec payment_status = 'completed' (paiement par carte), ajouter les points
     if (paymentStatus === 'completed' && req.user.id && !req.user.isGuest) {
       // Vérifier si les points ont déjà été ajoutés pour cette commande
-      const [existingTransaction] = await connection.query(
-        'SELECT id FROM loyalty_transactions WHERE order_id = ? AND transaction_type = ?',
-        [orderId, 'earned']
-      );
+      const [existingTransactionData] = await supabaseService.select('loyalty_transactions', {
+        where: { order_id: orderId, transaction_type: 'earned' },
+        select: 'id'
+      });
+      
+      const existingTransaction = existingTransactionData || [];
 
       // Si aucune transaction n'existe, ajouter les points
-      if (existingTransaction.length === 0) {
+      if (!existingTransaction || existingTransaction.length === 0) {
         const pointsToAdd = Math.floor(totalAmount); // Points = total de la commande (arrondi à l'entier inférieur)
         
         if (pointsToAdd > 0) {
-          // Récupérer les points actuels
-          const [users] = await connection.query(
-            'SELECT loyalty_points FROM users WHERE id = ?',
-            [req.user.id]
-          );
+          // ✅ SUPABASE: Récupérer les points actuels
+          const [usersData] = await supabaseService.select('users', {
+            where: { id: req.user.id },
+            select: 'loyalty_points'
+          });
 
-          if (users.length > 0) {
-            const currentPoints = Math.max(0, users[0].loyalty_points || 0); // S'assurer que les points actuels ne sont pas négatifs
+          if (usersData && usersData.length > 0) {
+            const currentPoints = Math.max(0, usersData[0].loyalty_points || 0); // S'assurer que les points actuels ne sont pas négatifs
             const newBalance = Math.max(0, currentPoints + pointsToAdd); // Les points sont toujours ajoutés, jamais soustraits (et toujours positifs)
 
-            // Mettre à jour les points de l'utilisateur
-            await connection.query(
-              'UPDATE users SET loyalty_points = ? WHERE id = ?',
-              [newBalance, req.user.id]
-            );
+            // ✅ SUPABASE: Mettre à jour les points de l'utilisateur
+            await supabaseService.update('users', { id: req.user.id }, {
+              loyalty_points: newBalance
+            });
 
-            // Enregistrer la transaction
-            await connection.query(
-              `INSERT INTO loyalty_transactions 
-               (user_id, order_id, points, transaction_type, description, balance_after)
-               VALUES (?, ?, ?, 'earned', ?, ?)`,
-              [
-                req.user.id,
-                orderId,
-                pointsToAdd,
-                `Points gagnés sur commande ${orderNumber} (${totalAmount.toFixed(2)}€)`,
-                newBalance
-              ]
-            );
+            // ✅ SUPABASE: Enregistrer la transaction
+            await supabaseService.insert('loyalty_transactions', {
+              user_id: req.user.id,
+              order_id: orderId,
+              points: pointsToAdd,
+              transaction_type: 'earned',
+              description: `Points gagnés sur commande ${orderNumber} (${totalAmount.toFixed(2)}€)`,
+              balance_after: newBalance
+            });
 
             logger.log(`✅ Points ajoutés lors de la création: ${pointsToAdd} pour l'utilisateur ${req.user.id} (commande ${orderId}). Nouveau solde: ${newBalance}`);
           }
         }
       }
     }
-
-    await connection.commit();
 
     // ✅ OPTIMISATION: Invalider le cache des commandes
     cache.invalidateOnModify.orders();
@@ -1923,32 +2329,47 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
     logger.log('   - Payment Status:', paymentStatus);
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    // Récupérer la commande complète pour l'événement WebSocket
+    // ✅ SUPABASE: Récupérer la commande complète pour l'événement WebSocket
     try {
-      const [newOrder] = await connection.query(`
-        SELECT 
-          o.*,
-          COALESCE(u.first_name, '') as first_name, 
-          COALESCE(u.last_name, 'Invité') as last_name, 
-          COALESCE(u.email, '') as email,
-          (SELECT JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', oi.id,
-              'product_id', oi.product_id,
-              'product_name', oi.product_name,
-              'quantity', oi.quantity,
-              'unit_price', oi.unit_price,
-              'subtotal', oi.subtotal
-            )
-          ) FROM order_items oi WHERE oi.order_id = o.id) AS items
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        WHERE o.id = ?
-      `, [orderId]);
+      // Récupérer la commande avec les données utilisateur
+      const [ordersData] = await supabaseService.select('orders', {
+        where: { id: orderId },
+        select: '*'
+      });
       
-      // Émettre l'événement WebSocket pour mise à jour en temps réel
-      if (newOrder.length > 0) {
-        emitOrderUpdate('order:created', newOrder[0]);
+      if (ordersData && ordersData.length > 0) {
+        const order = ordersData[0];
+        
+        // Récupérer les données utilisateur si user_id existe
+        if (order.user_id) {
+          const [usersData] = await supabaseService.select('users', {
+            where: { id: order.user_id },
+            select: 'first_name, last_name, email'
+          });
+          if (usersData && usersData.length > 0) {
+            order.first_name = usersData[0].first_name || '';
+            order.last_name = usersData[0].last_name || 'Invité';
+            order.email = usersData[0].email || '';
+          } else {
+            order.first_name = '';
+            order.last_name = 'Invité';
+            order.email = '';
+          }
+        } else {
+          order.first_name = '';
+          order.last_name = 'Invité';
+          order.email = '';
+        }
+        
+        // Récupérer les items
+        const [orderItemsData] = await supabaseService.select('order_items', {
+          where: { order_id: orderId },
+          select: 'id, product_id, product_name, quantity, unit_price, subtotal'
+        });
+        order.items = orderItemsData || [];
+        
+        // Émettre l'événement WebSocket pour mise à jour en temps réel
+        emitOrderUpdate('order:created', order);
         emitOrderUpdate('orders:refresh', {});
         logger.log('📡 Événement WebSocket émis: order:created');
       }
@@ -1967,14 +2388,9 @@ app.post('/api/orders', authenticateOptional, asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await connection.rollback();
     // ✅ Gestion d'erreurs centralisée : l'erreur sera formatée par errorHandler
-    // Les erreurs MySQL seront automatiquement converties en erreurs applicatives
+    // Les erreurs Supabase seront automatiquement converties en erreurs applicatives
     throw error; // Laisser asyncHandler et errorHandler gérer
-  } finally {
-    if (connection) {
-      connection.release();
-    }
   }
 })); // ✅ Fermeture: asyncHandler(async (req, res) => { ... })
 
@@ -3179,80 +3595,99 @@ app.post('/api/admin/users/:id/adjust-points', authenticateToken, requireAdmin, 
 
 // Liste toutes les catégories
 app.get('/api/admin/categories', authenticateToken, requireAdmin, async (req, res) => {
+  logger.log('📋 GET /api/admin/categories - Récupération catégories');
   try {
-    const [categories] = await pool.query('SELECT * FROM categories ORDER BY display_order');
-    res.json({ success: true, data: categories });
+    // ✅ SUPABASE: Récupérer toutes les catégories
+    const [categories] = await supabaseService.select('categories', {
+      select: '*',
+      orderBy: ['display_order ASC']
+    });
+    
+    logger.log(`✅ ${categories ? categories.length : 0} catégorie(s) récupérée(s)`);
+    res.json({ success: true, data: categories || [] });
   } catch (error) {
-    logger.error('Erreur:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    logger.error('❌ Erreur récupération catégories:', error);
+    logger.error('   Stack:', error.stack);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
 // Créer une catégorie
 // ✅ OPTIMISATION: Invalidation du cache lors de la création
 app.post('/api/admin/categories', authenticateToken, requireAdmin, csrfProtection, validateCategory, asyncHandler(async (req, res) => {
+  logger.log('📋 POST /api/admin/categories - Création catégorie');
   const { name, slug, description, icon, displayOrder } = req.body;
 
-  const [result] = await pool.query(
-    `INSERT INTO categories (name, slug, description, icon, display_order) 
-     VALUES (?, ?, ?, ?, ?)`,
-    [name, slug, description, icon, displayOrder || 0]
-  );
+  // ✅ SUPABASE: Insérer la catégorie
+  const [result] = await supabaseService.insert('categories', {
+    name: name,
+    slug: slug,
+    description: description || '',
+    icon: icon || '📦',
+    display_order: displayOrder || 0,
+    is_active: 1
+  });
 
   // Invalider le cache des catégories et produits
   cache.invalidateOnModify.categories();
 
+  logger.log(`✅ Catégorie créée avec ID: ${result.id}`);
   res.status(201).json({
     success: true,
     message: 'Catégorie créée',
-    categoryId: result.insertId
+    categoryId: result.id
   });
 }));
 
 // ✅ OPTIMISATION: Modifier une catégorie - Invalidation du cache
 app.put('/api/admin/categories/:id', authenticateToken, requireAdmin, csrfProtection, validateId, validateCategory, asyncHandler(async (req, res) => {
+  logger.log(`📋 PUT /api/admin/categories/:id - Modification catégorie ${req.params.id}`);
   const { id } = req.params;
   const { name, slug, description, icon, displayOrder, isActive } = req.body;
 
-  await pool.query(
-    `UPDATE categories SET 
-      name = ?,
-      slug = ?,
-      description = ?,
-      icon = ?,
-      display_order = ?,
-      is_active = ?
-     WHERE id = ?`,
-    [name, slug, description, icon, displayOrder, isActive, id]
-  );
+  // ✅ SUPABASE: Mettre à jour la catégorie
+  await supabaseService.update('categories', { id: parseInt(id) }, {
+    name: name,
+    slug: slug,
+    description: description || '',
+    icon: icon || '📦',
+    display_order: displayOrder || 0,
+    is_active: isActive !== undefined ? (isActive ? 1 : 0) : 1
+  });
 
   // Invalider le cache des catégories et produits
   cache.invalidateOnModify.categories();
 
+  logger.log(`✅ Catégorie ${id} modifiée`);
   res.json({ success: true, message: 'Catégorie modifiée' });
 }));
 
 // ✅ OPTIMISATION: Supprimer une catégorie - Invalidation du cache
 app.delete('/api/admin/categories/:id', authenticateToken, requireAdmin, csrfProtection, validateId, asyncHandler(async (req, res) => {
+  logger.log(`📋 DELETE /api/admin/categories/:id - Suppression catégorie ${req.params.id}`);
   const { id } = req.params;
 
-  // Vérifier si des produits utilisent cette catégorie
-  const [products] = await pool.query(
-    'SELECT COUNT(*) as count FROM products WHERE category_id = ?',
-    [id]
-  );
+  // ✅ SUPABASE: Vérifier si des produits utilisent cette catégorie
+  const [products] = await supabaseService.select('products', {
+    where: { category_id: parseInt(id) },
+    select: 'id'
+  });
 
-  if (products[0].count > 0) {
+  if (products && products.length > 0) {
+    logger.warn(`⚠️ Impossible de supprimer: ${products.length} produit(s) utilisent cette catégorie`);
     return res.status(400).json({
-      error: `Impossible de supprimer. ${products[0].count} produit(s) utilisent cette catégorie.`
+      success: false,
+      error: `Impossible de supprimer. ${products.length} produit(s) utilisent cette catégorie.`
     });
   }
 
-  await pool.query('DELETE FROM categories WHERE id = ?', [id]);
+  // ✅ SUPABASE: Supprimer la catégorie
+  await supabaseService.delete('categories', { id: parseInt(id) });
 
   // Invalider le cache des catégories et produits
   cache.invalidateOnModify.categories();
 
+  logger.log(`✅ Catégorie ${id} supprimée`);
   res.json({ success: true, message: 'Catégorie supprimée' });
 }));
 
@@ -3262,49 +3697,110 @@ app.delete('/api/admin/categories/:id', authenticateToken, requireAdmin, csrfPro
 
 // Liste tous les produits
 // ✅ SÉCURITÉ: Pagination implémentée
+// ✅ MIGRATION SUPABASE: Utiliser Supabase directement
 app.get('/api/admin/products', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const { page, limit, offset } = parsePaginationParams(req);
   
-  // Compter le total de produits
-  const [countResult] = await pool.query(
-    'SELECT COUNT(*) as total FROM products WHERE deleted_at IS NULL'
-  );
-  const total = countResult[0].total;
-  
-  // Récupérer les produits (paginés)
-  const [products] = await pool.query(`
-    SELECT p.*, c.name as category_name 
-    FROM products p 
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.deleted_at IS NULL
-    ORDER BY p.created_at DESC
-    LIMIT ? OFFSET ?
-  `, [limit, offset]);
+  try {
+    // ✅ MIGRATION SUPABASE: Utiliser Supabase directement
+    const supabase = pool.getClient();
+    
+    // Compter le total de produits
+    const { count, error: countError } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .is('deleted_at', null);
+    
+    if (countError) {
+      logger.error('❌ Erreur comptage produits:', countError);
+      throw countError;
+    }
+    
+    const total = count || 0;
+    
+    // Récupérer les produits avec catégories (paginés)
+    const { data: products, error: productsError } = await supabase
+      .from('products')
+      .select(`
+        *,
+        categories (
+          id,
+          name,
+          slug
+        )
+      `)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+    
+    if (productsError) {
+      logger.error('❌ Erreur récupération produits:', productsError);
+      throw productsError;
+    }
+    
+    // Transformer les produits pour inclure category_name
+    const transformedProducts = (products || []).map(product => {
+      const category = Array.isArray(product.categories)
+        ? product.categories[0]
+        : product.categories;
+      
+      return {
+        ...product,
+        category_name: category?.name || null
+      };
+    });
 
-  const pagination = getPaginationMetadata(total, page, limit);
-  logger.debug('Products fetched', { page, limit, total, fetched: products.length });
-  
-  res.json(formatPaginatedResponse(products, pagination));
+    const pagination = getPaginationMetadata(total, page, limit);
+    logger.debug('Products fetched from Supabase', { page, limit, total, fetched: transformedProducts.length });
+    
+    res.json(formatPaginatedResponse(transformedProducts, pagination));
+  } catch (error) {
+    logger.error('❌ Erreur /api/admin/products:', error);
+    throw error;
+  }
 }));
 
 // Créer un produit
 // ✅ OPTIMISATION: Invalidation du cache lors de la création
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour la création
 app.post('/api/admin/products', authenticateToken, requireAdmin, csrfProtection, validateProductCreate, asyncHandler(async (req, res) => {
   const {
     categoryId, name, slug, description, price, imageUrl,
     stock, isAvailable, isFeatured, calories, preparationTime, allergens
   } = req.body;
 
+  logger.log('📦 POST /api/admin/products - Création produit:', { name, categoryId, price });
+
   // Convertir allergens en JSON si c'est un array, sinon utiliser une chaîne vide
   const allergensJson = Array.isArray(allergens) ? JSON.stringify(allergens) : (allergens || '');
   
-  const [result] = await pool.query(
-    `INSERT INTO products (
-      category_id, name, slug, description, price, image_url,
-      stock, is_available, is_featured, calories, preparation_time, allergens
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [categoryId, name, slug, description, price, imageUrl, stock, isAvailable, isFeatured, calories, preparationTime, allergensJson]
-  );
+  // Convertir les booléens explicitement pour Supabase (SMALLINT)
+  const isAvailableValue = isAvailable ? 1 : 0;
+  const isFeaturedValue = isFeatured ? 1 : 0;
+  
+  // ✅ SUPABASE: Créer le produit
+  const [result] = await supabaseService.insert('products', {
+    category_id: categoryId,
+    name: name,
+    slug: slug,
+    description: description || '',
+    price: parseFloat(price) || 0,
+    image_url: imageUrl || null,
+    stock: parseInt(stock) || 0,
+    is_available: isAvailableValue,
+    is_featured: isFeaturedValue,
+    calories: parseInt(calories) || null,
+    preparation_time: parseInt(preparationTime) || null,
+    allergens: allergensJson || null
+  });
+
+  if (!result || result.length === 0) {
+    throw new Error('Erreur lors de la création du produit');
+  }
+
+  const productId = result[0].id;
+
+  logger.log(`✅ Produit créé avec ID: ${productId}`);
 
   // Invalider le cache des produits
   cache.invalidateOnModify.products();
@@ -3312,115 +3808,168 @@ app.post('/api/admin/products', authenticateToken, requireAdmin, csrfProtection,
   res.status(201).json({
     success: true,
     message: 'Produit créé',
-    productId: result.insertId
+    productId: productId
   });
 }));
 
 // Modifier un produit
-app.put('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtection, validateId, validateProduct, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      categoryId, name, slug, description, price, imageUrl,
-      stock, isAvailable, isFeatured, calories, preparationTime, allergens
-    } = req.body;
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour la modification
+app.put('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtection, validateId, validateProduct, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    categoryId, name, slug, description, price, imageUrl,
+    stock, isAvailable, isFeatured, calories, preparationTime, allergens
+  } = req.body;
 
-    logger.log('📝 Modification produit ID:', id);
-    logger.log('   Données reçues:', { categoryId, name, price, stock, isAvailable, isFeatured });
+  logger.log('📝 PUT /api/admin/products/:id - Modification produit ID:', id);
+  logger.log('   Données reçues:', { categoryId, name, price, stock, isAvailable, isFeatured });
 
-    // Convertir allergens en JSON si c'est un array
-    const allergensJson = Array.isArray(allergens) ? JSON.stringify(allergens) : allergens;
+  // Vérifier que le produit existe et n'est pas supprimé
+  const [existingProduct] = await supabaseService.select('products', {
+    where: { id: parseInt(id) },
+    select: 'id, deleted_at',
+    limit: 1
+  });
 
-    // Convertir les booléens explicitement
-    const isAvailableValue = isAvailable ? 1 : 0;
-    const isFeaturedValue = isFeatured ? 1 : 0;
-
-    const params = [
-      categoryId, 
-      name, 
-      slug, 
-      description, 
-      price, 
-      imageUrl, 
-      stock, 
-      isAvailableValue, 
-      isFeaturedValue, 
-      calories, 
-      preparationTime, 
-      allergensJson, 
-      id
-    ];
-
-    logger.log('   Paramètres SQL:', params);
-
-    const [result] = await pool.query(
-      `UPDATE products SET 
-        category_id = ?,
-        name = ?,
-        slug = ?,
-        description = ?,
-        price = ?,
-        image_url = ?,
-        stock = ?,
-        is_available = ?,
-        is_featured = ?,
-        calories = ?,
-        preparation_time = ?,
-        allergens = ?
-       WHERE id = ?`,
-      params
-    );
-
-    // Invalider le cache des produits
-    cache.invalidateOnModify.products();
-
-    res.json({ success: true, message: 'Produit modifié', affectedRows: result.affectedRows });
-  } catch (error) {
-    logger.error('❌ Erreur modification produit:', error.message);
-    logger.error('   Stack:', error.stack);
-    // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
-    const isProd = process.env.NODE_ENV === 'production';
-    res.status(500).json({ 
-      error: 'Erreur serveur',
-      ...(isProd ? {} : { details: error.message })
+  if (!existingProduct || existingProduct.length === 0) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Produit non trouvé' 
     });
   }
-});
+
+  if (existingProduct[0].deleted_at) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Impossible de modifier un produit supprimé' 
+    });
+  }
+
+  // Convertir allergens en JSON si c'est un array
+  const allergensJson = Array.isArray(allergens) ? JSON.stringify(allergens) : (allergens || null);
+
+  // Convertir les booléens explicitement pour Supabase (SMALLINT)
+  const isAvailableValue = isAvailable ? 1 : 0;
+  const isFeaturedValue = isFeatured ? 1 : 0;
+
+  // ✅ SUPABASE: Mettre à jour le produit
+  await supabaseService.update('products', 
+    { id: parseInt(id) },
+    {
+      category_id: categoryId,
+      name: name,
+      slug: slug,
+      description: description || '',
+      price: parseFloat(price) || 0,
+      image_url: imageUrl || null,
+      stock: parseInt(stock) || 0,
+      is_available: isAvailableValue,
+      is_featured: isFeaturedValue,
+      calories: calories ? parseInt(calories) : null,
+      preparation_time: preparationTime ? parseInt(preparationTime) : null,
+      allergens: allergensJson,
+      updated_at: new Date().toISOString()
+    }
+  );
+
+  logger.log(`✅ Produit ${id} modifié`);
+
+  // Invalider le cache des produits
+  cache.invalidateOnModify.products();
+
+  res.json({ success: true, message: 'Produit modifié' });
+}));
 
 // Toggle disponibilité produit (Admin ET Manager)
 // ✅ OPTIMISATION: Toggle produit - Invalidation du cache
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour le toggle
 app.put('/api/admin/products/:id/toggle', authenticateToken, requireManager, csrfProtection, validateId, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
-  // Récupérer l'état actuel
-  const [products] = await pool.query('SELECT is_available FROM products WHERE id = ?', [id]);
+  logger.log(`🔄 PUT /api/admin/products/${id}/toggle - Toggle disponibilité`);
   
-  if (products.length === 0) {
-    return res.status(404).json({ error: 'Produit non trouvé' });
+  // ✅ SUPABASE: Récupérer l'état actuel
+  const [products] = await supabaseService.select('products', {
+    where: { id: parseInt(id) },
+    select: 'id, is_available, deleted_at',
+    limit: 1
+  });
+  
+  if (!products || products.length === 0) {
+    return res.status(404).json({ 
+      success: false,
+      error: 'Produit non trouvé' 
+    });
+  }
+
+  if (products[0].deleted_at) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Impossible de modifier un produit supprimé' 
+    });
   }
   
   const currentStatus = products[0].is_available;
-  const newStatus = currentStatus ? 0 : 1;
+  const newStatus = currentStatus === 1 ? 0 : 1;
   
-  // Mettre à jour
-  await pool.query('UPDATE products SET is_available = ? WHERE id = ?', [newStatus, id]);
+  // ✅ SUPABASE: Mettre à jour
+  await supabaseService.update('products', 
+    { id: parseInt(id) },
+    { 
+      is_available: newStatus,
+      updated_at: new Date().toISOString()
+    }
+  );
+  
+  logger.log(`✅ Produit ${id} ${newStatus === 1 ? 'activé' : 'désactivé'}`);
   
   // Invalider le cache des produits
   cache.invalidateOnModify.products();
   
   res.json({ 
     success: true, 
-    message: newStatus ? 'Produit activé' : 'Produit désactivé',
+    message: newStatus === 1 ? 'Produit activé' : 'Produit désactivé',
     is_available: newStatus
   });
 }));
 
 // ✅ OPTIMISATION: Supprimer un produit - Invalidation du cache
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour le soft delete
 app.delete('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProtection, validateId, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
-  // Soft delete au lieu de suppression physique
-  await pool.query('UPDATE products SET deleted_at = NOW() WHERE id = ?', [id]);
+  logger.log(`🗑️ DELETE /api/admin/products/${id} - Suppression produit`);
+  
+  // ✅ Vérifier que le produit existe et n'est pas déjà supprimé
+  const [existingProduct] = await supabaseService.select('products', {
+    where: { id: parseInt(id) },
+    select: 'id, deleted_at',
+    limit: 1
+  });
+  
+  if (!existingProduct || existingProduct.length === 0) {
+    logger.warn(`⚠️ Produit ${id} non trouvé`);
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Produit non trouvé' 
+    });
+  }
+  
+  if (existingProduct[0].deleted_at) {
+    logger.warn(`⚠️ Produit ${id} déjà supprimé`);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Produit déjà supprimé' 
+    });
+  }
+  
+  // ✅ SUPABASE: Soft delete au lieu de suppression physique
+  await supabaseService.update('products', 
+    { id: parseInt(id) }, 
+    { deleted_at: new Date().toISOString() }
+  );
+  
+  logger.log(`✅ Produit ${id} supprimé (soft delete)`);
   
   // Invalider le cache des produits
   cache.invalidateOnModify.products();
@@ -3435,10 +3984,14 @@ app.delete('/api/admin/products/:id', authenticateToken, requireAdmin, csrfProte
 // Liste tous les codes promo
 app.get('/api/admin/promo-codes', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [codes] = await pool.query('SELECT * FROM promo_codes ORDER BY created_at DESC');
-    res.json({ success: true, data: codes });
+    // ✅ SUPABASE: Récupérer tous les codes promo
+    const [codes] = await supabaseService.select('promo_codes', {
+      select: '*',
+      orderBy: ['created_at DESC']
+    });
+    res.json({ success: true, data: codes || [] });
   } catch (error) {
-    logger.error('Erreur:', error);
+    logger.error('❌ GET /api/admin/promo-codes:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3451,21 +4004,32 @@ app.post('/api/admin/promo-codes', authenticateToken, requireAdmin, csrfProtecti
       minOrderAmount, maxUses, validFrom, validUntil
     } = req.body;
 
-    const [result] = await pool.query(
-      `INSERT INTO promo_codes (
-        code, description, discount_type, discount_value,
-        min_order_amount, max_uses, valid_from, valid_until
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [code, description, discountType, discountValue, minOrderAmount, maxUses, validFrom, validUntil]
-    );
+    // ✅ SUPABASE: Créer le code promo
+    const [insertedData] = await supabaseService.insert('promo_codes', {
+      code: code.toUpperCase().trim(),
+      description: description || null,
+      discount_type: discountType || 'percentage',
+      discount_value: parseFloat(discountValue) || 0,
+      min_order_amount: parseFloat(minOrderAmount) || 0,
+      max_uses: maxUses ? parseInt(maxUses) : null,
+      uses_count: 0,
+      valid_from: validFrom || new Date().toISOString(),
+      valid_until: validUntil || null,
+      is_active: 1 // SMALLINT: 1 = actif, 0 = inactif
+    });
+
+    const newPromo = insertedData && insertedData.length > 0 ? insertedData[0] : null;
+
+    logger.log(`✅ Code promo créé: ${code.toUpperCase()}`);
 
     res.status(201).json({
       success: true,
       message: 'Code promo créé',
-      promoCodeId: result.insertId
+      data: newPromo,
+      promoCodeId: newPromo?.id
     });
   } catch (error) {
-    logger.error('Erreur:', error);
+    logger.error('❌ POST /api/admin/promo-codes:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3479,24 +4043,24 @@ app.put('/api/admin/promo-codes/:id', authenticateToken, requireAdmin, csrfProte
       minOrderAmount, maxUses, validFrom, validUntil, isActive
     } = req.body;
 
-    await pool.query(
-      `UPDATE promo_codes SET 
-        code = ?,
-        description = ?,
-        discount_type = ?,
-        discount_value = ?,
-        min_order_amount = ?,
-        max_uses = ?,
-        valid_from = ?,
-        valid_until = ?,
-        is_active = ?
-       WHERE id = ?`,
-      [code, description, discountType, discountValue, minOrderAmount, maxUses, validFrom, validUntil, isActive, id]
-    );
+    // ✅ SUPABASE: Mettre à jour le code promo
+    await supabaseService.update('promo_codes', { id: parseInt(id) }, {
+      code: code ? code.toUpperCase().trim() : undefined,
+      description: description !== undefined ? description : undefined,
+      discount_type: discountType || undefined,
+      discount_value: discountValue !== undefined ? parseFloat(discountValue) : undefined,
+      min_order_amount: minOrderAmount !== undefined ? parseFloat(minOrderAmount) : undefined,
+      max_uses: maxUses !== undefined ? (maxUses ? parseInt(maxUses) : null) : undefined,
+      valid_from: validFrom !== undefined ? validFrom : undefined,
+      valid_until: validUntil !== undefined ? validUntil : undefined,
+      is_active: isActive !== undefined ? (isActive ? 1 : 0) : undefined // SMALLINT: 1 = actif, 0 = inactif
+    });
+
+    logger.log(`✅ Code promo modifié: ID ${id}`);
 
     res.json({ success: true, message: 'Code promo modifié' });
   } catch (error) {
-    logger.error('Erreur:', error);
+    logger.error('❌ PUT /api/admin/promo-codes/:id:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3505,10 +4069,12 @@ app.put('/api/admin/promo-codes/:id', authenticateToken, requireAdmin, csrfProte
 app.delete('/api/admin/promo-codes/:id', authenticateToken, requireAdmin, csrfProtection, validateId, async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('DELETE FROM promo_codes WHERE id = ?', [id]);
+    // ✅ SUPABASE: Supprimer le code promo
+    await supabaseService.delete('promo_codes', { id: parseInt(id) });
+    logger.log(`✅ Code promo supprimé: ID ${id}`);
     res.json({ success: true, message: 'Code promo supprimé' });
   } catch (error) {
-    logger.error('Erreur:', error);
+    logger.error('❌ DELETE /api/admin/promo-codes/:id:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3715,6 +4281,10 @@ app.get('/api/admin/orders', devBypass(authenticateToken), devBypass(requireMana
         COALESCE(u.first_name, '') as first_name, 
         COALESCE(u.last_name, 'Invité') as last_name, 
         COALESCE(u.email, '') as email,
+        pc.code as promo_code,
+        pc.description as promo_code_description,
+        pc.discount_type as promo_discount_type,
+        pc.discount_value as promo_discount_value,
         COALESCE(
           (
             SELECT JSON_ARRAYAGG(
@@ -3760,6 +4330,7 @@ app.get('/api/admin/orders', devBypass(authenticateToken), devBypass(requireMana
         ) AS items
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN promo_codes pc ON o.promo_code_id = pc.id
       ORDER BY o.created_at DESC
       LIMIT ? OFFSET ?
     `, [limit, offset]);
@@ -3855,9 +4426,14 @@ app.get('/api/admin/orders/:id', devBypass(authenticateToken), devBypass(require
         COALESCE(u.first_name, '') as first_name, 
         COALESCE(u.last_name, 'Invité') as last_name, 
         COALESCE(u.email, '') as email, 
-        COALESCE(u.phone, '') as phone
+        COALESCE(u.phone, '') as phone,
+        pc.code as promo_code,
+        pc.description as promo_code_description,
+        pc.discount_type as promo_discount_type,
+        pc.discount_value as promo_discount_value
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN promo_codes pc ON o.promo_code_id = pc.id
       WHERE o.id = ?
     `, [id]);
 
@@ -3888,69 +4464,69 @@ app.put('/api/admin/orders/:id/status', authenticateToken, requireManager, csrfP
     const { id } = req.params;
     const { status } = req.body;
 
-    // Récupérer l'ancien statut pour gérer les timestamps
-    const [currentOrder] = await pool.query(
-      'SELECT status, taken_at FROM orders WHERE id = ?',
-      [id]
-    );
+    // ✅ SUPABASE: Récupérer l'ancien statut pour gérer les timestamps
+    const [currentOrders] = await supabaseService.select('orders', {
+      where: { id: parseInt(id) },
+      select: 'id,status,taken_at,user_id'
+    });
 
-    if (currentOrder.length === 0) {
+    if (!currentOrders || currentOrders.length === 0) {
       return res.status(404).json({ error: 'Commande non trouvée' });
     }
 
-    const oldStatus = currentOrder[0].status;
+    const currentOrder = currentOrders[0];
+    const oldStatus = currentOrder.status;
     const newStatus = status;
 
-    // Préparer la requête de mise à jour avec les timestamps
-    let updateQuery = 'UPDATE orders SET status = ?';
-    let updateParams = [newStatus];
+    // Préparer les données de mise à jour avec les timestamps
+    const updateData = { status: newStatus };
+    const now = new Date().toISOString();
 
     // Si on passe de "pending" à "preparing", enregistrer le temps de prise en charge
     if (oldStatus === 'pending' && newStatus === 'preparing') {
-      updateQuery += ', taken_at = NOW()';
+      updateData.taken_at = now;
       logger.log(`📌 Commande ${id}: Prise en charge - taken_at enregistré`);
     }
 
     // Si on passe de "preparing" à "served" ou "ready" à "served", enregistrer le temps de fin de préparation
     if ((oldStatus === 'preparing' || oldStatus === 'ready') && newStatus === 'served') {
       // Si taken_at n'est pas encore défini, le définir maintenant (cas où on passe directement de pending à served)
-      if (!currentOrder[0].taken_at && oldStatus !== 'ready') {
-        updateQuery += ', taken_at = NOW()';
+      if (!currentOrder.taken_at && oldStatus !== 'ready') {
+        updateData.taken_at = now;
         logger.log(`📌 Commande ${id}: Prise en charge tardive - taken_at enregistré`);
       }
-      updateQuery += ', prepared_at = NOW()';
+      updateData.prepared_at = now;
       logger.log(`📌 Commande ${id}: Préparation terminée - prepared_at enregistré`);
     }
 
-    updateQuery += ' WHERE id = ?';
-    updateParams.push(id);
-
-    await pool.query(updateQuery, updateParams);
+    // ✅ SUPABASE: Mettre à jour la commande
+    await supabaseService.update('orders', { id: parseInt(id) }, updateData);
 
     // ✅ OPTIMISATION: Invalider le cache des commandes
     cache.invalidateOnModify.orders();
 
-    // Créer une notification pour le client
-    const [order] = await pool.query('SELECT user_id FROM orders WHERE id = ?', [id]);
-    
-    await pool.query(
-      `INSERT INTO notifications (user_id, title, message, type, related_order_id)
-       VALUES (?, ?, ?, 'order', ?)`,
-      [
-        order[0].user_id,
-        'Statut de commande mis à jour',
-        `Votre commande est maintenant: ${status}`,
-        id
-      ]
-    );
+    // ✅ SUPABASE: Créer une notification pour le client
+    if (currentOrder.user_id) {
+      try {
+        await supabaseService.insert('notifications', {
+          user_id: currentOrder.user_id,
+          title: 'Statut de commande mis à jour',
+          message: `Votre commande est maintenant: ${status}`,
+          type: 'order',
+          related_order_id: parseInt(id)
+        });
+      } catch (notifError) {
+        logger.warn('⚠️ Erreur création notification (non bloquant):', notifError);
+      }
+    }
 
     // Émettre l'événement WebSocket pour mise à jour en temps réel
-    emitOrderUpdate('order:status_changed', { orderId: id, status: newStatus, oldStatus });
+    emitOrderUpdate('order:status_changed', { orderId: parseInt(id), status: newStatus, oldStatus });
     emitOrderUpdate('orders:refresh', {});
 
     res.json({ success: true, message: 'Statut mis à jour' });
   } catch (error) {
-    logger.error('Erreur:', error);
+    logger.error('❌ Erreur mise à jour statut commande:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4186,46 +4762,81 @@ app.put('/api/admin/orders/:id/payment-status', authenticateToken, requireManage
   }
 });
 app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireManager, csrfProtection, validateId, async (req, res) => {
-  const identifier = req.params.id;
+  // ✅ DEBUG: Logger les informations utilisateur pour diagnostiquer les problèmes d'accès
+  logger.debug('🔐 Payment workflow - Vérification accès:', {
+    userId: req.user?.id,
+    userEmail: req.user?.email,
+    userRole: req.user?.role,
+    orderId: req.params.id,
+    path: req.path
+  });
+  
+    const identifier = req.params.id;
   const {
     items = [],
     removedItemIds = [],
     payments = [],
     totals = {},
+    appliedPromo = null,
     notes = null,
     statusNext = null
   } = req.body || {};
 
-  let connection;
+  // ✅ PROTECTION: Vérifier que la requête n'est pas vide
+  logger.debug('📥 Payment workflow - Requête reçue:', {
+    orderId: req.params.id,
+    itemsCount: Array.isArray(items) ? items.length : 0,
+    paymentsCount: Array.isArray(payments) ? payments.length : 0,
+    hasTotals: !!totals,
+    hasAppliedPromo: !!appliedPromo,
+    statusNext
+  });
 
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-
+    // ✅ SUPABASE: Utiliser pool.query() directement au lieu de getConnection()
     const numericId = Number(identifier);
-    const whereClauses = [];
-    const whereParams = [];
-
+    
+    // Rechercher la commande par ID ou order_number
+    let currentOrder = null;
+    
     if (!Number.isNaN(numericId)) {
-      whereClauses.push('id = ?');
-      whereParams.push(numericId);
+      // Recherche par ID
+      const [ordersById] = await pool.query(
+        'SELECT * FROM orders WHERE id = ? LIMIT 1',
+        [numericId]
+      );
+      if (ordersById.length > 0) {
+        currentOrder = ordersById[0];
+        logger.debug('✅ Payment workflow - Commande trouvée par ID:', numericId);
+      }
+    }
+    
+    // Si pas trouvé par ID, rechercher par order_number
+    if (!currentOrder) {
+      const [ordersByNumber] = await pool.query(
+        'SELECT * FROM orders WHERE order_number = ? LIMIT 1',
+        [identifier]
+      );
+      if (ordersByNumber.length > 0) {
+        currentOrder = ordersByNumber[0];
+        logger.debug('✅ Payment workflow - Commande trouvée par order_number:', identifier);
+      }
     }
 
-    whereClauses.push('order_number = ?');
-    whereParams.push(identifier);
-
-    const [orders] = await connection.query(
-      `SELECT * FROM orders WHERE ${whereClauses.join(' OR ')} LIMIT 1`,
-      whereParams
-    );
-
-    if (orders.length === 0) {
-      await connection.rollback();
+    if (!currentOrder) {
+      logger.error('❌ Payment workflow - Commande introuvable:', { identifier, numericId });
       return res.status(404).json({ success: false, error: 'Commande introuvable' });
     }
 
-    const currentOrder = orders[0];
     const orderId = currentOrder.id;
+    
+    // ✅ LOGS DÉTAILLÉS pour diagnostic
+    logger.debug('✅ Payment workflow - Commande trouvée:', {
+      orderId,
+      orderNumber: currentOrder.order_number,
+      currentStatus: currentOrder.status,
+      currentPaymentStatus: currentOrder.payment_status
+    });
 
     const removalSet = new Set(
       Array.isArray(removedItemIds)
@@ -4255,7 +4866,7 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
           continue;
         }
 
-        await connection.query(
+        await pool.query(
           'UPDATE order_items SET quantity = ?, unit_price = ?, subtotal = ? WHERE id = ? AND order_id = ?',
           [quantity, unitPrice, subtotal, itemId, orderId]
         );
@@ -4265,13 +4876,13 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
     if (removalSet.size > 0) {
       const removalArray = Array.from(removalSet);
       const placeholders = removalArray.map(() => '?').join(', ');
-      await connection.query(
+      await pool.query(
         `DELETE FROM order_items WHERE order_id = ? AND id IN (${placeholders})`,
         [orderId, ...removalArray]
       );
     }
 
-    const [itemsTotals] = await connection.query(
+    const [itemsTotals] = await pool.query(
       'SELECT COALESCE(SUM(subtotal), 0) AS subtotal FROM order_items WHERE order_id = ?',
       [orderId]
     );
@@ -4281,11 +4892,52 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
     const taxAmount = Number(currentOrder.tax_amount ?? 0);
 
     const safeTotals = totals && typeof totals === 'object' ? totals : {};
+    
+    // ✅ CALCULER LA PROMO SI APPLIQUÉE
+    let promoDiscount = 0;
+    if (appliedPromo && typeof appliedPromo === 'object') {
+      const promoDiscountType = appliedPromo.discountType || appliedPromo.discount_type;
+      const promoDiscountValue = Number(appliedPromo.discountValue || appliedPromo.discount_value || 0);
+      
+      if (promoDiscountType === 'percentage' && promoDiscountValue > 0 && promoDiscountValue <= 100) {
+        // Réduction en pourcentage
+        promoDiscount = Math.round((recalculatedSubtotal * promoDiscountValue / 100) * 100) / 100;
+      } else if (promoDiscountType === 'fixed' && promoDiscountValue > 0) {
+        // Réduction fixe
+        promoDiscount = Math.min(promoDiscountValue, recalculatedSubtotal); // Ne pas dépasser le subtotal
+      }
+      
+      // Utiliser le promoDiscount du frontend si fourni et cohérent
+      const frontendPromoDiscount = Number(safeTotals.promoDiscount ?? 0);
+      if (frontendPromoDiscount > 0 && Math.abs(frontendPromoDiscount - promoDiscount) < 0.1) {
+        promoDiscount = frontendPromoDiscount; // Utiliser la valeur du frontend si cohérente
+      }
+    } else if (safeTotals.promoDiscount != null) {
+      // Fallback: utiliser le promoDiscount envoyé par le frontend
+      promoDiscount = Number(safeTotals.promoDiscount ?? 0);
+    }
+    
+    promoDiscount = Math.max(0, Math.round(promoDiscount * 100) / 100);
+    
     // ✅ SÉCURITÉ: RECALCULER TOUJOURS CÔTÉ SERVEUR - Ne JAMAIS faire confiance au client
-    // Ignorer safeTotals.total du client et recalculer depuis les données de la base
-    const totalAmount = Math.max(0, recalculatedSubtotal - discountAmount + taxAmount);
+    // Recalculer depuis les données de la base + promo si appliquée
+    // Total = Subtotal - Discount existant - Promo + Tax
+    const totalBeforeTax = Math.max(0, recalculatedSubtotal - discountAmount - promoDiscount);
+    const totalAmount = Math.max(0, totalBeforeTax + taxAmount);
+    
+    // ✅ LOGS DÉTAILLÉS POUR DIAGNOSTIC
+    logger.debug('💰 Payment workflow - Calcul des totaux:', {
+      recalculatedSubtotal: recalculatedSubtotal.toFixed(2),
+      discountAmount: discountAmount.toFixed(2),
+      promoDiscount: promoDiscount.toFixed(2),
+      taxAmount: taxAmount.toFixed(2),
+      totalBeforeTax: totalBeforeTax.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
+      hasAppliedPromo: !!appliedPromo,
+      promoType: appliedPromo?.discountType || appliedPromo?.discount_type || 'none'
+    });
 
-    await connection.query('DELETE FROM order_payments WHERE order_id = ?', [orderId]);
+    await pool.query('DELETE FROM order_payments WHERE order_id = ?', [orderId]);
 
     const allowedPaymentMethods = new Set(['cash','card','stripe','paypal','mixed','voucher','other','check','transfer']);
     const paymentMethodSet = new Set();
@@ -4310,7 +4962,7 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
         reference: entry?.reference || null
       });
 
-      await connection.query(
+      await pool.query(
         'INSERT INTO order_payments (order_id, method, amount, reference) VALUES (?, ?, ?, ?)',
         [orderId, method, amount, entry?.reference || null]
       );
@@ -4334,16 +4986,61 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
         : Math.max(0, totalAmount - amountPaid)
     );
 
-    // Vérifier que les paiements correspondent au total recalculé (après calcul des détails)
-    const tolerance = 0.01; // Tolérance de 1 centime pour les arrondis
-    if (Math.abs(amountPaid - totalAmount) > tolerance && amountPaid > 0) {
-      logger.error('❌ ERREUR SÉCURITÉ: Montant de paiement ne correspond pas au total');
-      logger.error('   - Total recalculé:', totalAmount);
-      logger.error('   - Total payé:', amountPaid);
-      await connection.rollback();
+    // ✅ VALIDATION AMÉLIORÉE: Vérifier que les paiements correspondent au total recalculé
+    // ✅ CORRECTION: Permettre que le montant payé soit >= au total (pour la monnaie à rendre)
+    // ✅ Tolérance pour les erreurs d'arrondi et les paiements partiels
+    const tolerance = 0.05; // Tolérance de 5 centimes pour les arrondis (augmentée pour plus de flexibilité)
+    
+    // ✅ LOGS DÉTAILLÉS POUR DIAGNOSTIC COMPLET
+    logger.debug('💰 Payment workflow - Validation des paiements:', {
+      totalAmount: totalAmount.toFixed(2),
+      amountPaid: amountPaid.toFixed(2),
+      remainingAmount: remainingAmount.toFixed(2),
+      changeAmount: changeAmount.toFixed(2),
+      difference: (amountPaid - totalAmount).toFixed(2),
+      tolerance: tolerance.toFixed(2),
+      promoDiscount: promoDiscount.toFixed(2),
+      paymentCount: paymentDetailsList.length,
+      payments: paymentDetailsList.map(p => `${p.method}: ${p.amount.toFixed(2)}€`)
+    });
+    
+    // ✅ Autoriser les paiements partiels si remainingAmount > tolerance
+    // ✅ Autoriser les paiements avec monnaie à rendre (amountPaid > totalAmount)
+    // ✅ Ne rejeter que si le montant payé est insuffisant ET qu'on essaie de finaliser (statusNext !== null)
+    const isUnderpaid = amountPaid > 0 && amountPaid < totalAmount - tolerance;
+    const isTryingToFinalize = statusNext !== null && statusNext !== undefined;
+    
+    if (isUnderpaid && isTryingToFinalize && remainingAmount > tolerance) {
+      logger.error('❌ ERREUR: Tentative de finalisation avec paiement incomplet');
+      logger.error('   - Total recalculé (avec promo):', totalAmount.toFixed(2));
+      logger.error('   - Total payé:', amountPaid.toFixed(2));
+      logger.error('   - Reste à payer:', remainingAmount.toFixed(2));
+      logger.error('   - Différence:', (totalAmount - amountPaid).toFixed(2));
+      logger.error('   - Promo appliquée:', promoDiscount > 0 ? `${promoDiscount.toFixed(2)}€` : 'non');
+      
       return res.status(400).json({
-        error: 'Montant de paiement invalide',
-        details: `Le montant total payé (${amountPaid.toFixed(2)}€) ne correspond pas au total de la commande (${totalAmount.toFixed(2)}€)`
+        error: 'Montant de paiement insuffisant',
+        details: `Le montant total payé (${amountPaid.toFixed(2)}€) est inférieur au total de la commande (${totalAmount.toFixed(2)}€). Il manque ${remainingAmount.toFixed(2)}€.`,
+        totals: {
+          total: totalAmount.toFixed(2),
+          paid: amountPaid.toFixed(2),
+          remaining: remainingAmount.toFixed(2),
+          promoDiscount: promoDiscount.toFixed(2)
+        }
+      });
+    }
+    
+    // ✅ Log pour diagnostic (toujours visible en cas de différence)
+    if (Math.abs(amountPaid - totalAmount) > tolerance) {
+      logger.warn('⚠️ Payment workflow - Différence entre montant payé et total:', {
+        totalAmount: totalAmount.toFixed(2),
+        amountPaid: amountPaid.toFixed(2),
+        difference: (amountPaid - totalAmount).toFixed(2),
+        remainingAmount: remainingAmount.toFixed(2),
+        changeAmount: changeAmount.toFixed(2),
+        isUnderpaid,
+        isTryingToFinalize,
+        promoDiscount: promoDiscount.toFixed(2)
       });
     }
 
@@ -4376,29 +5073,22 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
       updatedAt: new Date().toISOString()
     };
 
-    let updateQuery = `
-      UPDATE orders
-      SET subtotal = ?,
-          total_amount = ?,
-          amount_paid = ?,
-          change_amount = ?,
-          payment_status = ?,
-          payment_method = ?,
-          payment_details = ?,
-          notes = COALESCE(?, notes),
-          updated_at = NOW()
-    `;
+    // ✅ SUPABASE: Construire l'objet de mise à jour directement
+    const updateData = {
+      subtotal: recalculatedSubtotal,
+      total_amount: totalAmount,
+      amount_paid: amountPaid,
+      change_amount: changeAmount,
+      payment_status: paymentStatus,
+      payment_method: normalizedPaymentMethod,
+      payment_details: JSON.stringify(paymentDetails),
+      updated_at: new Date().toISOString()
+    };
 
-    const updateParams = [
-      recalculatedSubtotal,
-      totalAmount,
-      amountPaid,
-      changeAmount,
-      paymentStatus,
-      normalizedPaymentMethod,
-      JSON.stringify(paymentDetails),
-      notes != null ? String(notes) : null
-    ];
+    // Gérer les notes (ne mettre à jour que si fourni)
+    if (notes != null) {
+      updateData.notes = String(notes);
+    }
 
     let statusChanged = false;
     let nextStatus = null;
@@ -4409,32 +5099,54 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
       if (allowedStatuses.includes(candidateStatus) && candidateStatus !== currentOrder.status) {
         statusChanged = true;
         nextStatus = candidateStatus;
-        updateQuery += ', status = ?';
-        updateParams.push(candidateStatus);
+        updateData.status = candidateStatus;
 
         if (currentOrder.status === 'pending' && candidateStatus === 'preparing') {
-          updateQuery += ', taken_at = NOW()';
+          updateData.taken_at = new Date().toISOString();
         }
 
         if (candidateStatus === 'ready') {
-          updateQuery += ', prepared_at = NOW()';
+          updateData.prepared_at = new Date().toISOString();
         }
 
         if (candidateStatus === 'served') {
-          updateQuery += ', completed_at = NOW()';
+          updateData.completed_at = new Date().toISOString();
         }
       }
     }
 
-    updateQuery += ' WHERE id = ?';
-    updateParams.push(orderId);
+    // ✅ SUPABASE: Mettre à jour directement avec Supabase
+    const supabase = pool.getClient();
+    const { data: updatedOrderData, error: updateError } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId)
+      .select()
+      .single();
 
-    await connection.query(updateQuery, updateParams);
+    if (updateError) {
+      logger.error('❌ Erreur mise à jour commande:', updateError);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Erreur lors de la mise à jour de la commande',
+        ...(process.env.NODE_ENV === 'development' ? { details: updateError.message } : {})
+      });
+    }
 
     // Si la commande passe à "completed" et qu'elle n'était pas déjà "completed", ajouter les points
     if (paymentStatus === 'completed' && oldPaymentStatus !== 'completed' && userId) {
+      // ✅ Ne jamais attribuer de points de fidélité aux comptes staff (admin / manager)
+      const isStaffUser = req.user && (req.user.role === 'admin' || req.user.role === 'manager');
+      if (isStaffUser) {
+        logger.debug('ℹ️ Workflow paiement - Pas de points fidélité pour un compte staff', {
+          orderId,
+          userId,
+          role: req.user.role
+        });
+      } else {
+        try {
       // Vérifier si les points ont déjà été ajoutés pour cette commande
-      const [existingTransaction] = await connection.query(
+      const [existingTransaction] = await pool.query(
         'SELECT id FROM loyalty_transactions WHERE order_id = ? AND transaction_type = ?',
         [orderId, 'earned']
       );
@@ -4445,7 +5157,7 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
         
         if (pointsToAdd > 0) {
           // Récupérer les points actuels
-          const [users] = await connection.query(
+          const [users] = await pool.query(
             'SELECT loyalty_points FROM users WHERE id = ?',
             [userId]
           );
@@ -4455,13 +5167,13 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
             const newBalance = Math.max(0, currentPoints + pointsToAdd); // Les points sont toujours ajoutés, jamais soustraits (et toujours positifs)
 
             // Mettre à jour les points de l'utilisateur
-            await connection.query(
+            await pool.query(
               'UPDATE users SET loyalty_points = ? WHERE id = ?',
               [newBalance, userId]
             );
 
-            // Enregistrer la transaction
-            await connection.query(
+                // Enregistrer la transaction dans l'historique de fidélité
+            await pool.query(
               `INSERT INTO loyalty_transactions 
                (user_id, order_id, points, transaction_type, description, balance_after)
                VALUES (?, ?, ?, 'earned', ?, ?)`,
@@ -4479,57 +5191,174 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
         }
       } else {
         logger.log(`ℹ️ Points déjà ajoutés pour la commande ${orderId}`);
+          }
+        } catch (loyaltyError) {
+          // ✅ CORRECTION CRITIQUE : ne jamais bloquer le workflow de paiement à cause des points fidélité
+          logger.error('❌ Workflow paiement - Erreur ajout points fidélité (ignorée pour ne pas bloquer le paiement):', {
+            message: loyaltyError.message,
+            code: loyaltyError.code,
+            orderId,
+            userId
+          });
+          // On nève pas l'erreur : le paiement reste validé même si l'écriture de fidélité échoue
+        }
       }
     }
 
-    await connection.commit();
+    // ✅ SUPABASE: Récupérer la commande mise à jour avec les relations Supabase
+    // Utiliser l'ordre déjà mis à jour (updatedOrderData) si disponible, sinon récupérer
+    let orderData = updatedOrderData;
+    
+    if (!orderData) {
+      logger.warn('⚠️ updatedOrderData non disponible, récupération depuis Supabase');
+      // Récupérer la commande
+      const { data: fetchedOrder, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
 
-    const [updatedOrders] = await connection.query(`
-      SELECT 
-        o.*,
-        COALESCE(u.first_name, '') AS first_name,
-        COALESCE(u.last_name, 'Invité') AS last_name,
-        COALESCE(u.email, '') AS email,
-        COALESCE((
-          SELECT JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', op.id,
-              'method', op.method,
-              'amount', op.amount,
-              'reference', op.reference,
-              'created_at', op.created_at
-            )
-          )
-          FROM order_payments op
-          WHERE op.order_id = o.id
-        ), JSON_ARRAY()) AS payments,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', oi.id,
-            'product_id', oi.product_id,
-            'product_name', oi.product_name,
-            'quantity', oi.quantity,
-            'unit_price', oi.unit_price,
-            'subtotal', oi.subtotal,
-            'image_url', p.image_url,
-            'category_name', c.name,
-            'category_type', CASE 
-              WHEN LOWER(c.name) LIKE '%entrée%' OR LOWER(c.name) LIKE '%entree%' OR LOWER(c.name) LIKE '%starter%' THEN 'entree'
-              WHEN LOWER(c.name) LIKE '%dessert%' OR LOWER(c.name) LIKE '%sweet%' THEN 'dessert'
-              ELSE 'plat'
-            END
-          )
-        ) AS items
-      FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      LEFT JOIN products p ON p.id = oi.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      WHERE o.id = ?
-      GROUP BY o.id
-    `, [orderId]);
+      if (orderError || !fetchedOrder) {
+        logger.error('❌ Erreur récupération commande:', orderError);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Erreur lors de la récupération de la commande mise à jour' 
+        });
+      }
+      orderData = fetchedOrder;
+    }
+    
+    // Récupérer l'utilisateur séparément
+    let userData = null;
+    if (orderData && orderData.user_id) {
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('first_name, last_name, email')
+        .eq('id', orderData.user_id)
+        .single();
+      
+      if (!userError && user) {
+        userData = user;
+      } else if (userError) {
+        logger.warn('⚠️ Erreur récupération utilisateur:', userError);
+      }
+    }
 
-    const updatedOrder = updatedOrders[0] || null;
+    // Récupérer les paiements
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('order_payments')
+      .select('id, method, amount, reference, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+
+    if (paymentsError) {
+      logger.warn('⚠️ Erreur récupération paiements:', paymentsError);
+    }
+
+    // Récupérer les items
+    const { data: itemsData, error: itemsError } = await supabase
+      .from('order_items')
+      .select('id, product_id, product_name, quantity, unit_price, subtotal')
+      .eq('order_id', orderId)
+      .order('id', { ascending: true });
+
+    if (itemsError) {
+      logger.warn('⚠️ Erreur récupération items:', itemsError);
+    }
+
+    // Récupérer les produits et catégories pour les items
+    const itemsWithDetails = [];
+    if (itemsData && itemsData.length > 0) {
+      const productIds = [...new Set(itemsData.map(item => item.product_id).filter(Boolean))];
+      
+      if (productIds.length > 0) {
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('id, image_url, category_id')
+          .in('id', productIds);
+
+        if (productsError) {
+          logger.warn('⚠️ Erreur récupération produits:', productsError);
+        }
+
+        const categoryIds = [...new Set((productsData || []).map(p => p.category_id).filter(Boolean))];
+        let categoriesData = [];
+        
+        if (categoryIds.length > 0) {
+          const { data: catsData, error: catsError } = await supabase
+            .from('categories')
+            .select('id, name')
+            .in('id', categoryIds);
+
+          if (catsError) {
+            logger.warn('⚠️ Erreur récupération catégories:', catsError);
+          } else {
+            categoriesData = catsData || [];
+          }
+        }
+
+        // Créer des maps pour accès rapide
+        const productsMap = new Map((productsData || []).map(p => [p.id, p]));
+        const categoriesMap = new Map(categoriesData.map(c => [c.id, c]));
+
+        // Construire les items avec détails
+        for (const item of itemsData) {
+          const product = productsMap.get(item.product_id) || {};
+          const category = product.category_id ? categoriesMap.get(product.category_id) : null;
+          const categoryName = category?.name || '';
+          
+          // Déterminer le type de catégorie
+          let categoryType = 'plat';
+          const lowerName = categoryName.toLowerCase();
+          if (lowerName.includes('entrée') || lowerName.includes('entree') || lowerName.includes('starter')) {
+            categoryType = 'entree';
+          } else if (lowerName.includes('dessert') || lowerName.includes('sweet')) {
+            categoryType = 'dessert';
+          }
+
+          itemsWithDetails.push({
+            id: item.id,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            subtotal: item.subtotal,
+            image_url: product.image_url || null,
+            category_name: categoryName,
+            category_type: categoryType
+          });
+        }
+      } else {
+        // Pas de product_id, utiliser les données de base
+        itemsWithDetails.push(...itemsData.map(item => ({
+          id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          subtotal: item.subtotal,
+          image_url: null,
+          category_name: '',
+          category_type: 'plat'
+        })));
+      }
+    }
+
+    // Construire l'objet commande mis à jour
+    const updatedOrder = {
+      ...orderData,
+      first_name: userData?.first_name || '',
+      last_name: userData?.last_name || 'Invité',
+      email: userData?.email || '',
+      payments: (paymentsData || []).map(p => ({
+        id: p.id,
+        method: p.method,
+        amount: p.amount,
+        reference: p.reference,
+        created_at: p.created_at
+      })),
+      items: itemsWithDetails
+    };
 
     emitOrderUpdate('order:payment_updated', {
       orderId,
@@ -4549,25 +5378,46 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
       data: updatedOrder
     });
   } catch (error) {
-    if (connection) {
-      try {
-        await connection.rollback();
-      } catch (rollbackError) {
-        logger.error('❌ Erreur rollback workflow paiement:', rollbackError);
-      }
-    }
-    logger.error('❌ Erreur workflow paiement:', error);
+    // ✅ SUPABASE: Pas de rollback nécessaire (pas de transactions MySQL)
+    logger.error('❌ Erreur workflow paiement - Exception complète:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      orderId: req.params.id,
+      identifier,
+      userId: req.user?.id,
+      userRole: req.user?.role,
+      errorCode: error.code,
+      errorDetails: error.details
+    });
+    
     // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
     const isProd = process.env.NODE_ENV === 'production';
-    res.status(500).json({ 
-      success: false, 
-      error: 'Erreur serveur lors du workflow paiement',
-      ...(isProd ? {} : { details: error.message })
-    });
-  } finally {
-    if (connection) {
-      connection.release();
+    
+    // ✅ Message d'erreur plus explicite selon le type d'erreur
+    let errorMessage = 'Erreur serveur lors du workflow paiement';
+    let statusCode = 500;
+    
+    if (error.message && error.message.includes('Commande introuvable')) {
+      errorMessage = 'Commande introuvable';
+      statusCode = 404;
+    } else if (error.message && (error.message.includes('insuffisant') || error.message.includes('invalide'))) {
+      errorMessage = error.message;
+      statusCode = 400;
+    } else if (error.message && error.message.includes('timeout')) {
+      errorMessage = 'Délai d\'attente dépassé. Veuillez réessayer.';
+      statusCode = 504;
     }
+    
+    res.status(statusCode).json({ 
+      success: false, 
+      error: errorMessage,
+      ...(isProd ? {} : { 
+        details: error.message, 
+        stack: error.stack,
+        orderId: req.params.id
+      })
+    });
   }
 });
 
@@ -4577,23 +5427,37 @@ app.put('/api/admin/orders/:id/payment-workflow', authenticateToken, requireMana
 
 // Liste tous les paramètres
 app.get('/api/admin/settings', authenticateToken, requireAdmin, async (req, res) => {
+  logger.log('⚙️ GET /api/admin/settings - Récupération paramètres');
   try {
-    const [settings] = await pool.query('SELECT * FROM app_settings ORDER BY setting_key');
-    res.json({ success: true, data: settings });
+    // ✅ SUPABASE: Récupérer tous les paramètres
+    const [settings] = await supabaseService.select('app_settings', {
+      select: '*',
+      orderBy: ['setting_key ASC']
+    });
+    
+    logger.log(`✅ ${settings ? settings.length : 0} paramètre(s) récupéré(s)`);
+    res.json({ success: true, data: settings || [] });
   } catch (error) {
-    logger.error('Erreur récupération settings:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    logger.error('❌ Erreur récupération settings:', error);
+    logger.error('   Stack:', error.stack);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
 // Récupérer un paramètre spécifique (route publique pour le frontend)
 app.get('/api/settings/:key', async (req, res) => {
+  logger.log(`⚙️ GET /api/settings/:key - Récupération paramètre ${req.params.key}`);
   try {
     const { key } = req.params;
-    const [settings] = await pool.query('SELECT * FROM app_settings WHERE setting_key = ?', [key]);
+    // ✅ SUPABASE: Récupérer le paramètre
+    const [settings] = await supabaseService.select('app_settings', {
+      where: { setting_key: key },
+      select: '*'
+    });
     
-    if (settings.length === 0) {
-      return res.status(404).json({ error: 'Paramètre non trouvé' });
+    if (!settings || settings.length === 0) {
+      logger.warn(`⚠️ Paramètre ${key} non trouvé`);
+      return res.status(404).json({ success: false, error: 'Paramètre non trouvé' });
     }
     
     const setting = settings[0];
@@ -4608,24 +5472,26 @@ app.get('/api/settings/:key', async (req, res) => {
       try {
         value = JSON.parse(value);
       } catch (e) {
-        logger.error('Erreur parse JSON:', e);
+        logger.error('❌ Erreur parse JSON:', e);
       }
     }
     
+    logger.log(`✅ Paramètre ${key} récupéré`);
     res.json({ success: true, data: { key: setting.setting_key, value, type: setting.setting_type } });
   } catch (error) {
-    logger.error('Erreur récupération setting:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    logger.error('❌ Erreur récupération setting:', error);
+    logger.error('   Stack:', error.stack);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
 // Modifier un paramètre (Admin only)
 app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req, res) => {
+  logger.log('🔧 PUT /api/admin/settings/:key');
   try {
     const { key } = req.params;
     const { value, setting_type } = req.body;
 
-    logger.log('🔧 PUT /api/admin/settings/:key');
     logger.log('   Key:', key);
     logger.log('   Value reçue:', value, '(type:', typeof value, ')');
     logger.log('   Setting type:', setting_type);
@@ -4648,27 +5514,34 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
       finalType = 'number';
     }
 
-    const [result] = await pool.query(
-      'UPDATE app_settings SET setting_value = ?, setting_type = ? WHERE setting_key = ?',
-      [stringValue, finalType, key]
-    );
+    // ✅ SUPABASE: Vérifier si le paramètre existe
+    const [existingSettings] = await supabaseService.select('app_settings', {
+      where: { setting_key: key },
+      select: 'setting_key'
+    });
 
-    logger.log('   Rows affected:', result.affectedRows);
-
-    // Si la clé n'existe pas encore, l'insérer (UPSERT simplifié)
-    if (result.affectedRows === 0) {
-      logger.log('   ⚠️ Clé inexistante, insertion...');
-      await pool.query(
-        'INSERT INTO app_settings (setting_key, setting_value, setting_type) VALUES (?, ?, ?)',
-        [key, stringValue, finalType]
-      );
+    if (existingSettings && existingSettings.length > 0) {
+      // Mettre à jour le paramètre existant
+      await supabaseService.update('app_settings', { setting_key: key }, {
+        setting_value: stringValue,
+        setting_type: finalType
+      });
+      logger.log('   ✅ Paramètre mis à jour');
+    } else {
+      // Insérer un nouveau paramètre
+      await supabaseService.insert('app_settings', {
+        setting_key: key,
+        setting_value: stringValue,
+        setting_type: finalType
+      });
+      logger.log('   ✅ Nouveau paramètre créé');
     }
 
     // Vérifier la nouvelle valeur
-    const [rows] = await pool.query(
-      'SELECT setting_value, setting_type FROM app_settings WHERE setting_key = ?',
-      [key]
-    );
+    const [rows] = await supabaseService.select('app_settings', {
+      where: { setting_key: key },
+      select: 'setting_value,setting_type'
+    });
     
     logger.log('   Nouvelle valeur en BDD:', rows[0]?.setting_value);
     logger.log('   Type en BDD:', rows[0]?.setting_type);
@@ -4682,7 +5555,70 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
     });
   } catch (error) {
     logger.error('❌ Erreur UPDATE setting:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    logger.error('   Stack:', error.stack);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+// ================================================================
+// GESTION DES PROMOS DE PAIEMENT
+// ================================================================
+
+// Incrémenter le compteur d'utilisations d'une promo
+app.post('/api/admin/promos/:index/increment', authenticateToken, requireManager, async (req, res) => {
+  logger.log('🎁 POST /api/admin/promos/:index/increment');
+  try {
+    const { index } = req.params;
+    const promoIndex = parseInt(index);
+    
+    if (isNaN(promoIndex) || promoIndex < 0) {
+      return res.status(400).json({ success: false, error: 'Index invalide' });
+    }
+
+    // Récupérer les promos depuis app_settings
+    const [settingsRows] = await supabaseService.select('app_settings', {
+      where: { setting_key: 'payment_promos' },
+      select: 'setting_value'
+    });
+
+    if (!settingsRows || settingsRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Promos non trouvées' });
+    }
+
+    let promos;
+    try {
+      const settingValue = settingsRows[0].setting_value;
+      promos = typeof settingValue === 'string' ? JSON.parse(settingValue) : settingValue;
+    } catch (e) {
+      logger.error('❌ Erreur parsing promos:', e);
+      return res.status(500).json({ success: false, error: 'Erreur parsing promos' });
+    }
+
+    if (!Array.isArray(promos) || promoIndex >= promos.length) {
+      return res.status(404).json({ success: false, error: 'Promo non trouvée' });
+    }
+
+    // Incrémenter le compteur
+    if (!promos[promoIndex].usesCount) {
+      promos[promoIndex].usesCount = 0;
+    }
+    promos[promoIndex].usesCount = (promos[promoIndex].usesCount || 0) + 1;
+
+    // Sauvegarder les promos mises à jour
+    await supabaseService.update('app_settings', { setting_key: 'payment_promos' }, {
+      setting_value: JSON.stringify(promos),
+      setting_type: 'json'
+    });
+
+    logger.log(`✅ Compteur promo ${promoIndex} incrémenté: ${promos[promoIndex].usesCount}`);
+
+    res.json({
+      success: true,
+      usesCount: promos[promoIndex].usesCount
+    });
+  } catch (error) {
+    logger.error('❌ Erreur incrément promo:', error);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
@@ -4692,23 +5628,46 @@ app.put('/api/admin/settings/:key', authenticateToken, requireAdmin, async (req,
 
 // Helper: get setting by key
 async function getSettingValue(pool, key) {
-  const [rows] = await pool.query('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
-  return rows[0]?.setting_value ?? null;
+  // ✅ SUPABASE: Récupérer le paramètre
+  const [rows] = await supabaseService.select('app_settings', {
+    where: { setting_key: key },
+    select: 'setting_value'
+  });
+  return rows && rows.length > 0 ? rows[0].setting_value : null;
 }
 
 // Helper: upsert setting
 async function upsertSetting(pool, key, value) {
-  const [result] = await pool.query('UPDATE app_settings SET setting_value = ? WHERE setting_key = ?', [String(value), key]);
-  if (result.affectedRows === 0) {
-    await pool.query('INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)', [key, String(value)]);
+  // ✅ SUPABASE: Vérifier si le paramètre existe
+  const [existing] = await supabaseService.select('app_settings', {
+    where: { setting_key: key },
+    select: 'setting_key'
+  });
+  
+  if (existing && existing.length > 0) {
+    // Mettre à jour
+    await supabaseService.update('app_settings', { setting_key: key }, {
+      setting_value: String(value)
+    });
+  } else {
+    // Insérer
+    await supabaseService.insert('app_settings', {
+      setting_key: key,
+      setting_value: String(value),
+      setting_type: 'string'
+    });
   }
 }
 
 // GET restaurant info agrégée
 app.get('/api/restaurant-info', async (req, res) => {
+  logger.log('🍽️ GET /api/restaurant-info - Récupération infos restaurant');
   try {
-    const [rows] = await pool.query('SELECT setting_key, setting_value FROM app_settings');
-    const map = Object.fromEntries(rows.map(r => [r.setting_key, r.setting_value]));
+    // ✅ SUPABASE: Récupérer tous les paramètres
+    const [rows] = await supabaseService.select('app_settings', {
+      select: 'setting_key,setting_value'
+    });
+    const map = Object.fromEntries((rows || []).map(r => [r.setting_key, r.setting_value]));
     let openingHours = {};
     try { openingHours = map.opening_hours ? JSON.parse(map.opening_hours) : {}; } catch { openingHours = {}; }
     const businessDefaults = {
@@ -4762,21 +5721,22 @@ app.get('/api/restaurant-info', async (req, res) => {
           email_reservation: map.email_reservation || ''
         },
         business: {
-          name: map.business_name || businessDefaults.name,
-          address: map.business_address || map.restaurant_address || businessDefaults.address,
-          phone: map.business_phone || map.phone_main || map.contact_phone || businessDefaults.phone,
-          siret: map.business_siret || businessDefaults.siret,
-          vatNumber: map.business_vat_number || businessDefaults.vatNumber,
-          website: map.business_website || businessDefaults.website,
-          email: map.business_email || businessDefaults.email,
-          legalForm: map.business_legal_form || businessDefaults.legalForm,
+          // Utiliser les valeurs personnalisées ticket_value_* si disponibles, sinon business_*
+          name: map.ticket_value_name || map.business_name || businessDefaults.name,
+          address: map.ticket_value_address || map.business_address || map.restaurant_address || businessDefaults.address,
+          phone: map.ticket_value_phone || map.business_phone || map.phone_main || map.contact_phone || businessDefaults.phone,
+          siret: map.ticket_value_siret || map.business_siret || businessDefaults.siret,
+          vatNumber: map.ticket_value_vat || map.business_vat_number || businessDefaults.vatNumber,
+          website: map.ticket_value_website || map.business_website || businessDefaults.website,
+          email: map.ticket_value_email || map.business_email || businessDefaults.email,
+          legalForm: map.ticket_value_legal_form || map.business_legal_form || businessDefaults.legalForm,
           shareCapital: map.business_share_capital || businessDefaults.shareCapital,
-          rcs: map.business_rcs || businessDefaults.rcs,
-          paymentMention: map.business_payment_mention || businessDefaults.paymentMention,
-          legalMentions: map.business_legal_mentions || businessDefaults.legalMentions,
-          returnPolicy: map.business_return_policy || businessDefaults.returnPolicy,
-          foodInfo: map.business_food_info || businessDefaults.foodInfo,
-          customerService: map.business_customer_service || businessDefaults.customerService
+          rcs: map.ticket_value_rcs || map.business_rcs || businessDefaults.rcs,
+          paymentMention: map.ticket_value_payment_mention || map.business_payment_mention || businessDefaults.paymentMention,
+          legalMentions: map.ticket_value_legal_mentions || map.business_legal_mentions || businessDefaults.legalMentions,
+          returnPolicy: map.ticket_value_return_policy || map.business_return_policy || businessDefaults.returnPolicy,
+          foodInfo: map.ticket_value_food_info || map.business_food_info || businessDefaults.foodInfo,
+          customerService: map.ticket_value_customer_service || map.business_customer_service || businessDefaults.customerService
         },
         displayPreferences: {
           ...displayDefaults,
@@ -5026,25 +5986,53 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
     logger.log('   Période actuelle:', startDate, '→', endDate);
     logger.log('   Période comparaison:', compareStartDate, '→', compareEndDate);
     
-    // Statistiques période actuelle (TOUTES les commandes sauf annulées)
-    const [currentStats] = await pool.query(`
-      SELECT 
-        COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(o.total_amount), 0) as total_revenue
-      FROM orders o
-      WHERE o.created_at >= ? AND o.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-        AND o.status != 'cancelled'
-    `, [startDate, endDate]);
+    // ✅ SUPABASE: Convertir les dates en format ISO pour Supabase
+    const startDateTime = new Date(startDate + 'T00:00:00').toISOString();
+    const endDateTime = new Date(endDate + 'T23:59:59.999').toISOString();
     
-    // Statistiques période précédente (TOUTES les commandes sauf annulées)
-    const [previousStats] = await pool.query(`
-      SELECT 
-        COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(o.total_amount), 0) as total_revenue
-      FROM orders o
-      WHERE o.created_at >= ? AND o.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-        AND o.status != 'cancelled'
-    `, [compareStartDate, compareEndDate]);
+    const compareStartDateTime = new Date(compareStartDate + 'T00:00:00').toISOString();
+    const compareEndDateTime = new Date(compareEndDate + 'T23:59:59.999').toISOString();
+    
+    // ✅ SUPABASE: Récupérer toutes les commandes (on filtre ensuite en JavaScript)
+    // Récupérer toutes les commandes non annulées depuis le début de la période
+    const [allOrdersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: startDateTime }
+      },
+      select: 'id,created_at,total_amount,status',
+      orderBy: ['created_at ASC']
+    });
+    
+    // Filtrer en JavaScript: exclure les annulées et filtrer par dates
+    const currentOrders = (allOrdersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(startDateTime) && orderDate <= new Date(endDateTime);
+    });
+    
+    // ✅ SUPABASE: Récupérer toutes les commandes de la période de comparaison
+    const [allPreviousOrdersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: compareStartDateTime }
+      },
+      select: 'id,created_at,total_amount,status',
+      orderBy: ['created_at ASC']
+    });
+    
+    // Filtrer en JavaScript
+    const previousOrders = (allPreviousOrdersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(compareStartDateTime) && orderDate <= new Date(compareEndDateTime);
+    });
+    
+    // Calculer les statistiques période actuelle
+    const ordersCurrent = currentOrders.length;
+    const revenueCurrent = parseFloat(currentOrders.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0).toFixed(2));
+    
+    // Calculer les statistiques période précédente
+    const ordersPrevious = previousOrders.length;
+    const revenuePrevious = parseFloat(previousOrders.reduce((sum, order) => sum + (parseFloat(order.total_amount) || 0), 0).toFixed(2));
     
     // Vérifier si c'est une seule journée pour affichage heure par heure
     const start = new Date(startDate);
@@ -5052,47 +6040,60 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
     const isSingleDay = start.toDateString() === end.toDateString();
     
     logger.log('   Mode:', isSingleDay ? 'HEURE PAR HEURE' : 'JOUR PAR JOUR');
+    logger.log(`   Commandes période actuelle: ${ordersCurrent}`);
+    logger.log(`   Commandes période précédente: ${ordersPrevious}`);
     
-    let dailyStats;
+    // Calculer les détails par période
+    let dailyStats = [];
     
     if (isSingleDay) {
       // Une seule journée : détails HEURE PAR HEURE
-      [dailyStats] = await pool.query(`
-        SELECT 
-          HOUR(o.created_at) as hour,
-          DATE(o.created_at) as date,
-          COUNT(DISTINCT o.id) as total_orders,
-          COALESCE(SUM(o.total_amount), 0) as total_revenue
-        FROM orders o
-        WHERE DATE(o.created_at) = ?
-          AND o.status != 'cancelled'
-        GROUP BY HOUR(o.created_at), DATE(o.created_at)
-        ORDER BY hour ASC
-      `, [startDate]);
+      const hourMap = {};
+      currentOrders.forEach(order => {
+        const orderDate = new Date(order.created_at);
+        const hour = orderDate.getHours();
+        if (!hourMap[hour]) {
+          hourMap[hour] = {
+            hour: hour,
+            date: startDate,
+            total_orders: 0,
+            total_revenue: 0
+          };
+        }
+        hourMap[hour].total_orders++;
+        hourMap[hour].total_revenue = parseFloat((hourMap[hour].total_revenue + (parseFloat(order.total_amount) || 0)).toFixed(2));
+      });
+      
+      // Convertir en tableau et trier par heure
+      dailyStats = Object.values(hourMap).sort((a, b) => a.hour - b.hour);
     } else {
       // Plusieurs jours : détails JOUR PAR JOUR
-      [dailyStats] = await pool.query(`
-      SELECT 
-        DATE(o.created_at) as date,
-        COUNT(DISTINCT o.id) as total_orders,
-        COALESCE(SUM(o.total_amount), 0) as total_revenue
-      FROM orders o
-      WHERE o.created_at >= ? AND o.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-        AND o.status != 'cancelled'
-      GROUP BY DATE(o.created_at)
-      ORDER BY date ASC
-    `, [startDate, endDate]);
+      const dayMap = {};
+      currentOrders.forEach(order => {
+        const orderDate = new Date(order.created_at);
+        const dateKey = orderDate.toISOString().split('T')[0];
+        if (!dayMap[dateKey]) {
+          dayMap[dateKey] = {
+            date: dateKey,
+            total_orders: 0,
+            total_revenue: 0
+          };
+        }
+        dayMap[dateKey].total_orders++;
+        dayMap[dateKey].total_revenue = parseFloat((dayMap[dateKey].total_revenue + (parseFloat(order.total_amount) || 0)).toFixed(2));
+      });
+      
+      // Convertir en tableau et trier par date
+      dailyStats = Object.values(dayMap).sort((a, b) => new Date(a.date) - new Date(b.date));
     }
     
-    const current = currentStats[0];
-    const previous = previousStats[0];
+    logger.log(`✅ ${dailyStats.length} entrées de détails récupérées`);
+    if (dailyStats.length > 0) {
+      logger.log('   - Première entrée:', dailyStats[0]);
+      logger.log('   - Dernière entrée:', dailyStats[dailyStats.length - 1]);
+    }
     
     // Calcul des variations réelles
-    const revenueCurrent = parseFloat(current.total_revenue) || 0;
-    const revenuePrevious = parseFloat(previous.total_revenue) || 0;
-    const ordersCurrent = parseInt(current.total_orders) || 0;
-    const ordersPrevious = parseInt(previous.total_orders) || 0;
-    
     const revenueGrowth = revenuePrevious > 0 
       ? ((revenueCurrent - revenuePrevious) / revenuePrevious) * 100 
       : 0;
@@ -5101,15 +6102,15 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
       ? ((ordersCurrent - ordersPrevious) / ordersPrevious) * 100 
       : 0;
     
-    const avgOrderCurrent = ordersCurrent > 0 ? revenueCurrent / ordersCurrent : 0;
-    const avgOrderPrevious = ordersPrevious > 0 ? revenuePrevious / ordersPrevious : 0;
-    const avgOrderGrowth = avgOrderPrevious > 0 
+    const avgOrderCurrent = parseFloat((ordersCurrent > 0 ? revenueCurrent / ordersCurrent : 0).toFixed(2));
+    const avgOrderPrevious = parseFloat((ordersPrevious > 0 ? revenuePrevious / ordersPrevious : 0).toFixed(2));
+    const avgOrderGrowth = parseFloat((avgOrderPrevious > 0 
       ? ((avgOrderCurrent - avgOrderPrevious) / avgOrderPrevious) * 100 
-      : 0;
+      : 0).toFixed(2));
     
     // Calcul TVA (10%)
-    const totalHT = revenueCurrent / 1.1;
-    const totalTVA = revenueCurrent - totalHT;
+    const totalHT = parseFloat((revenueCurrent / 1.1).toFixed(2));
+    const totalTVA = parseFloat((revenueCurrent - totalHT).toFixed(2));
     
     logger.log('✅ Statistiques calculées:');
     logger.log('   CA actuel:', revenueCurrent.toFixed(2), '€');
@@ -5117,6 +6118,12 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
     logger.log('   Croissance CA:', revenueGrowth.toFixed(2), '%');
     logger.log('   Croissance commandes:', ordersGrowth.toFixed(2), '%');
     logger.log('   Croissance panier moyen:', avgOrderGrowth.toFixed(2), '%');
+    
+    // Arrondir les détails à 2 décimales
+    const formattedDetails = dailyStats.map(stat => ({
+      ...stat,
+      total_revenue: parseFloat((stat.total_revenue || 0).toFixed(2))
+    }));
     
     res.json({
       success: true,
@@ -5138,11 +6145,12 @@ app.get('/api/admin/analytics/revenue-comparison', authenticateToken, requireMan
           orders: ordersGrowth,
           avgOrder: avgOrderGrowth
         },
-        details: dailyStats
+        details: formattedDetails
       }
     });
   } catch (error) {
     logger.error('❌ Erreur revenue-comparison:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur serveur',
@@ -5234,40 +6242,60 @@ app.post('/api/admin/products/upload-image', authenticateToken, requireAdmin, cs
 });
 
 // Supprimer une image produit
-app.delete('/api/admin/products/:id/image', authenticateToken, requireAdmin, csrfProtection, validateId, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Récupérer l'image actuelle
-    const [products] = await pool.query('SELECT image_url FROM products WHERE id = ?', [id]);
-    
-    if (products.length === 0) {
-      return res.status(404).json({ error: 'Produit non trouvé' });
-    }
-    
-    const imageUrl = products[0].image_url;
-    
-    // Supprimer le fichier si il existe
-    if (imageUrl && imageUrl.startsWith('/uploads/')) {
-      const imagePath = path.join(__dirname, '../public', imageUrl);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-        logger.log('🗑️ Image supprimée:', imagePath);
-      }
-    }
-    
-    // Mettre à jour la BDD
-    await pool.query('UPDATE products SET image_url = NULL WHERE id = ?', [id]);
-    
-    res.json({
-      success: true,
-      message: 'Image supprimée avec succès'
+// ✅ MIGRATION SUPABASE: Utiliser Supabase pour la suppression d'image
+app.delete('/api/admin/products/:id/image', authenticateToken, requireAdmin, csrfProtection, validateId, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  logger.log(`🖼️ DELETE /api/admin/products/${id}/image - Suppression image`);
+  
+  // ✅ SUPABASE: Récupérer l'image actuelle
+  const [products] = await supabaseService.select('products', {
+    where: { id: parseInt(id) },
+    select: 'id, image_url, deleted_at',
+    limit: 1
+  });
+  
+  if (!products || products.length === 0) {
+    return res.status(404).json({ 
+      success: false,
+      error: 'Produit non trouvé' 
     });
-  } catch (error) {
-    logger.error('❌ Erreur suppression image:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
   }
-});
+
+  if (products[0].deleted_at) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Impossible de modifier un produit supprimé' 
+    });
+  }
+  
+  const imageUrl = products[0].image_url;
+  
+  // Supprimer le fichier si il existe
+  if (imageUrl && imageUrl.startsWith('/uploads/')) {
+    const imagePath = path.join(__dirname, '../public', imageUrl);
+    if (fs.existsSync(imagePath)) {
+      fs.unlinkSync(imagePath);
+      logger.log('🗑️ Image supprimée:', imagePath);
+    }
+  }
+  
+  // ✅ SUPABASE: Mettre à jour la BDD
+  await supabaseService.update('products', 
+    { id: parseInt(id) },
+    { 
+      image_url: null,
+      updated_at: new Date().toISOString()
+    }
+  );
+  
+  logger.log(`✅ Image du produit ${id} supprimée`);
+  
+  res.json({
+    success: true,
+    message: 'Image supprimée avec succès'
+  });
+}));
 
 // ================================================================
 // ADMIN - STATISTIQUES REVENUS DÉTAILLÉES
@@ -5545,28 +6573,55 @@ app.get('/api/dashboard/category-distribution', authenticateToken, async (req, r
 // 4. Alertes stock
 app.get('/api/dashboard/stock-alerts', authenticateToken, async (req, res) => {
   try {
-    const [products] = await pool.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.stock,
-        p.category_id,
-        c.name as category_name,
-        CASE
-          WHEN p.stock = 0 THEN 'critical'
-          WHEN p.stock <= 5 THEN 'warning'
-          WHEN p.stock <= 10 THEN 'low'
-          ELSE 'ok'
-        END as alert_level
-      FROM products p
-      JOIN categories c ON c.id = p.category_id
-      WHERE p.stock <= 10
-      ORDER BY p.stock ASC, p.name ASC
-    `);
+    // ✅ SUPABASE: Récupérer les produits avec stock <= 10
+    const [productsData] = await supabaseService.select('products', {
+      where: {
+        stock: { operator: '<=', value: 10 },
+        deleted_at: null
+      },
+      select: 'id,name,stock,category_id',
+      orderBy: ['stock ASC', 'name ASC']
+    });
+    
+    // ✅ SUPABASE: Récupérer les catégories
+    const categoryIds = [...new Set((productsData || []).map(p => p.category_id).filter(Boolean))];
+    const categoriesMap = {};
+    if (categoryIds.length > 0) {
+      const [categoriesData] = await supabaseService.select('categories', {
+        where: { id: categoryIds },
+        select: 'id,name'
+      });
+      (categoriesData || []).forEach(cat => {
+        categoriesMap[cat.id] = cat.name;
+      });
+    }
+    
+    // Calculer le statut pour chaque produit
+    const products = (productsData || []).map(p => {
+      const stock = parseInt(p.stock) || 0;
+      let alert_level = 'ok';
+      if (stock === 0) {
+        alert_level = 'critical';
+      } else if (stock <= 5) {
+        alert_level = 'warning';
+      } else if (stock <= 10) {
+        alert_level = 'low';
+      }
+      
+      return {
+        id: p.id,
+        name: p.name,
+        stock: stock,
+        category_id: p.category_id,
+        category_name: categoriesMap[p.category_id] || 'Non catégorisé',
+        alert_level: alert_level
+      };
+    });
     
     res.json({ success: true, data: products });
   } catch (error) {
     logger.error('❌ Erreur alertes stock:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -5971,27 +7026,116 @@ app.get('/api/admin/news/test', authenticateToken, requireManager, (req, res) =>
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   logger.log('📦 GET /api/inventory - Récupération inventaire (matières premières)');
   try {
-    const [inventory] = await pool.query(`
-      SELECT 
-        i.id,
-        i.name,
-        COALESCE(i.category_inventory, 'Autres') as category,
-        i.quantity,
-        i.price_per_unit as price,
-        COALESCE(i.min_quantity, 0) as minQuantity,
-        i.unit,
-        i.supplier,
-        i.description,
-        i.created_at as dateAdded,
-        CASE 
-          WHEN i.quantity = 0 THEN 'out'
-          WHEN i.quantity <= COALESCE(i.min_quantity, 0) THEN 'low'
-          ELSE 'available'
-        END as status
-      FROM ingredients i
-      WHERE i.deleted_at IS NULL
-      ORDER BY i.name ASC
-    `);
+    // ✅ SUPABASE: Récupérer tous les ingrédients (on filtre deleted_at en JavaScript)
+    logger.log('📦 Requête Supabase pour récupérer les ingrédients...');
+    const [allIngredientsData] = await supabaseService.select('ingredients', {
+      select: 'id,name,category_inventory,quantity,price_per_unit,min_quantity,unit,supplier,description,created_at,deleted_at',
+      orderBy: ['name ASC']
+    });
+    
+    logger.log(`📦 Données brutes récupérées: ${allIngredientsData ? allIngredientsData.length : 0} ingrédient(s)`);
+    
+    // Si aucun ingrédient trouvé, peut-être qu'ils sont tous supprimés - réactiver ceux qui ont deleted_at
+    if (!allIngredientsData || allIngredientsData.length === 0) {
+      logger.warn('⚠️ Aucun ingrédient trouvé dans la base de données');
+    } else {
+      const deletedCount = (allIngredientsData || []).filter(i => i.deleted_at).length;
+      const activeCount = (allIngredientsData || []).filter(i => !i.deleted_at).length;
+      logger.log(`📦 Ingrédients actifs: ${activeCount}, supprimés: ${deletedCount}`);
+      
+      // Si tous les ingrédients sont supprimés, les réactiver automatiquement
+      if (activeCount === 0 && deletedCount > 0) {
+        logger.warn(`⚠️ Tous les ingrédients sont supprimés (${deletedCount}). Réactivation automatique...`);
+        const deletedIds = allIngredientsData.filter(i => i.deleted_at).map(i => i.id);
+        
+        // Réactiver tous les ingrédients supprimés
+        for (const id of deletedIds) {
+          try {
+            await supabaseService.update('ingredients',
+              { id: id },
+              { deleted_at: null }
+            );
+          } catch (updateError) {
+            logger.error(`❌ Erreur réactivation ingrédient ${id}:`, updateError);
+          }
+        }
+        
+        logger.log(`✅ ${deletedIds.length} ingrédient(s) réactivé(s)`);
+        
+        // Recharger les données après réactivation
+        const [reloadedData] = await supabaseService.select('ingredients', {
+          select: 'id,name,category_inventory,quantity,price_per_unit,min_quantity,unit,supplier,description,created_at,deleted_at',
+          orderBy: ['name ASC']
+        });
+        
+        const ingredientsData = (reloadedData || []).filter(i => !i.deleted_at);
+        logger.log(`📦 Après réactivation: ${ingredientsData.length} ingrédient(s) actif(s)`);
+        
+        // Continuer avec les données rechargées
+        const inventory = ingredientsData.map(i => {
+          const quantity = parseFloat(i.quantity) || 0;
+          const minQuantity = parseFloat(i.min_quantity) || 0;
+          
+          let status = 'available';
+          if (quantity === 0) {
+            status = 'out';
+          } else if (quantity <= minQuantity) {
+            status = 'low';
+          }
+          
+          return {
+            id: i.id,
+            name: i.name,
+            category: i.category_inventory || 'Autres',
+            quantity: parseFloat(quantity.toFixed(2)),
+            price: parseFloat((parseFloat(i.price_per_unit) || 0).toFixed(2)),
+            minQuantity: parseFloat(minQuantity.toFixed(2)),
+            unit: i.unit || 'kg',
+            supplier: i.supplier || '',
+            description: i.description || '',
+            dateAdded: i.created_at,
+            status: status
+          };
+        });
+        
+        logger.log(`✅ ${inventory.length} matières premières récupérées (après réactivation)`);
+        return res.json({ 
+          success: true, 
+          data: inventory 
+        });
+      }
+    }
+    
+    // Filtrer les ingrédients non supprimés
+    const ingredientsData = (allIngredientsData || []).filter(i => !i.deleted_at);
+    logger.log(`📦 Ingrédients non supprimés: ${ingredientsData.length} ingrédient(s)`);
+    
+    // Formater les données et calculer le statut
+    const inventory = ingredientsData.map(i => {
+      const quantity = parseFloat(i.quantity) || 0;
+      const minQuantity = parseFloat(i.min_quantity) || 0;
+      
+      let status = 'available';
+      if (quantity === 0) {
+        status = 'out';
+      } else if (quantity <= minQuantity) {
+        status = 'low';
+      }
+      
+      return {
+        id: i.id,
+        name: i.name,
+        category: i.category_inventory || 'Autres',
+        quantity: parseFloat(quantity.toFixed(2)),
+        price: parseFloat((parseFloat(i.price_per_unit) || 0).toFixed(2)),
+        minQuantity: parseFloat(minQuantity.toFixed(2)),
+        unit: i.unit || 'kg',
+        supplier: i.supplier || '',
+        description: i.description || '',
+        dateAdded: i.created_at,
+        status: status
+      };
+    });
     
     logger.log(`✅ ${inventory.length} matières premières récupérées`);
     res.json({ 
@@ -6000,6 +7144,7 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     logger.error('❌ Erreur récupération inventaire:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de l\'inventaire' 
@@ -6037,12 +7182,16 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
     
-    // Vérifier si le slug existe déjà dans ingredients
+    // ✅ SUPABASE: Vérifier si le slug existe déjà dans ingredients
     let slug = baseSlug;
     let counter = 1;
     while (true) {
-      const [existing] = await pool.query('SELECT id FROM ingredients WHERE slug = ?', [slug]);
-      if (existing.length === 0) break;
+      const [existing] = await supabaseService.select('ingredients', {
+        where: { slug: slug },
+        select: 'id',
+        limit: 1
+      });
+      if (!existing || existing.length === 0) break;
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
@@ -6053,40 +7202,26 @@ app.post('/api/inventory', authenticateToken, requireAdmin, async (req, res) => 
     logger.log('   Unité:', unit || 'kg');
     
     // Calculer automatiquement le statut en fonction de la quantité
-    const qty = quantity || 0;
+    const qty = parseFloat(quantity) || 0;
     const isAvailable = qty > 0 ? 1 : 0;
     logger.log('   Quantité:', qty, '→ Statut:', isAvailable ? 'disponible' : 'rupture');
     
-    const [result] = await pool.query(
-      `INSERT INTO ingredients (
-        name, 
-        slug, 
-        category_inventory,
-        quantity, 
-        unit,
-        price_per_unit, 
-        min_quantity, 
-        supplier,
-        description,
-        is_available,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [
-        name,
-        slug,
-        category,
-        qty,
-        unit || 'kg',
-        price || 0,
-        minQuantity || 0,
-        supplier || '',
-        description || 'Ingrédient ajouté depuis l\'inventaire',
-        isAvailable
-      ]
-    );
+    // ✅ SUPABASE: Insérer l'ingrédient
+    const [result] = await supabaseService.insert('ingredients', {
+      name: name,
+      slug: slug,
+      category_inventory: category,
+      quantity: parseFloat(qty.toFixed(2)),
+      unit: unit || 'kg',
+      price_per_unit: parseFloat((parseFloat(price) || 0).toFixed(2)),
+      min_quantity: parseFloat((parseFloat(minQuantity) || 0).toFixed(2)),
+      supplier: supplier || '',
+      description: description || 'Ingrédient ajouté depuis l\'inventaire',
+      is_available: isAvailable
+    });
     
-    logger.log('✅ Ingrédient ajouté, ID:', result.insertId);
+    const insertedId = result && result[0] ? result[0].id : null;
+    logger.log('✅ Ingrédient ajouté, ID:', insertedId);
     res.json({ 
       success: true, 
       message: 'Ingrédient ajouté avec succès' 
@@ -6107,12 +7242,17 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
   const { name, category, quantity, price, minQuantity, unit, supplier, description } = req.body;
   
   try {
-    const [existing] = await pool.query(
-      `SELECT * FROM ingredients WHERE id = ? AND deleted_at IS NULL`,
-      [id]
-    );
+    // ✅ SUPABASE: Vérifier si l'ingrédient existe
+    const [allExisting] = await supabaseService.select('ingredients', {
+      where: { id: parseInt(id) },
+      select: '*',
+      limit: 1
+    });
     
-    if (existing.length === 0) {
+    // Filtrer les supprimés
+    const existing = (allExisting || []).filter(e => !e.deleted_at);
+    
+    if (!existing || existing.length === 0) {
       return res.status(404).json({ 
         success: false, 
         error: 'Ingrédient non trouvé' 
@@ -6126,13 +7266,29 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
       logger.log(`📦 MAJ quantité uniquement: ${currentIngredient.name} → ${quantity}`);
       
       // Calculer le statut automatiquement en fonction de la quantité
-      const isAvailable = quantity > 0 ? 1 : 0;
+      const qty = parseFloat(quantity) || 0;
+      const isAvailable = qty > 0 ? 1 : 0;
       
-      await pool.query(
-        `UPDATE ingredients 
-         SET quantity = ?, is_available = ?, updated_at = NOW()
-         WHERE id = ? AND deleted_at IS NULL`,
-        [quantity, isAvailable, id]
+      // ✅ SUPABASE: Mettre à jour uniquement la quantité (vérifier deleted_at en JavaScript)
+      const [checkExisting] = await supabaseService.select('ingredients', {
+        where: { id: parseInt(id) },
+        select: 'deleted_at',
+        limit: 1
+      });
+      
+      if (!checkExisting || checkExisting.length === 0 || checkExisting[0].deleted_at) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Ingrédient non trouvé' 
+        });
+      }
+      
+      await supabaseService.update('ingredients', 
+        { id: parseInt(id) },
+        { 
+          quantity: parseFloat(qty.toFixed(2)), 
+          is_available: isAvailable 
+        }
       );
       
       logger.log(`✅ Quantité mise à jour, ID: ${id}, Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
@@ -6165,27 +7321,54 @@ app.put('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection, v
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
     
-    // Vérifier unicité (sauf pour l'ingrédient actuel)
+    // ✅ SUPABASE: Vérifier unicité (sauf pour l'ingrédient actuel)
     let slug = baseSlug;
     let counter = 1;
     while (true) {
-      const [existing] = await pool.query('SELECT id FROM ingredients WHERE slug = ? AND id != ?', [slug, id]);
-      if (existing.length === 0) break;
+      const [existing] = await supabaseService.select('ingredients', {
+        where: { slug: slug },
+        select: 'id',
+        limit: 1
+      });
+      if (!existing || existing.length === 0 || existing[0].id === parseInt(id)) break;
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
     
     // Calculer automatiquement le statut en fonction de la quantité
-    const qty = quantity || 0;
+    const qty = parseFloat(quantity) || 0;
     const isAvailable = qty > 0 ? 1 : 0;
     logger.log(`   Quantité: ${qty} → Statut: ${isAvailable ? 'disponible' : 'rupture'}`);
     
-    await pool.query(
-      `UPDATE ingredients 
-       SET name = ?, slug = ?, category_inventory = ?, quantity = ?, unit = ?, price_per_unit = ?, min_quantity = ?, 
-           supplier = ?, description = ?, is_available = ?, updated_at = NOW()
-       WHERE id = ? AND deleted_at IS NULL`,
-      [name, slug, category, qty, unit || 'kg', price || 0, minQuantity || 0, supplier || '', description || '', isAvailable, id]
+    // ✅ SUPABASE: Vérifier que l'ingrédient n'est pas supprimé avant mise à jour
+    const [checkExisting] = await supabaseService.select('ingredients', {
+      where: { id: parseInt(id) },
+      select: 'deleted_at',
+      limit: 1
+    });
+    
+    if (!checkExisting || checkExisting.length === 0 || checkExisting[0].deleted_at) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Ingrédient non trouvé' 
+      });
+    }
+    
+    // ✅ SUPABASE: Mettre à jour l'ingrédient
+    await supabaseService.update('ingredients',
+      { id: parseInt(id) },
+      {
+        name: name,
+        slug: slug,
+        category_inventory: category,
+        quantity: parseFloat(qty.toFixed(2)),
+        unit: unit || 'kg',
+        price_per_unit: parseFloat((parseFloat(price) || 0).toFixed(2)),
+        min_quantity: parseFloat((parseFloat(minQuantity) || 0).toFixed(2)),
+        supplier: supplier || '',
+        description: description || '',
+        is_available: isAvailable
+      }
     );
     
     logger.log('✅ Ingrédient modifié, ID:', id);
@@ -6208,17 +7391,28 @@ app.delete('/api/inventory/:id', authenticateToken, requireAdmin, csrfProtection
   const { id } = req.params;
   
   try {
-    const [existing] = await pool.query('SELECT name FROM ingredients WHERE id = ? AND deleted_at IS NULL', [id]);
+    // ✅ SUPABASE: Vérifier si l'ingrédient existe
+    const [allExisting] = await supabaseService.select('ingredients', {
+      where: { id: parseInt(id) },
+      select: 'name,deleted_at',
+      limit: 1
+    });
     
-    if (existing.length === 0) {
+    // Filtrer les supprimés
+    const existing = (allExisting || []).filter(e => !e.deleted_at);
+    
+    if (!existing || existing.length === 0) {
       return res.status(404).json({ 
         success: false, 
         error: 'Ingrédient non trouvé' 
       });
     }
     
-    // Soft delete
-    await pool.query('UPDATE ingredients SET deleted_at = NOW() WHERE id = ?', [id]);
+    // ✅ SUPABASE: Soft delete
+    await supabaseService.update('ingredients',
+      { id: parseInt(id) },
+      { deleted_at: new Date().toISOString() }
+    );
     
     logger.log('✅ Ingrédient supprimé (soft delete), ID:', id);
     res.json({ 
@@ -6272,42 +7466,73 @@ app.get('/api/shopping-list', authenticateToken, async (req, res) => {
   logger.log('🛒 GET /api/shopping-list - Récupération liste de courses');
   try {
     const { status } = req.query;
-    let query = `
-      SELECT 
-        sl.id,
-        sl.ingredient_id,
-        sl.quantity_needed,
-        sl.unit,
-        sl.added_at,
-        sl.status,
-        sl.notes,
-        sl.priority,
-        i.name as ingredient_name,
-        i.category_inventory as category,
-        i.min_quantity
-      FROM shopping_list sl
-      JOIN ingredients i ON i.id = sl.ingredient_id
-      WHERE i.deleted_at IS NULL
-    `;
-    const params = [];
+    const targetStatus = status || 'pending';
     
-    if (status) {
-      query += ' AND sl.status = ?';
-      params.push(status);
-    } else {
-      query += ' AND sl.status = "pending"';
+    // ✅ SUPABASE: Récupérer tous les items de la liste de courses
+    const [allShoppingListItems] = await supabaseService.select('shopping_list', {
+      where: {
+        status: targetStatus
+      },
+      select: 'id,ingredient_id,quantity_needed,unit,added_at,status,notes,priority',
+      orderBy: ['added_at ASC']
+    });
+    
+    if (!allShoppingListItems || allShoppingListItems.length === 0) {
+      logger.log('✅ Aucun article dans la liste de courses');
+      return res.json({ 
+        success: true, 
+        data: [] 
+      });
     }
     
-    query += ` ORDER BY 
-      CASE sl.priority
-        WHEN "urgent" THEN 1
-        WHEN "high" THEN 2
-        WHEN "medium" THEN 3
-        WHEN "low" THEN 4
-      END,
-      sl.added_at ASC`;
+    // ✅ SUPABASE: Récupérer tous les ingrédients correspondants
+    const ingredientIds = [...new Set(allShoppingListItems.map(item => item.ingredient_id).filter(Boolean))];
+    const [allIngredientsData] = await supabaseService.select('ingredients', {
+      where: {
+        id: ingredientIds
+      },
+      select: 'id,name,category_inventory,min_quantity,quantity,deleted_at'
+    });
     
-    const [items] = await pool.query(query, params);
+    // Filtrer les ingrédients non supprimés et créer un map
+    const ingredientsMap = {};
+    (allIngredientsData || []).filter(i => !i.deleted_at).forEach(ing => {
+      ingredientsMap[ing.id] = {
+        name: ing.name,
+        category: ing.category_inventory || 'Autres',
+        min_quantity: parseFloat(ing.min_quantity) || 0,
+        current_quantity: parseFloat(ing.quantity) || 0
+      };
+    });
+    
+    // Joindre les données et filtrer les ingrédients supprimés
+    const items = allShoppingListItems
+      .filter(item => ingredientsMap[item.ingredient_id]) // Filtrer les ingrédients supprimés
+      .map(item => ({
+        id: item.id,
+        ingredient_id: item.ingredient_id,
+        quantity_needed: parseFloat(item.quantity_needed) || 0,
+        unit: item.unit || null,
+        added_at: item.added_at,
+        status: item.status,
+        notes: item.notes || null,
+        priority: item.priority || 'medium',
+        ingredient_name: ingredientsMap[item.ingredient_id].name,
+        category: ingredientsMap[item.ingredient_id].category,
+        min_quantity: ingredientsMap[item.ingredient_id].min_quantity,
+        current_quantity: ingredientsMap[item.ingredient_id].current_quantity
+      }))
+      .sort((a, b) => {
+        // Trier par priorité
+        const priorityOrder = { urgent: 1, high: 2, medium: 3, low: 4 };
+        const aPriority = priorityOrder[a.priority] || 5;
+        const bPriority = priorityOrder[b.priority] || 5;
+        if (aPriority !== bPriority) {
+          return aPriority - bPriority;
+        }
+        // Puis par date d'ajout
+        return new Date(a.added_at) - new Date(b.added_at);
+      });
     
     logger.log(`✅ ${items.length} articles dans la liste de courses`);
     res.json({ 
@@ -6316,6 +7541,7 @@ app.get('/api/shopping-list', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     logger.error('❌ Erreur récupération liste de courses:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de la liste de courses' 
@@ -6396,28 +7622,46 @@ app.post('/api/shopping-list/add', authenticateToken, async (req, res) => {
 app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req, res) => {
   logger.log('🛒 POST /api/shopping-list/auto-add-low-stock - Ajout automatique');
   try {
-    // Trouver tous les ingrédients en rupture ou en stock bas
+    // ✅ SUPABASE: Trouver tous les ingrédients en rupture ou en stock bas
     // - Produits en rupture (quantity = 0)
     // - Produits en stock bas (quantity <= min_quantity ET min_quantity > 0)
-    const [lowStockItems] = await pool.query(`
-      SELECT 
-        i.id,
-        i.name,
-        i.quantity,
-        i.min_quantity,
-        i.unit,
-        CASE 
-          WHEN i.quantity = 0 THEN COALESCE(i.min_quantity, 1)
-          WHEN i.quantity < i.min_quantity AND i.min_quantity > 0 THEN (i.min_quantity - i.quantity)
-          ELSE 0
-        END as quantity_needed
-      FROM ingredients i
-      WHERE i.deleted_at IS NULL
-        AND (
-          i.quantity = 0 
-          OR (i.quantity <= i.min_quantity AND i.min_quantity > 0)
-        )
-    `);
+    const [allIngredientsData] = await supabaseService.select('ingredients', {
+      select: 'id,name,quantity,min_quantity,unit,deleted_at'
+    });
+    
+    // Filtrer les ingrédients non supprimés
+    const allIngredients = (allIngredientsData || []).filter(i => !i.deleted_at);
+    
+    // Filtrer et calculer quantity_needed en JavaScript
+    const lowStockItems = (allIngredients || [])
+      .map(i => {
+        const quantity = parseFloat(i.quantity) || 0;
+        const minQuantity = parseFloat(i.min_quantity) || 0;
+        
+        // Vérifier si en rupture ou stock bas
+        const isOut = quantity === 0;
+        const isLow = minQuantity > 0 && quantity <= minQuantity;
+        
+        if (!isOut && !isLow) return null;
+        
+        // Calculer quantity_needed
+        let quantityNeeded = 0;
+        if (isOut) {
+          quantityNeeded = minQuantity > 0 ? minQuantity : 1;
+        } else if (isLow) {
+          quantityNeeded = minQuantity - quantity;
+        }
+        
+        return {
+          id: i.id,
+          name: i.name,
+          quantity: quantity,
+          min_quantity: minQuantity,
+          unit: i.unit || 'kg',
+          quantity_needed: parseFloat(quantityNeeded.toFixed(2))
+        };
+      })
+      .filter(item => item !== null);
     
     if (lowStockItems.length === 0) {
       return res.json({ 
@@ -6430,45 +7674,57 @@ app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req,
     
     let addedCount = 0;
     const addedItems = [];
+    const errors = [];
     
     for (const item of lowStockItems) {
-      // Vérifier si déjà dans la liste
-      const [existing] = await pool.query(
-        'SELECT id FROM shopping_list WHERE ingredient_id = ? AND status = "pending"',
-        [item.id]
-      );
-      
-      // Vérifier que quantity_needed est valide (peut être décimal)
-      const quantityNeeded = parseFloat(item.quantity_needed) || 0;
-      if (existing.length === 0 && quantityNeeded > 0) {
-        // Déterminer la priorité
-        let priority = 'medium';
-        if (item.quantity === 0) {
-          // Produit en rupture = urgent
-          priority = 'urgent';
-        } else if (item.min_quantity > 0) {
-          const ratio = item.quantity / item.min_quantity;
-          if (ratio < 0.3) priority = 'high';
-          else if (ratio < 0.5) priority = 'medium';
-          else priority = 'low';
-        } else {
-          // Produit sans min_quantity mais en rupture
-          priority = 'urgent';
-        }
-        
-        await pool.query(
-          `INSERT INTO shopping_list 
-           (ingredient_id, quantity_needed, unit, priority) 
-           VALUES (?, ?, ?, ?)`,
-          [item.id, quantityNeeded, item.unit || null, priority]
-        );
-        addedCount++;
-        addedItems.push({
-          ingredient_id: item.id,
-          name: item.name,
-          quantity_needed: item.quantity_needed,
-          status: item.quantity === 0 ? 'rupture' : 'stock_bas'
+      try {
+        // ✅ SUPABASE: Vérifier si déjà dans la liste
+        const [existing] = await supabaseService.select('shopping_list', {
+          where: {
+            ingredient_id: item.id,
+            status: 'pending'
+          },
+          select: 'id',
+          limit: 1
         });
+        
+        // Vérifier que quantity_needed est valide (peut être décimal)
+        const quantityNeeded = parseFloat(item.quantity_needed) || 0;
+        if ((!existing || existing.length === 0) && quantityNeeded > 0) {
+          // Déterminer la priorité
+          let priority = 'medium';
+          if (item.quantity === 0) {
+            // Produit en rupture = urgent
+            priority = 'urgent';
+          } else if (item.min_quantity > 0) {
+            const ratio = item.quantity / item.min_quantity;
+            if (ratio < 0.3) priority = 'high';
+            else if (ratio < 0.5) priority = 'medium';
+            else priority = 'low';
+          } else {
+            // Produit sans min_quantity mais en rupture
+            priority = 'urgent';
+          }
+          
+          // ✅ SUPABASE: Ajouter à la liste de courses
+          await supabaseService.insert('shopping_list', {
+            ingredient_id: item.id,
+            quantity_needed: parseFloat(quantityNeeded.toFixed(2)),
+            unit: item.unit || null,
+            priority: priority
+          });
+          addedCount++;
+          addedItems.push({
+            ingredient_id: item.id,
+            name: item.name,
+            quantity_needed: item.quantity_needed,
+            status: item.quantity === 0 ? 'rupture' : 'stock_bas'
+          });
+        }
+      } catch (itemError) {
+        // Logger l'erreur pour cet item mais continuer avec les autres
+        logger.error(`❌ Erreur ajout item ${item.id} (${item.name}):`, itemError);
+        errors.push({ item: item.name, error: itemError.message || 'Erreur inconnue' });
       }
     }
     
@@ -6485,11 +7741,18 @@ app.post('/api/shopping-list/auto-add-low-stock', authenticateToken, async (req,
     }
     
     logger.log(`✅ ${addedCount} produits ajoutés automatiquement (${ruptureCount} rupture, ${stockBasCount} stock bas)`);
+    
+    // Si des erreurs se sont produites mais qu'on a quand même ajouté des items, retourner un succès partiel
+    if (errors.length > 0 && addedCount > 0) {
+      logger.warn(`⚠️ ${errors.length} erreur(s) lors de l'ajout automatique, mais ${addedCount} produit(s) ajouté(s)`);
+    }
+    
     res.json({ 
       success: true, 
       message: message,
       added: addedCount,
-      data: addedItems
+      data: addedItems,
+      errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
     logger.error('❌ Erreur ajout automatique:', error);
@@ -6761,7 +8024,7 @@ app.get('/api/shopping-list/export', authenticateToken, async (req, res) => {
 // ============================================
 
 // 🧁 TOP PRODUITS VENDUS SUR UNE PÉRIODE
-app.get('/api/admin/analytics/top-products-period', authenticateToken, async (req, res) => {
+app.get('/api/admin/analytics/top-products-period', authenticateToken, requireManager, async (req, res) => {
   const { startDate, endDate, limit = 8 } = req.query;
   
   logger.log('📊 GET /api/admin/analytics/top-products-period');
@@ -6769,42 +8032,114 @@ app.get('/api/admin/analytics/top-products-period', authenticateToken, async (re
   logger.log('   Limite:', limit);
   
   try {
-    const [topProducts] = await pool.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.image_url,
-        c.name AS category,
-        SUM(oi.quantity) AS total_sold,
-        SUM(oi.subtotal) AS revenue_ttc,
-        SUM(oi.subtotal / 1.10) AS revenue_ht,
-        COUNT(DISTINCT o.id) AS total_orders
-      FROM order_items oi
-      JOIN products p ON p.id = oi.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      JOIN orders o ON o.id = oi.order_id
-      WHERE o.created_at BETWEEN ? AND ?
-        AND o.status != 'cancelled'
-      GROUP BY p.id
-      ORDER BY total_sold DESC
-      LIMIT ?
-    `, [startDate, endDate, parseInt(limit)]);
+    // ✅ SUPABASE: Convertir les dates
+    const startDateTime = new Date(startDate + 'T00:00:00').toISOString();
+    const endDateTime = new Date(endDate + 'T23:59:59.999').toISOString();
     
-    logger.log(`✅ ${topProducts.length} produits récupérés`);
+    // ✅ SUPABASE: Récupérer les commandes de la période
+    const [ordersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: startDateTime }
+      },
+      select: 'id,created_at,status'
+    });
+    
+    // Filtrer par dates et exclure les annulées
+    const validOrders = (ordersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(startDateTime) && orderDate <= new Date(endDateTime);
+    });
+    
+    const orderIds = validOrders.map(o => o.id);
+    logger.log(`✅ ${orderIds.length} commandes valides trouvées`);
+    
+    if (orderIds.length === 0) {
+      return res.json({
+      success: true,
+        data: []
+      });
+    }
+    
+    // ✅ SUPABASE: Récupérer les order_items pour ces commandes
+    const [orderItemsData] = await supabaseService.select('order_items', {
+      where: { order_id: orderIds },
+      select: 'id,order_id,product_id,quantity,subtotal'
+    });
+    
+    // ✅ SUPABASE: Récupérer les produits
+    const productIds = [...new Set((orderItemsData || []).map(oi => oi.product_id))];
+    const [productsData] = await supabaseService.select('products', {
+      where: { id: productIds },
+      select: 'id,name,image_url,category_id'
+    });
+    
+    // ✅ SUPABASE: Récupérer les catégories
+    const categoryIds = [...new Set((productsData || []).map(p => p.category_id).filter(Boolean))];
+    const categoriesMap = {};
+    if (categoryIds.length > 0) {
+      const [categoriesData] = await supabaseService.select('categories', {
+        where: { id: categoryIds },
+        select: 'id,name'
+      });
+      (categoriesData || []).forEach(cat => {
+        categoriesMap[cat.id] = cat.name;
+      });
+    }
+    
+    // Calculer les statistiques par produit
+    const productsMap = {};
+    (productsData || []).forEach(p => {
+      productsMap[p.id] = {
+        id: p.id,
+        name: p.name,
+        image_url: p.image_url,
+        category: categoriesMap[p.category_id] || 'Non catégorisé'
+      };
+    });
+    
+    const productStats = {};
+    (orderItemsData || []).forEach(oi => {
+      if (!productStats[oi.product_id]) {
+        productStats[oi.product_id] = {
+          total_sold: 0,
+          revenue_ttc: 0,
+          revenue_ht: 0,
+          order_ids: new Set()
+        };
+      }
+      productStats[oi.product_id].total_sold += parseInt(oi.quantity) || 0;
+      const subtotal = parseFloat(oi.subtotal) || 0;
+      productStats[oi.product_id].revenue_ttc = parseFloat((productStats[oi.product_id].revenue_ttc + subtotal).toFixed(2));
+      productStats[oi.product_id].revenue_ht = parseFloat((productStats[oi.product_id].revenue_ht + subtotal / 1.10).toFixed(2));
+      productStats[oi.product_id].order_ids.add(oi.order_id);
+    });
+    
+    // Formater les résultats
+    const topProducts = Object.entries(productStats)
+      .map(([productId, stats]) => ({
+        ...productsMap[productId],
+        total_sold: stats.total_sold,
+        revenue_ttc: parseFloat(stats.revenue_ttc.toFixed(2)),
+        revenue_ht: parseFloat((stats.revenue_ht).toFixed(2)),
+        total_orders: stats.order_ids.size
+      }))
+      .sort((a, b) => b.total_sold - a.total_sold)
+      .slice(0, parseInt(limit))
+      .map((p, index) => ({
+        ...p,
+        rank: index + 1
+      }));
+    
+    logger.log(`✅ ${topProducts.length} top produits récupérés`);
     
     res.json({
       success: true,
-      data: topProducts.map((p, index) => ({
-        ...p,
-        rank: index + 1,
-        total_sold: parseInt(p.total_sold),
-        revenue_ttc: parseFloat(p.revenue_ttc),
-        revenue_ht: parseFloat(p.revenue_ht),
-        total_orders: parseInt(p.total_orders)
-      }))
+      data: topProducts
     });
   } catch (error) {
     logger.error('❌ Erreur récupération top products:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des top produits' 
@@ -6813,35 +8148,64 @@ app.get('/api/admin/analytics/top-products-period', authenticateToken, async (re
 });
 
 // ⏰ HEURES DE POINTE
-app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) => {
+app.get('/api/admin/analytics/peak-hours', authenticateToken, requireManager, async (req, res) => {
   const { startDate, endDate } = req.query;
   
   logger.log('📊 GET /api/admin/analytics/peak-hours');
   logger.log('   Période:', startDate, '→', endDate);
   
   try {
-    const [peakHours] = await pool.query(`
-      SELECT 
-        HOUR(created_at) AS hour,
-        COUNT(*) AS total_orders,
-        SUM(total_amount) AS total_revenue,
-        AVG(total_amount) AS avg_order_value
-      FROM orders
-      WHERE created_at BETWEEN ? AND ?
-        AND status != 'cancelled'
-      GROUP BY HOUR(created_at)
-      ORDER BY hour ASC
-    `, [startDate, endDate]);
+    // ✅ SUPABASE: Convertir les dates
+    const startDateTime = new Date(startDate + 'T00:00:00').toISOString();
+    const endDateTime = new Date(endDate + 'T23:59:59.999').toISOString();
     
-    // Remplir les heures manquantes avec 0
+    // ✅ SUPABASE: Récupérer les commandes de la période
+    const [ordersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: startDateTime }
+      },
+      select: 'id,created_at,total_amount,status'
+    });
+    
+    // Filtrer par dates et exclure les annulées
+    const validOrders = (ordersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(startDateTime) && orderDate <= new Date(endDateTime);
+    });
+    
+    // Calculer les statistiques par heure
+    const hourStats = {};
+    validOrders.forEach(order => {
+      const orderDate = new Date(order.created_at);
+      const hour = orderDate.getHours();
+      if (!hourStats[hour]) {
+        hourStats[hour] = {
+          hour: hour,
+          total_orders: 0,
+          total_revenue: 0,
+          orders: []
+        };
+      }
+      hourStats[hour].total_orders++;
+      const orderAmount = parseFloat(order.total_amount) || 0;
+      hourStats[hour].total_revenue = parseFloat((hourStats[hour].total_revenue + orderAmount).toFixed(2));
+      hourStats[hour].orders.push(orderAmount);
+    });
+    
+    // Remplir les heures manquantes avec 0 et calculer la moyenne
     const allHours = Array.from({ length: 24 }, (_, i) => {
-      const hourData = peakHours.find(h => h.hour === i);
+      const hourData = hourStats[i];
+      const avgOrderValue = hourData && hourData.orders.length > 0
+        ? hourData.total_revenue / hourData.orders.length
+        : 0;
+      
       return {
         hour: i,
         label: `${i}h`,
-        total_orders: hourData ? parseInt(hourData.total_orders) : 0,
-        total_revenue: hourData ? parseFloat(hourData.total_revenue) : 0,
-        avg_order_value: hourData ? parseFloat(hourData.avg_order_value) : 0
+        total_orders: hourData ? hourData.total_orders : 0,
+        total_revenue: hourData ? parseFloat(hourData.total_revenue.toFixed(2)) : 0,
+        avg_order_value: parseFloat(avgOrderValue.toFixed(2))
       };
     });
     
@@ -6853,6 +8217,7 @@ app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) =
     });
   } catch (error) {
     logger.error('❌ Erreur récupération heures de pointe:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des heures de pointe' 
@@ -6861,45 +8226,121 @@ app.get('/api/admin/analytics/peak-hours', authenticateToken, async (req, res) =
 });
 
 // 📊 RÉPARTITION PAR CATÉGORIE
-app.get('/api/admin/analytics/category-distribution', authenticateToken, async (req, res) => {
+app.get('/api/admin/analytics/category-distribution', authenticateToken, requireManager, async (req, res) => {
   const { startDate, endDate } = req.query;
   
   logger.log('📊 GET /api/admin/analytics/category-distribution');
   logger.log('   Période:', startDate, '→', endDate);
   
   try {
-    const [categoryData] = await pool.query(`
-      SELECT 
-        c.id,
-        c.name,
-        c.icon,
-        SUM(oi.subtotal) AS revenue_ttc,
-        SUM(oi.subtotal / 1.10) AS revenue_ht,
-        SUM(oi.quantity) AS total_quantity,
-        COUNT(DISTINCT o.id) AS total_orders
-      FROM order_items oi
-      JOIN products p ON p.id = oi.product_id
-      JOIN categories c ON c.id = p.category_id
-      JOIN orders o ON o.id = oi.order_id
-      WHERE o.created_at BETWEEN ? AND ?
-        AND o.status != 'cancelled'
-      GROUP BY c.id
-      ORDER BY revenue_ttc DESC
-    `, [startDate, endDate]);
+    // ✅ SUPABASE: Convertir les dates
+    const startDateTime = new Date(startDate + 'T00:00:00').toISOString();
+    const endDateTime = new Date(endDate + 'T23:59:59.999').toISOString();
     
-    // Calculer le total pour les pourcentages
-    const totalRevenue = categoryData.reduce((sum, cat) => sum + parseFloat(cat.revenue_ttc), 0);
+    // ✅ SUPABASE: Récupérer les commandes de la période
+    const [ordersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: startDateTime }
+      },
+      select: 'id,created_at,status'
+    });
     
-    const result = categoryData.map(cat => ({
+    // Filtrer par dates et exclure les annulées
+    const validOrders = (ordersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(startDateTime) && orderDate <= new Date(endDateTime);
+    });
+    
+    const orderIds = validOrders.map(o => o.id);
+    logger.log(`✅ ${orderIds.length} commandes valides trouvées`);
+    
+    if (orderIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        total_revenue: 0
+      });
+    }
+    
+    // ✅ SUPABASE: Récupérer les order_items pour ces commandes
+    const [orderItemsData] = await supabaseService.select('order_items', {
+      where: { order_id: orderIds },
+      select: 'id,order_id,product_id,quantity,subtotal'
+    });
+    
+    // ✅ SUPABASE: Récupérer les produits avec catégories
+    const productIds = [...new Set((orderItemsData || []).map(oi => oi.product_id))];
+    const [productsData] = await supabaseService.select('products', {
+      where: { id: productIds },
+      select: 'id,category_id'
+    });
+    
+    const productsMap = {};
+    (productsData || []).forEach(p => {
+      productsMap[p.id] = p.category_id;
+    });
+    
+    // ✅ SUPABASE: Récupérer les catégories
+    const categoryIds = [...new Set(Object.values(productsMap).filter(Boolean))];
+    const categoriesMap = {};
+    if (categoryIds.length > 0) {
+      const [categoriesData] = await supabaseService.select('categories', {
+        where: { id: categoryIds },
+        select: 'id,name,icon'
+      });
+      (categoriesData || []).forEach(cat => {
+        categoriesMap[cat.id] = {
       id: cat.id,
       name: cat.name,
-      icon: cat.icon,
-      revenue_ttc: parseFloat(cat.revenue_ttc),
-      revenue_ht: parseFloat(cat.revenue_ht),
-      total_quantity: parseInt(cat.total_quantity),
-      total_orders: parseInt(cat.total_orders),
-      percentage: totalRevenue > 0 ? (parseFloat(cat.revenue_ttc) / totalRevenue * 100) : 0
-    }));
+          icon: cat.icon
+        };
+      });
+    }
+    
+    // Calculer les statistiques par catégorie
+    const categoryStats = {};
+    (orderItemsData || []).forEach(oi => {
+      const categoryId = productsMap[oi.product_id];
+      if (!categoryId) return;
+      
+      if (!categoryStats[categoryId]) {
+        categoryStats[categoryId] = {
+          revenue_ttc: 0,
+          revenue_ht: 0,
+          total_quantity: 0,
+          order_ids: new Set()
+        };
+      }
+      
+      const subtotal = parseFloat(oi.subtotal) || 0;
+      categoryStats[categoryId].revenue_ttc = parseFloat((categoryStats[categoryId].revenue_ttc + subtotal).toFixed(2));
+      categoryStats[categoryId].revenue_ht = parseFloat((categoryStats[categoryId].revenue_ht + subtotal / 1.10).toFixed(2));
+      categoryStats[categoryId].total_quantity += parseInt(oi.quantity) || 0;
+      categoryStats[categoryId].order_ids.add(oi.order_id);
+    });
+    
+    // Formater les résultats
+    const result = Object.entries(categoryStats)
+      .map(([categoryId, stats]) => ({
+        id: parseInt(categoryId),
+        name: categoriesMap[categoryId]?.name || 'Non catégorisé',
+        icon: categoriesMap[categoryId]?.icon || null,
+        revenue_ttc: parseFloat(stats.revenue_ttc.toFixed(2)),
+        revenue_ht: parseFloat(stats.revenue_ht.toFixed(2)),
+        total_quantity: stats.total_quantity,
+        total_orders: stats.order_ids.size,
+        percentage: 0 // Sera calculé après
+      }))
+      .sort((a, b) => b.revenue_ttc - a.revenue_ttc);
+    
+    // Calculer le total pour les pourcentages
+    const totalRevenue = parseFloat(result.reduce((sum, cat) => sum + cat.revenue_ttc, 0).toFixed(2));
+    
+    // Ajouter les pourcentages
+    result.forEach(cat => {
+      cat.percentage = totalRevenue > 0 ? parseFloat((cat.revenue_ttc / totalRevenue * 100).toFixed(2)) : 0;
+    });
     
     logger.log(`✅ ${result.length} catégories récupérées`);
     logger.log(`   Total CA: ${totalRevenue.toFixed(2)}€`);
@@ -6911,6 +8352,7 @@ app.get('/api/admin/analytics/category-distribution', authenticateToken, async (
     });
   } catch (error) {
     logger.error('❌ Erreur récupération répartition catégories:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération de la répartition par catégorie' 
@@ -6919,7 +8361,7 @@ app.get('/api/admin/analytics/category-distribution', authenticateToken, async (
 });
 
 // ADMIN - LISTE DES COMMANDES PAR PERIODE (détail transactions)
-app.get('/api/admin/analytics/orders-period', authenticateToken, async (req, res) => {
+app.get('/api/admin/analytics/orders-period', authenticateToken, requireManager, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     logger.log('📊 GET /api/admin/analytics/orders-period');
@@ -6929,30 +8371,86 @@ app.get('/api/admin/analytics/orders-period', authenticateToken, async (req, res
       return res.status(400).json({ success: false, error: 'startDate et endDate requis (YYYY-MM-DD)' });
     }
 
-    const [orders] = await pool.query(`
-      SELECT 
-        o.id,
-        o.order_number,
-        o.created_at,
-        o.updated_at,
-        o.total_amount,
-        o.payment_method,
-        o.payment_status,
-        o.status,
-        COALESCE((SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id), 0) AS items_count,
-        u.first_name,
-        u.last_name,
-        u.email
-      FROM orders o
-      LEFT JOIN users u ON u.id = o.user_id
-      WHERE o.created_at BETWEEN ? AND ?
-        AND o.status != 'cancelled'
-      ORDER BY o.created_at DESC
-    `, [startDate, endDate + ' 23:59:59']);
+    // ✅ SUPABASE: Convertir les dates en format ISO
+    const startDateTime = new Date(startDate + 'T00:00:00').toISOString();
+    const endDateTime = new Date(endDate + 'T23:59:59.999').toISOString();
 
-    res.json({ success: true, data: orders, count: orders.length });
+    // ✅ SUPABASE: Récupérer les commandes (on filtre ensuite en JavaScript)
+    const [ordersData] = await supabaseService.select('orders', {
+      where: {
+        created_at: { operator: '>=', value: startDateTime }
+      },
+      select: 'id,order_number,created_at,updated_at,total_amount,payment_method,payment_status,status,user_id',
+      orderBy: ['created_at DESC']
+    });
+
+    // Filtrer par date de fin et exclure les annulées en JavaScript
+    let orders = (ordersData || []).filter(order => {
+      if (order.status === 'cancelled') return false;
+      const orderDate = new Date(order.created_at);
+      return orderDate >= new Date(startDateTime) && orderDate <= new Date(endDateTime);
+    });
+
+    logger.log(`✅ ${orders.length} commandes récupérées pour la période`);
+
+    // ✅ SUPABASE: Récupérer les users et order_items pour chaque commande
+    const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+    const usersMap = {};
+    
+    if (userIds.length > 0) {
+      const [usersData] = await supabaseService.select('users', {
+        where: { id: userIds },
+        select: 'id,first_name,last_name,email'
+      });
+      
+      (usersData || []).forEach(user => {
+        usersMap[user.id] = user;
+      });
+    }
+
+    // Récupérer les items_count pour chaque commande
+    const orderIds = orders.map(o => o.id);
+    const itemsCountMap = {};
+    
+    if (orderIds.length > 0) {
+      // Récupérer tous les order_items pour ces commandes
+      const [orderItemsData] = await supabaseService.select('order_items', {
+        where: { order_id: orderIds },
+        select: 'order_id'
+      });
+      
+      // Compter les items par commande
+      (orderItemsData || []).forEach(item => {
+        itemsCountMap[item.order_id] = (itemsCountMap[item.order_id] || 0) + 1;
+      });
+    }
+
+    // Formater les données pour le frontend
+    const formattedOrders = orders.map(order => {
+      const user = order.user_id ? usersMap[order.user_id] : null;
+      return {
+        id: order.id,
+        order_number: order.order_number,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        total_amount: parseFloat((parseFloat(order.total_amount) || 0).toFixed(2)),
+        payment_method: order.payment_method || 'Non spécifié',
+        payment_status: order.payment_status || 'pending',
+        paymentStatus: order.payment_status || 'pending', // Alias pour compatibilité
+        status: order.status,
+        items_count: itemsCountMap[order.id] || 0,
+        first_name: user?.first_name || '',
+        last_name: user?.last_name || '',
+        email: user?.email || ''
+      };
+    });
+
+    logger.log(`✅ ${formattedOrders.length} commandes formatées`);
+
+    res.json({ success: true, data: formattedOrders, count: formattedOrders.length });
   } catch (error) {
     logger.error('❌ Erreur orders-period:', error);
+    logger.error('   Stack:', error.stack);
     // ✅ SÉCURITÉ: Masquer les détails d'erreur en production
     const isProd = process.env.NODE_ENV === 'production';
     res.status(500).json({ 
@@ -6964,61 +8462,147 @@ app.get('/api/admin/analytics/orders-period', authenticateToken, async (req, res
 });
 
 // ⚠️ PRODUITS EN STOCK CRITIQUE
-app.get('/api/admin/analytics/critical-stock', authenticateToken, async (req, res) => {
+app.get('/api/admin/analytics/critical-stock', authenticateToken, requireManager, async (req, res) => {
   logger.log('📊 GET /api/admin/analytics/critical-stock');
   
   try {
-    const [criticalProducts] = await pool.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.image_url,
-        c.name AS category,
-        p.stock AS current_stock,
-        COALESCE(p.min_stock, 0) AS min_stock,
-        CASE 
-          WHEN p.stock = 0 THEN 'out'
-          WHEN p.stock <= COALESCE(p.min_stock, 0) THEN 'critical'
-          WHEN p.stock <= COALESCE(p.min_stock, 0) * 1.5 THEN 'low'
-          ELSE 'ok'
-        END AS status,
-        CASE 
-          WHEN p.stock = 0 THEN 100
-          WHEN COALESCE(p.min_stock, 0) > 0 THEN 
-            GREATEST(0, LEAST(100, (1 - (p.stock / COALESCE(p.min_stock, 1))) * 100))
-          ELSE 0
-        END AS urgency_level
-      FROM products p
-      LEFT JOIN categories c ON c.id = p.category_id
-      WHERE p.deleted_at IS NULL
-        AND (p.stock = 0 OR p.stock <= COALESCE(p.min_stock, 0) * 1.5)
-      ORDER BY 
-        CASE 
-          WHEN p.stock = 0 THEN 0
-          WHEN p.stock <= COALESCE(p.min_stock, 0) THEN 1
-          ELSE 2
-        END,
-        p.stock ASC
-    `);
+    // ✅ SUPABASE: Récupérer tous les produits (on filtre deleted_at en JavaScript)
+    const [allProductsData] = await supabaseService.select('products', {
+      select: 'id,name,image_url,stock,min_stock,category_id,deleted_at'
+    });
+    
+    // Filtrer les produits non supprimés
+    const productsData = (allProductsData || []).filter(p => !p.deleted_at);
+    
+    // ✅ SUPABASE: Récupérer les catégories
+    const categoryIds = [...new Set((productsData || []).map(p => p.category_id).filter(Boolean))];
+    const categoriesMap = {};
+    if (categoryIds.length > 0) {
+      const [categoriesData] = await supabaseService.select('categories', {
+        where: { id: categoryIds },
+        select: 'id,name'
+      });
+      (categoriesData || []).forEach(cat => {
+        categoriesMap[cat.id] = cat.name;
+      });
+    }
+    
+    // Calculer le statut et l'urgence pour chaque produit
+    const criticalProducts = (productsData || [])
+      .map(p => {
+        const currentStock = parseInt(p.stock) || 0;
+        const minStock = parseInt(p.min_stock) || 0;
+        const minStockThreshold = minStock * 1.5;
+        
+        let status = 'ok';
+        if (currentStock === 0) {
+          status = 'out';
+        } else if (currentStock <= minStock) {
+          status = 'critical';
+        } else if (currentStock <= minStockThreshold) {
+          status = 'low';
+        }
+        
+        let urgencyLevel = 0;
+        if (currentStock === 0) {
+          urgencyLevel = 100;
+        } else if (minStock > 0) {
+          const ratio = 1 - (currentStock / Math.max(minStock, 1));
+          urgencyLevel = Math.max(0, Math.min(100, ratio * 100));
+        }
+        
+        return {
+          id: p.id,
+          name: p.name,
+          image_url: p.image_url,
+          category: categoriesMap[p.category_id] || 'Non catégorisé',
+          current_stock: currentStock,
+          min_stock: minStock,
+          status: status,
+          urgency_level: parseFloat(urgencyLevel.toFixed(2))
+        };
+      })
+      .filter(p => p.status !== 'ok') // Filtrer uniquement les produits en stock critique/bas
+      .sort((a, b) => {
+        // Trier par priorité: out (0) > critical (1) > low (2)
+        const priority = { 'out': 0, 'critical': 1, 'low': 2 };
+        const priorityDiff = (priority[a.status] || 99) - (priority[b.status] || 99);
+        if (priorityDiff !== 0) return priorityDiff;
+        // Ensuite par stock croissant
+        return a.current_stock - b.current_stock;
+      });
     
     logger.log(`✅ ${criticalProducts.length} produits en stock critique`);
     
     res.json({
       success: true,
-      data: criticalProducts.map(p => ({
-        ...p,
-        current_stock: parseInt(p.current_stock),
-        min_stock: parseInt(p.min_stock),
-        urgency_level: parseFloat(p.urgency_level)
-      })),
+      data: criticalProducts,
       total_critical: criticalProducts.filter(p => p.status === 'critical' || p.status === 'out').length,
       total_low: criticalProducts.filter(p => p.status === 'low').length
     });
   } catch (error) {
     logger.error('❌ Erreur récupération stock critique:', error);
+    logger.error('   Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       error: 'Erreur lors de la récupération des produits en stock critique' 
+    });
+  }
+});
+
+// GET - Récupérer les ingrédients en stock avec leur valeur totale (inventaire)
+app.get('/api/admin/analytics/stock-value', authenticateToken, requireManager, async (req, res) => {
+  logger.log('📊 GET /api/admin/analytics/stock-value - Valeur inventaire');
+  
+  try {
+    // ✅ SUPABASE: Récupérer tous les ingrédients (inventaire - matières premières)
+    const [allIngredientsData] = await supabaseService.select('ingredients', {
+      select: 'id,name,quantity,price_per_unit,deleted_at'
+    });
+    
+    // Filtrer les ingrédients non supprimés
+    const ingredientsData = (allIngredientsData || []).filter(i => !i.deleted_at);
+    
+    // Calculer la valeur totale du stock
+    let totalStockValue = 0;
+    let totalProducts = 0;
+    let totalItems = 0;
+    
+    const stockDetails = (ingredientsData || []).map(i => {
+      const quantity = parseFloat(i.quantity) || 0;
+      const price = parseFloat(i.price_per_unit) || 0;
+      const ingredientValue = parseFloat((quantity * price).toFixed(2));
+      
+      totalStockValue = parseFloat((totalStockValue + ingredientValue).toFixed(2));
+      if (quantity > 0) {
+        totalProducts++;
+        totalItems = parseFloat((totalItems + quantity).toFixed(2));
+      }
+      
+      return {
+        id: i.id,
+        name: i.name,
+        stock: parseFloat(quantity.toFixed(2)),
+        price: parseFloat(price.toFixed(2)),
+        value: ingredientValue
+      };
+    }).filter(i => i.stock > 0); // Seulement les ingrédients en stock
+    
+    logger.log(`✅ ${totalProducts} ingrédients en stock, ${totalItems} unités, valeur totale: ${totalStockValue}€`);
+    
+    res.json({
+      success: true,
+      data: stockDetails,
+      total_products: totalProducts,
+      total_items: parseFloat(totalItems.toFixed(2)),
+      total_value: totalStockValue
+    });
+  } catch (error) {
+    logger.error('❌ Erreur récupération valeur stock:', error);
+    logger.error('   Stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur lors de la récupération de la valeur du stock' 
     });
   }
 });

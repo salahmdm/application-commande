@@ -142,6 +142,19 @@ const dashboardService = {
       logger.error('Erreur getCriticalStock:', error);
       throw error;
     }
+  },
+
+  /**
+   * Récupérer les produits en stock avec leur valeur totale
+   */
+  async getStockValue() {
+    try {
+      const response = await apiCall('/admin/analytics/stock-value');
+      return response;
+    } catch (error) {
+      logger.error('Erreur getStockValue:', error);
+      throw error;
+    }
   }
   ,
   /**

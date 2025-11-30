@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Package, RefreshCw, Utensils, CakeSlice, 
-  User, MapPin, Volume2, VolumeX, CheckCircle2
+  User, MapPin, Volume2, VolumeX, CheckCircle2, X, AlertTriangle
 } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
@@ -40,23 +40,62 @@ const ManagerDashboard = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
   const [paymentWorkflowState, setPaymentWorkflowState] = useState({ isOpen: false, order: null });
+  const [cancelConfirmModal, setCancelConfirmModal] = useState({ isOpen: false, orderId: null });
   const { success, error: showError } = useNotifications();
   const previousOrdersRef = useRef([]);
   const wsConnectedRef = useRef(false);
   const { user } = useAuth();
 
-  // Parser les items des commandes
+  // ✅ CORRECTION: Parser les items des commandes avec fallback multiple
   const parseOrderItems = useCallback((order) => {
-     if (!order.items) return [];
-     try {
-       return typeof order.items === 'string' 
-         ? JSON.parse(order.items || '[]') 
-         : Array.isArray(order.items) 
-         ? order.items 
-         : [];
-     } catch {
+     if (!order) {
+       logger.debug('⚠️ parseOrderItems - order est null/undefined');
        return [];
      }
+     
+     // ✅ PRIORITÉ 1: order.parsedItems (déjà parsé)
+     if (Array.isArray(order.parsedItems) && order.parsedItems.length > 0) {
+       logger.debug('✅ parseOrderItems - Utilisation de order.parsedItems:', order.parsedItems.length);
+       return order.parsedItems;
+     }
+     
+     // ✅ PRIORITÉ 2: order.items (tableau)
+     if (Array.isArray(order.items) && order.items.length > 0) {
+       logger.debug('✅ parseOrderItems - Utilisation de order.items (array):', order.items.length);
+       return order.items;
+     }
+     
+     // ✅ PRIORITÉ 3: order.items (string JSON)
+     if (order.items && typeof order.items === 'string' && order.items.trim()) {
+       try {
+         const parsed = JSON.parse(order.items);
+         if (Array.isArray(parsed) && parsed.length > 0) {
+           logger.debug('✅ parseOrderItems - Utilisation de order.items (JSON parsed):', parsed.length);
+           return parsed;
+         }
+       } catch (err) {
+         logger.warn('⚠️ parseOrderItems - Erreur parsing JSON:', err.message);
+       }
+     }
+     
+     // ✅ PRIORITÉ 4: order.order_items (table relationnelle)
+     if (Array.isArray(order.order_items) && order.order_items.length > 0) {
+       logger.debug('✅ parseOrderItems - Utilisation de order.order_items:', order.order_items.length);
+       return order.order_items;
+     }
+     
+     logger.debug('⚠️ parseOrderItems - Aucun article trouvé pour la commande:', {
+       orderId: order.id,
+       orderNumber: order.order_number,
+       hasParsedItems: !!order.parsedItems,
+       parsedItemsLength: order.parsedItems?.length || 0,
+       hasItems: !!order.items,
+       itemsType: typeof order.items,
+       hasOrderItems: !!order.order_items,
+       orderItemsLength: order.order_items?.length || 0
+     });
+     
+     return [];
    }, []);
 
   const parseOrderPayments = useCallback((order) => {
@@ -272,10 +311,14 @@ const ManagerDashboard = () => {
     }
   }, [soundEnabled, success, showError]);
 
-  const handleCancelOrder = useCallback(async (orderId) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir annuler cette commande ?')) {
-      return;
-    }
+  const handleCancelOrder = useCallback((orderId) => {
+    // Ouvrir la modal de confirmation
+    setCancelConfirmModal({ isOpen: true, orderId });
+  }, []);
+
+  const confirmCancelOrder = useCallback(async () => {
+    const { orderId } = cancelConfirmModal;
+    if (!orderId) return;
 
     try {
       setProcessingOrderId(orderId);
@@ -290,6 +333,7 @@ const ManagerDashboard = () => {
         orderCache.invalidate('/admin/orders');
         
         success('Commande annulée avec succès');
+        setCancelConfirmModal({ isOpen: false, orderId: null });
       } else {
         throw new Error(response.error || 'Erreur lors de l\'annulation');
       }
@@ -299,7 +343,11 @@ const ManagerDashboard = () => {
     } finally {
       setProcessingOrderId(null);
     }
-  }, [success, showError]);
+  }, [cancelConfirmModal, success, showError]);
+
+  const closeCancelConfirmModal = useCallback(() => {
+    setCancelConfirmModal({ isOpen: false, orderId: null });
+  }, []);
 
   // Détecter les nouvelles commandes pour les notifications sonores
   useEffect(() => {
@@ -467,7 +515,7 @@ const ManagerDashboard = () => {
       case ORDER_STATUS.PREPARING:
         // En cours - Bleu professionnel pour action en cours
         return {
-          label: 'Prendre en charge',
+          label: 'Commencer',
           vignetteLabel: 'En cours',
           borderColor: 'border-blue-600',
           borderWidth: 'border-l-4',
@@ -693,15 +741,26 @@ const ManagerDashboard = () => {
   }, [paymentWorkflowOrder, parseOrderItems, parseOrderPayments, success, showError]);
 
   const handleTakeInChargeRequest = useCallback(async (order, isPaid) => {
-    if (!order) return;
-
-    if (isPaid) {
-      await handleStatusUpdate(order.id, ORDER_STATUS.PREPARING);
+    if (!order) {
+      logger.warn('⚠️ handleTakeInChargeRequest - Aucune commande fournie');
       return;
     }
 
-    setPaymentWorkflowState({ isOpen: true, order });
-  }, [handleStatusUpdate]);
+    try {
+      if (isPaid) {
+        // Si déjà payé, mettre directement en préparation
+        await handleStatusUpdate(order.id, ORDER_STATUS.PREPARING);
+        return;
+      }
+
+      // Si non payé, ouvrir le workflow de paiement
+      setPaymentWorkflowState({ isOpen: true, order });
+    } catch (error) {
+      logger.error('❌ handleTakeInChargeRequest - Erreur:', error);
+      // Ne pas rediriger, juste afficher l'erreur
+      showError(error.message || 'Erreur lors de la prise en charge de la commande');
+    }
+  }, [handleStatusUpdate, showError]);
 
   // Format timer elapsed time - s'arrête quand la commande est terminée
   const formatElapsed = (createdAt, status, completedAt = null) => {
@@ -756,12 +815,18 @@ const ManagerDashboard = () => {
   const OrderCard = ({ order, onTakeInCharge }) => {
     const statusConfig = getStatusConfig(order.status);
     const typeBadge = getTypeBadge(order.order_type);
-    const { entries, plats, desserts } = getItemsByCategory(order.parsedItems || []);
+    
+    // ✅ CORRECTION: Récupérer les articles avec fallback si parsedItems est vide
+    const orderItems = order.parsedItems && order.parsedItems.length > 0
+      ? order.parsedItems
+      : parseOrderItems(order);
+    
+    const { entries, plats, desserts } = getItemsByCategory(orderItems || []);
     const elapsed = formatElapsed(order.created_at, order.status, order.completed_at || order.updated_at);
     const customer = order.table_number ? `Table ${order.table_number}` : 
                      (order.first_name ? `${order.first_name} ${order.last_name || ''}`.trim() : 'Client');
     const isProcessing = processingOrderId === order.id;
-    const totalItems = (order.parsedItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const totalItems = (orderItems || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
     const paymentStatus = order.payment_status || order.paymentStatus || (order.is_paid ? 'completed' : 'pending');
     const isPaid = paymentStatus === 'completed' || paymentStatus === 'paid' || paymentStatus === 'completed_payment' || order.is_paid === true || order.is_paid === 1;
 
@@ -774,7 +839,7 @@ const ManagerDashboard = () => {
     return (
       <Card 
         padding="none" 
-        className={`mb-4 overflow-hidden ${statusConfig.borderWidth} ${statusConfig.borderColor} transition-all shadow-lg ${statusConfig.shadowColor} hover:shadow-2xl hover:scale-[1.02] flex flex-col max-w-full`}
+        className={`mb-4 overflow-hidden ${statusConfig.borderWidth} ${statusConfig.borderColor} transition-all shadow-lg ${statusConfig.shadowColor} flex flex-col max-w-full`}
         style={{ minHeight: 'auto', height: 'fit-content' }}
       >
         {/* Header avec code couleur amélioré - Style professionnel */}
@@ -786,7 +851,7 @@ const ManagerDashboard = () => {
             <span className="block font-bold text-[1.3rem] text-black font-mono text-center flex-1">
               {formatOrderNumber(order.order_number, order.id)}
             </span>
-            <span className={`inline-flex items-center px-4 py-1.5 rounded-lg text-sm font-bold text-white ${typeBadge.color} shadow-md hover:shadow-lg transition-shadow`}>
+            <span className={`inline-flex items-center px-4 py-1.5 rounded-lg text-sm font-bold text-white ${typeBadge.color} shadow-md transition-shadow`}>
               {typeBadge.label}
             </span>
           </div>
@@ -837,7 +902,7 @@ const ManagerDashboard = () => {
                 </div>
                 <div className="space-y-2">
                   {entries.map((it, i) => (
-                    <div key={`entry-${i}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-amber-50 to-amber-100/50 border-2 border-amber-300 rounded-lg shadow-md hover:shadow-lg transition-shadow">
+                    <div key={`entry-${i}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-amber-50 to-amber-100/50 border-2 border-amber-300 rounded-lg shadow-md transition-shadow">
                       <span className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center text-sm font-bold shadow-md">{it.qty}</span>
                       <span className="flex-1 font-bold text-base text-gray-900">{it.name}</span>
                     </div>
@@ -851,7 +916,7 @@ const ManagerDashboard = () => {
               <div>
                 <div className="space-y-2">
                   {plats.map((it, idx) => (
-                    <div key={`plat-${idx}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-blue-50 to-blue-100/50 border-2 border-blue-300 rounded-lg shadow-md hover:shadow-lg transition-shadow">
+                    <div key={`plat-${idx}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-blue-50 to-blue-100/50 border-2 border-blue-300 rounded-lg shadow-md transition-shadow">
                       <span className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center text-sm font-bold shadow-md">{it.qty}</span>
                       <span className="flex-1 font-bold text-base text-gray-900">{it.name}</span>
                     </div>
@@ -861,11 +926,11 @@ const ManagerDashboard = () => {
             )}
             
             {/* Afficher les items sans catégorie si aucun plat n'est trouvé */}
-            {plats.length === 0 && entries.length === 0 && desserts.length === 0 && (order.parsedItems || []).length > 0 && (
+            {plats.length === 0 && entries.length === 0 && desserts.length === 0 && (orderItems || []).length > 0 && (
               <div>
                 <div className="space-y-2">
-                  {(order.parsedItems || []).map((it, idx) => (
-                    <div key={`item-${idx}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-blue-50 to-blue-100/50 border-2 border-blue-300 rounded-lg shadow-md hover:shadow-lg transition-shadow">
+                  {(orderItems || []).map((it, idx) => (
+                    <div key={`item-${idx}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-blue-50 to-blue-100/50 border-2 border-blue-300 rounded-lg shadow-md transition-shadow">
                       <span className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center text-sm font-bold shadow-md">{it.quantity || 1}</span>
                       <span className="flex-1 font-bold text-base text-gray-900">{it.product_name || it.name || 'Produit'}</span>
                     </div>
@@ -881,7 +946,7 @@ const ManagerDashboard = () => {
                 </div>
                 <div className="space-y-2">
                   {desserts.map((it, i) => (
-                    <div key={`dessert-${i}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-purple-50 to-purple-100/50 border-2 border-purple-300 rounded-lg shadow-md hover:shadow-lg transition-shadow">
+                    <div key={`dessert-${i}`} className="flex items-center gap-3 p-2.5 bg-gradient-to-r from-purple-50 to-purple-100/50 border-2 border-purple-300 rounded-lg shadow-md transition-shadow">
                       <span className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white flex items-center justify-center text-sm font-bold shadow-md">{it.qty}</span>
                       <span className="flex-1 font-bold text-base text-gray-900">{it.name}</span>
                     </div>
@@ -898,15 +963,15 @@ const ManagerDashboard = () => {
               <button
                 onClick={handleTakeInCharge}
                 disabled={isProcessing}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 active:from-orange-700 active:to-orange-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2"
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold rounded-xl hover:from-orange-600 hover:to-orange-700 active:from-orange-700 active:to-orange-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2"
               >
-                {isProcessing ? 'Chargement...' : 'Prendre en charge'}
+                {isProcessing ? 'Chargement...' : 'Commencer'}
               </button>
             ) : order.status === ORDER_STATUS.PREPARING ? (
               <button
                 onClick={() => handleStatusUpdate(order.id, ORDER_STATUS.READY)}
                 disabled={isProcessing}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2"
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2"
               >
                 {isProcessing ? 'Chargement...' : 'Terminée'}
               </button>
@@ -923,7 +988,7 @@ const ManagerDashboard = () => {
               <button
                 onClick={() => handleCancelOrder(order.id)}
                 disabled={isProcessing}
-                className="px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-xl hover:from-red-700 hover:to-red-800 active:from-red-800 active:to-red-900 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2"
+                className="px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-bold rounded-xl hover:from-red-700 hover:to-red-800 active:from-red-800 active:to-red-900 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2"
                 title="Annuler la commande"
               >
                 {isProcessing ? '...' : 'Annuler'}
@@ -1031,7 +1096,7 @@ const ManagerDashboard = () => {
 
       <Card padding="sm" className="bg-gradient-to-br from-blue-50 to-blue-100 border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
-          <p className="text-sm text-neutral-600 font-sans">Prendre en charge</p>
+          <p className="text-sm text-neutral-600 font-sans">Commencer</p>
           <p className="text-xl font-heading font-bold text-blue-600">{stats.preparing}</p>
           </div>
         </Card>
@@ -1139,6 +1204,35 @@ const ManagerDashboard = () => {
       onClose={handlePaymentWorkflowClose}
       onSubmit={handlePaymentWorkflowSubmit}
     />
+
+    {/* Modal de confirmation d'annulation */}
+    {cancelConfirmModal.isOpen && (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/30">
+        <div className="bg-white rounded-lg shadow-lg max-w-sm w-full mx-4 border border-neutral-200">
+          {/* Contenu */}
+          <div className="p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-6 text-center">Confirmer l'annulation</h3>
+            
+            {/* Boutons */}
+            <div className="flex gap-3">
+              <button
+                onClick={closeCancelConfirmModal}
+                className="flex-1 px-4 py-2 border border-neutral-300 text-neutral-700 bg-white hover:bg-neutral-50 font-medium rounded transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmCancelOrder}
+                disabled={processingOrderId === cancelConfirmModal.orderId}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-medium rounded hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 };

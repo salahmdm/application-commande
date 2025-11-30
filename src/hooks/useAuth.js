@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import useAuthStore from '../store/authStore';
-import authServiceFirebase from '../services/authServiceFirebase';
+import authServiceSupabase from '../services/authServiceSupabase';
 import logger from '../utils/logger';
 
 /**
@@ -34,7 +34,7 @@ const useAuth = () => {
   
   const logout = useCallback(async () => {
     try {
-      await authServiceFirebase.logout();
+      await authServiceSupabase.logout();
       storeLogout();
       return { success: true };
     } catch (error) {
@@ -61,7 +61,7 @@ const useAuth = () => {
       }
       
       logger.log('🔄 useAuth.update - Mise à jour profil:', updates);
-      const result = await authServiceFirebase.updateProfile(user.uid || user.id, updates);
+      const result = await authServiceSupabase.updateProfile(user.uid || user.id, updates);
       logger.log('📦 useAuth.update - Résultat:', result);
       
       if (result.success && result.user) {
@@ -82,7 +82,7 @@ const useAuth = () => {
   const resetPassword = useCallback(async (email) => {
     try {
       logger.log('📧 useAuth.resetPassword - Email:', email);
-      const result = await authServiceFirebase.resetPassword(email);
+      const result = await authServiceSupabase.resetPassword(email);
       logger.log('✅ useAuth.resetPassword - Résultat:', result);
       return result;
     } catch (error) {

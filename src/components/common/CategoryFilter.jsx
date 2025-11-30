@@ -1,139 +1,83 @@
 import React from 'react';
+import { Utensils, Coffee, UtensilsCrossed, Salad, Cake, IceCream, CupSoda } from 'lucide-react';
 
 /**
  * Composant CategoryFilter - Filtrage par catégories
- * Design moderne avec layout sticky et responsive amélioré
- * Sans icônes ni emoji - focus sur la typographie et la hiérarchie visuelle
+ * Design moderne avec icônes et style rounded-full
  */
 const CategoryFilter = ({ categories, selectedCategory, onSelectCategory }) => {
   const categoriesArray = Array.isArray(categories) ? categories : Object.values(categories);
 
+  // Fonction pour obtenir l'icône selon le nom de la catégorie
+  const getCategoryIcon = (categoryName) => {
+    const name = (categoryName || '').toLowerCase();
+    // Boissons froides en premier pour prioriser cette détection
+    if (name.includes('boisson froide') || name.includes('boissons froides') || name.includes('froid') || name.includes('glacé') || name.includes('ice latte') || name.includes('ice coffee')) {
+      return CupSoda;
+    }
+    // Boissons chaudes
+    if (name.includes('boisson') || name.includes('café') || name.includes('cafe') || name.includes('thé') || name.includes('the')) {
+      return Coffee;
+    }
+    if (name.includes('délices salés') || name.includes('delices sales') || name.includes('salé') || name.includes('sale') || name.includes('sandwich') || name.includes('quiche')) {
+      return UtensilsCrossed;
+    }
+    if (name.includes('dessert') || name.includes('délices sucrés') || name.includes('delices sucres') || name.includes('gâteau') || name.includes('gateau') || name.includes('pâtisserie') || name.includes('patisserie')) {
+      return Cake;
+    }
+    if (name.includes('salade')) {
+      return Salad;
+    }
+    // Glaces (mais pas les boissons glacées)
+    if (name.includes('glace') && !name.includes('boisson')) {
+      return IceCream;
+    }
+    // Par défaut
+    return Utensils;
+  };
+
   return (
-    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm pb-4 -mx-2 sm:-mx-0 px-2 sm:px-0">
-      {/* Conteneur avec cadre et indicateurs de scroll sur mobile */}
-      <div className="relative">
-        {/* Indicateur ombre pulsante à droite - visible sur mobile uniquement */}
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none z-10 lg:hidden">
-          <div className="relative">
-            <div 
-              className="absolute w-1 h-20 bg-gradient-to-b from-transparent via-black/40 to-transparent rounded-full shadow-2xl animate-pulse"
-              style={{
-                top: '-40px',
-                right: '0px',
-                width: '4px',
-                height: '80px',
-              }}
-            ></div>
-            <div 
-              className="absolute w-1-20 bg-gradient-to-b from-transparent via-black/50 to-transparent rounded-full blur-sm animate-pulse"
-              style={{
-                top: '-40px',
-                right: '0px',
-                width: '7px',
-                height: '80px',
-              }}
-            ></div>
-          </div>
-        </div>
-        
-        {/* Version Desktop - Barre horizontale élégante */}
-        <div className="hidden lg:flex gap-3 flex-wrap">
+    <div className="fixed top-16 md:top-20 inset-x-0 z-20 pb-2 pt-4 px-2">
+      {/* Bandeau avec style arrondi réduit et pleine largeur */}
+      <div className="w-full">
+        <div className="flex gap-2 bg-gray-100 rounded-lg py-1.5 px-2 shadow-inner overflow-x-auto scrollbar-hide">
           {/* Bouton "Toutes" */}
           <button
             onClick={() => onSelectCategory(null)}
-            className={`
-              group relative flex items-center gap-3 px-6 py-3.5 rounded-xl
-              transition-all duration-300 flex-shrink-0
-              ${!selectedCategory
-                ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl scale-105 border-2 border-black'
-                : 'bg-gradient-to-r from-white to-neutral-50 border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-lg shadow-sm'
-              }
-              active:scale-95
-            `}
+            className={`flex items-center px-4 py-2.5 rounded-lg transition-all duration-300 flex-shrink-0 ${
+              !selectedCategory
+                ? 'bg-white text-gray-900 shadow-md'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+            }`}
           >
-            <span className="font-heading font-bold text-sm whitespace-nowrap">
-              Toutes
-            </span>
-            {!selectedCategory && (
-              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-1 bg-white rounded-full"></div>
-            )}
+            <span className="font-medium text-xs whitespace-nowrap">Toutes</span>
           </button>
 
           {/* Catégories */}
           {categoriesArray.map((category) => {
             const categoryKey = category.slug || category.id;
             const isActive = selectedCategory === categoryKey;
+            const Icon = getCategoryIcon(category.name);
 
             return (
               <button
                 key={categoryKey}
                 onClick={() => onSelectCategory(categoryKey)}
-                className={`
-                  group relative flex items-center gap-3 px-6 py-3.5 rounded-xl
-                  transition-all duration-300 flex-shrink-0
-                  ${isActive
-                    ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl scale-105 border-2 border-black'
-                    : 'bg-gradient-to-r from-white to-neutral-50 border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-lg shadow-sm'
-                  }
-                  active:scale-95
-                `}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-300 flex-shrink-0 ${
+                  isActive
+                    ? 'bg-white text-gray-900 shadow-md'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+                }`}
               >
-                <span className="font-heading font-bold text-sm whitespace-nowrap">
-                  {category.name}
-                </span>
-                {isActive && (
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-1 bg-white rounded-full"></div>
-                )}
+                <Icon 
+                  size={16} 
+                  strokeWidth={isActive ? 2.5 : 2}
+                  className={isActive ? 'text-gray-900' : 'text-gray-600'}
+                />
+                <span className="font-medium text-xs whitespace-nowrap">{category.name}</span>
               </button>
             );
-          })}
-        </div>
-
-        {/* Version Mobile/Tablette - Scroll horizontal avec cartes compactes */}
-        <div className="lg:hidden flex gap-2.5 overflow-x-auto scrollbar-hide pb-2 px-1">
-          {/* Bouton "Toutes" */}
-          <button
-            onClick={() => onSelectCategory(null)}
-            className={`
-              flex items-center justify-center min-w-[100px] px-5 py-3.5 rounded-xl
-              transition-all duration-300 flex-shrink-0
-              ${!selectedCategory
-                ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl border-2 border-black'
-                : 'bg-gradient-to-r from-white to-neutral-50 border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-lg shadow-sm'
-              }
-              active:scale-95
-            `}
-          >
-            <span className="font-heading font-bold text-sm whitespace-nowrap">
-              Toutes
-            </span>
-          </button>
-
-          {/* Catégories */}
-          {categoriesArray.map((category) => {
-            const categoryKey = category.slug || category.id;
-            const isActive = selectedCategory === categoryKey;
-
-            return (
-              <button
-                key={categoryKey}
-                onClick={() => onSelectCategory(categoryKey)}
-                className={`
-                  flex items-center justify-center min-w-[100px] px-5 py-3.5 rounded-xl
-                  transition-all duration-300 flex-shrink-0
-                  ${isActive
-                    ? 'bg-gradient-to-r from-black to-neutral-800 text-white shadow-xl border-2 border-black'
-                    : 'bg-gradient-to-r from-white to-neutral-50 border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-lg shadow-sm'
-                  }
-                  active:scale-95
-                `}
-              >
-                <span className="font-heading font-bold text-sm whitespace-nowrap text-center px-1">
-                  {category.name}
-                </span>
-              </button>
-            );
-          })}
+            })}
         </div>
       </div>
     </div>

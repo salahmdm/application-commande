@@ -18,6 +18,7 @@ const Input = ({
   required = false,
   className = '',
   variant = 'default',
+  autoComplete,
   ...props 
 }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -32,11 +33,21 @@ const Input = ({
     filled: 'bg-slate-100 border-slate-200 focus:border-purple-500 focus:ring-purple-500'
   };
 
+  const sanitizedId = React.useMemo(() => {
+    if (props.id) return props.id;
+    if (!label) return undefined;
+    return `${label}`
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-]+/g, '')
+      .concat('-input');
+  }, [props.id, label]);
+
   return (
     <div className={`w-full ${className}`}>
       {label && (
         <label 
-          htmlFor={props.id || `${label}-input`}
+          htmlFor={sanitizedId}
           className="block text-sm font-semibold text-slate-700 mb-2 transition-colors duration-200"
         >
           {label}
@@ -53,7 +64,7 @@ const Input = ({
         
         <input
           type={inputType}
-          id={props.id || (label ? `${label}-input` : undefined)}
+          id={sanitizedId}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
@@ -63,7 +74,7 @@ const Input = ({
           aria-required={required}
           aria-invalid={error ? 'true' : 'false'}
           aria-describedby={error ? `${label || 'input'}-error` : undefined}
-          className={`
+          className={` 
             w-full px-4 py-3 rounded-xl 
             border-2 transition-all duration-200
             text-slate-900 placeholder-slate-400
@@ -76,6 +87,13 @@ const Input = ({
             ${error ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''}
             hover:border-slate-400
           `}
+          autoComplete={
+            autoComplete !== undefined
+              ? autoComplete
+              : isPassword
+                ? 'current-password'
+                : 'on'
+          }
           {...props}
         />
         

@@ -8,6 +8,51 @@ if (pdfFonts && pdfFonts.pdfMake && pdfFonts.pdfMake.vfs) {
   pdfMake.vfs = pdfFonts.pdfMake.vfs;
 }
 
+// Configuration de la police Courier
+// Variable pour suivre si la police est chargée
+let courierFontLoaded = false;
+
+// Fonction pour charger la police Courier personnalisée
+const loadCourierFont = async () => {
+  if (courierFontLoaded) return true;
+  
+  try {
+    const fontModule = await import('../config/courier-font-base64.js');
+    const courierFontBase64 = fontModule?.courierFontBase64 || fontModule?.default;
+    
+    if (courierFontBase64) {
+      // Ajouter la police au VFS
+      pdfMake.vfs['Courier-Regular.ttf'] = courierFontBase64;
+      
+      // Configurer la police pour pdfMake
+      pdfMake.fonts = {
+        ...(pdfMake.fonts || {}),
+        Courier: {
+          normal: 'Courier-Regular.ttf',
+          bold: 'Courier-Regular.ttf',
+          italics: 'Courier-Regular.ttf',
+          bolditalics: 'Courier-Regular.ttf'
+        }
+      };
+      
+      courierFontLoaded = true;
+      logger.log('✅ Police Courier chargée avec succès');
+      return true;
+    } else {
+      logger.log('ℹ️ Police Courier personnalisée non configurée');
+    }
+  } catch (error) {
+    // Si le fichier n'existe pas ou erreur, ignorer
+    logger.log('ℹ️ Police Courier personnalisée non trouvée');
+  }
+  return false;
+};
+
+// Charger la police au démarrage (de manière asynchrone)
+loadCourierFont().catch(() => {
+  // Ignorer les erreurs silencieusement
+});
+
 const formatPrice = (price) => {
   const formatted = parseFloat(price || 0).toFixed(2).replace('.', ',');
   return `${formatted} €`;
@@ -84,6 +129,13 @@ export const generateReceipt = (order, options = {}) => {
     subtotalHT = Math.max(0, totalTTC - tva);
   }
 
+  // ✅ Récupérer les informations du code promo si présent
+  const promoCodeInfo = order.promo_code || order.promoCode || null;
+  const promoCodeDescription = order.promo_code_description || order.promoCodeDescription || null;
+  const promoDiscountType = order.promo_discount_type || order.promoDiscountType || null;
+  const promoDiscountValue = order.promo_discount_value || order.promoDiscountValue || null;
+  const discountAmount = parseFloat(order.discount_amount ?? order.discountAmount ?? 0) || 0;
+
   // Payment
   const paymentDetailsRaw =
     typeof order.payment_details === 'string'
@@ -126,242 +178,203 @@ export const generateReceipt = (order, options = {}) => {
   );
 
   // ==========================================
-  // CONSTRUCTION DU TICKET - STYLE AMÉLIORÉ
+  // CONSTRUCTION DU TICKET - STYLE MINIMALISTE
   // ==========================================
 
   const content = [];
-
-  // Espacement en haut réduit
-  content.push({
-    text: '',
-    fontSize: 8,
-    margin: [0, 5, 0, 0]
-  });
-
-  // En-tête - Logo/Website mis en valeur
-  if (displayPrefs.showWebsite && safeBusinessInfo.website) {
-    content.push({
-      text: safeBusinessInfo.website,
-      fontSize: 16,
-      bold: true,
-      color: '#1a1a1a',
-      alignment: 'center',
-      margin: [0, 0, 0, 8]
-    });
-  }
 
   // Nom de l'établissement
   if (displayPrefs.showName && safeBusinessInfo.name) {
     content.push({
       text: safeBusinessInfo.name.toUpperCase(),
-      fontSize: 13,
+      fontSize: 16,
       bold: true,
-      color: '#2d2d2d',
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 15, 0, 10]
+    });
+  }
+
+  // Adresse
+  if (displayPrefs.showAddress && safeBusinessInfo.address) {
+    content.push({
+      text: safeBusinessInfo.address,
+      fontSize: 10,
+      color: '#000000',
       alignment: 'center',
       margin: [0, 0, 0, 5]
     });
   }
 
-  // Informations de contact - groupe compact
-  const contactInfo = [];
-  if (displayPrefs.showAddress && safeBusinessInfo.address) {
-    contactInfo.push(safeBusinessInfo.address);
-  }
+  // Téléphone
   if (displayPrefs.showPhone && safeBusinessInfo.phone) {
-    contactInfo.push(safeBusinessInfo.phone);
-  }
-  if (displayPrefs.showEmail && safeBusinessInfo.email) {
-    contactInfo.push(safeBusinessInfo.email);
-  }
-
-  if (contactInfo.length > 0) {
     content.push({
-      text: contactInfo.join(' • '),
-      fontSize: 7,
-      color: '#666666',
+      text: `Tél: ${safeBusinessInfo.phone}`,
+      fontSize: 10,
+      color: '#000000',
       alignment: 'center',
-      margin: [0, 0, 0, 8]
+      margin: [0, 0, 0, 5]
     });
   }
 
-  // Informations légales / règlementaires
-  const legalLines = [];
-
-  if (displayPrefs.showLegalForm && safeBusinessInfo.legalForm) {
-    const legalFormLine = safeBusinessInfo.shareCapital
-      ? `${safeBusinessInfo.legalForm} - Capital : ${safeBusinessInfo.shareCapital}`
-      : safeBusinessInfo.legalForm;
-    legalLines.push(legalFormLine);
-  } else if (displayPrefs.showLegalForm && safeBusinessInfo.shareCapital) {
-    legalLines.push(`Capital : ${safeBusinessInfo.shareCapital}`);
-  }
-
-  if (displayPrefs.showSiret && safeBusinessInfo.siret) {
-    legalLines.push(`SIRET : ${safeBusinessInfo.siret}`);
-  }
-
-  if (displayPrefs.showVat && safeBusinessInfo.vatNumber) {
-    legalLines.push(`TVA : ${safeBusinessInfo.vatNumber}`);
-  }
-
-  if (displayPrefs.showRcs && safeBusinessInfo.rcs) {
-    legalLines.push(`RCS : ${safeBusinessInfo.rcs}`);
-  }
-
-  if (displayPrefs.showPaymentMention && safeBusinessInfo.paymentMention) {
-    legalLines.push(safeBusinessInfo.paymentMention);
-  }
-
-  if (displayPrefs.showLegalMentions && safeBusinessInfo.legalMentions) {
-    legalLines.push(safeBusinessInfo.legalMentions);
-  }
-
-  if (displayPrefs.showReturnPolicy && safeBusinessInfo.returnPolicy) {
-    legalLines.push(safeBusinessInfo.returnPolicy);
-  }
-
-  if (displayPrefs.showFoodInfo && safeBusinessInfo.foodInfo) {
-    legalLines.push(safeBusinessInfo.foodInfo);
-  }
-
-  if (displayPrefs.showCustomerService && safeBusinessInfo.customerService) {
-    legalLines.push(`Service client : ${safeBusinessInfo.customerService}`);
-  }
-
-  if (legalLines.length > 0) {
+  // Email
+  if (displayPrefs.showEmail && safeBusinessInfo.email) {
     content.push({
-      stack: legalLines.map((line, index) => ({
-        text: line,
-        fontSize: 7,
-        color: '#555555',
-        alignment: 'center',
-        margin: [0, index === 0 ? 0 : 2, 0, 0]
-      })),
-      margin: [0, 0, 0, 8]
+      text: safeBusinessInfo.email,
+      fontSize: 10,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
     });
   }
 
-  // Ligne de séparation élégante
+  // Site web
+  if (displayPrefs.showWebsite && safeBusinessInfo.website) {
+    content.push({
+      text: safeBusinessInfo.website,
+      fontSize: 10,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Service client
+  if (displayPrefs.showCustomerService && safeBusinessInfo.customerService) {
+    content.push({
+      text: safeBusinessInfo.customerService,
+      fontSize: 10,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // SIRET
+  if (displayPrefs.showSiret && safeBusinessInfo.siret) {
+    content.push({
+      text: `SIRET: ${safeBusinessInfo.siret}`,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Numéro de TVA
+  if (displayPrefs.showVat && safeBusinessInfo.vatNumber) {
+    content.push({
+      text: `SIRET: ${safeBusinessInfo.vatNumber}`,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Forme juridique
+  if (displayPrefs.showLegalForm && safeBusinessInfo.legalForm) {
+    content.push({
+      text: safeBusinessInfo.legalForm,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Capital social
+  if (displayPrefs.showLegalForm && safeBusinessInfo.shareCapital) {
+    content.push({
+      text: `Capital: ${safeBusinessInfo.shareCapital}`,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // RCS
+  if (displayPrefs.showRcs && safeBusinessInfo.rcs) {
+    content.push({
+      text: `RCS: ${safeBusinessInfo.rcs}`,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Ligne de séparation pointillée
   content.push({
-    canvas: [
-      {
-        type: 'line',
-        x1: 0,
-        y1: 0,
-        x2: 190,
-        y2: 0,
-        lineWidth: 0.5,
-        lineColor: '#cccccc'
-      }
-    ],
-    margin: [0, 0, 0, 8]
+    text: '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+    fontSize: 9,
+    color: '#000000',
+    alignment: 'center',
+    margin: [0, 0, 0, 1]
   });
 
-  // Numéro de ticket - mis en valeur
+  // Numéro de commande
   content.push({
     text: formattedOrderNumber,
-    fontSize: 12,
+    fontSize: 11,
     bold: true,
     color: '#000000',
     alignment: 'center',
-    margin: [0, 0, 0, 6]
+    margin: [0, 0, 0, 3]
   });
 
   // Date et heure
   content.push({
-    text: `${formattedDate} | ${formattedTime}`,
-    fontSize: 9,
-    color: '#666666',
+    text: `${formattedDate} - ${formattedTime}`,
+    fontSize: 10,
+    color: '#000000',
     alignment: 'center',
-    margin: [0, 0, 0, 8]
+    margin: [0, 0, 0, 1]
   });
 
-  // Ligne de séparation avant les articles
+  // Ligne de séparation
   content.push({
-    canvas: [
-      {
-        type: 'line',
-        x1: 0,
-        y1: 0,
-        x2: 190,
-        y2: 0,
-        lineWidth: 0.5,
-        lineColor: '#cccccc'
-      }
-    ],
-    margin: [0, 0, 0, 6]
+    text: '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+    fontSize: 9,
+    color: '#000000',
+    alignment: 'center',
+    margin: [0, 0, 0, 1]
   });
 
-  // Articles - Section avec espacement optimisé
-  parsedItems.forEach((item, index) => {
-    // Ligne avec nom du produit
-    content.push({
-      text: item.name,
-      fontSize: 10,
-      bold: false,
-      color: '#1a1a1a',
-      margin: [0, index === 0 ? 0 : 4, 0, 1]
-    });
-
-    // Ligne avec date/heure (si disponible)
-    const itemDate = item.created_at || item.date;
-    if (itemDate) {
-      const iDate = new Date(itemDate);
-      const iFormattedDate = iDate.toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-      const iFormattedTime = iDate.toLocaleTimeString('fr-FR', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      content.push({
-        text: `${iFormattedDate} ${iFormattedTime}`,
-        fontSize: 7,
-        color: '#999999',
-        margin: [0, 0, 0, 2]
-      });
-    }
-
-    // Ligne avec quantité et prix
+  // Articles
+  parsedItems.forEach((item) => {
+    const displayName = item.quantity > 1 
+      ? `${item.name} x${item.quantity}`
+      : item.name;
+    
     content.push({
       columns: [
-        { text: '', width: '*' },
         {
-          text: `x${item.quantity}`,
-          width: 35,
-          alignment: 'right',
-          fontSize: 9,
-          color: '#666666'
+          text: displayName,
+          fontSize: 11,
+          color: '#000000',
+          width: '*'
         },
         {
           text: formatPrice(item.priceTTC * item.quantity),
-          width: 65,
+          fontSize: 11,
+          color: '#000000',
           alignment: 'right',
-          fontSize: 10,
-          bold: true,
-          color: '#1a1a1a'
+          width: 70
         }
       ],
-      margin: [0, 0, 0, 3]
+      margin: [0, 0, 0, 5]
     });
   });
 
-  // Ligne de séparation avant les totaux
+  // Ligne de séparation
   content.push({
-    canvas: [
-      {
-        type: 'line',
-        x1: 0,
-        y1: 0,
-        x2: 190,
-        y2: 0,
-        lineWidth: 0.8,
-        lineColor: '#999999'
-      }
-    ],
-    margin: [0, 6, 0, 6]
+    text: '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+    fontSize: 9,
+    color: '#000000',
+    alignment: 'center',
+    margin: [0, 1, 0, 1]
   });
 
   // Récompense de fidélité (si utilisée)
@@ -370,30 +383,28 @@ export const generateReceipt = (order, options = {}) => {
     const rewardType = typeof loyaltyReward === 'object' ? (loyaltyReward.type || 'tier') : 'tier';
     
     if (rewardType === 'product') {
-      // Produit offert
       const productName = loyaltyReward.name || 'Produit offert';
       content.push({
         columns: [
           {
             text: `${productName} (OFFERT)`,
-            fontSize: 9,
+            fontSize: 11,
             color: '#9333ea',
             width: '*',
             bold: true
           },
           {
             text: 'GRATUIT',
-            fontSize: 9,
+            fontSize: 11,
             color: '#9333ea',
             alignment: 'right',
             bold: true,
-            width: 'auto'
+            width: 70
           }
         ],
-        margin: [0, 0, 0, 3]
+        margin: [0, 0, 0, 5]
       });
     } else if (rewardType === 'percentage') {
-      // Réduction en pourcentage
       const rewardText = loyaltyReward.name || `Réduction fidélité`;
       const discountValue = parseFloat(loyaltyReward.discountValue) || 0;
       const rewardDiscountAmount = discountValue > 0 
@@ -405,28 +416,26 @@ export const generateReceipt = (order, options = {}) => {
           columns: [
             {
               text: `${rewardText} (-${discountValue}%)`,
-              fontSize: 9,
+              fontSize: 11,
               color: '#9333ea',
               width: '*'
             },
             {
               text: `-${formatPrice(rewardDiscountAmount)}`,
-              fontSize: 9,
+              fontSize: 11,
               color: '#9333ea',
               alignment: 'right',
               bold: true,
-              width: 'auto'
+              width: 70
             }
           ],
-          margin: [0, 0, 0, 3]
+          margin: [0, 0, 0, 5]
         });
         
-        // Ajuster les totaux avec la réduction
         subtotalHT = Math.max(0, subtotalHT - rewardDiscountAmount);
         totalTTC = Math.max(0, totalTTC - rewardDiscountAmount);
       }
     } else {
-      // Ancien système (paliers)
       const rewardText = typeof loyaltyReward === 'string' 
         ? loyaltyReward 
         : loyaltyReward.reward || `Récompense fidélité (${loyaltyReward.tier || ''} points)`;
@@ -434,7 +443,6 @@ export const generateReceipt = (order, options = {}) => {
         ? loyaltyReward.discount
         : 0;
       
-      // Calculer le montant de la réduction
       const rewardDiscountAmount = discountValue > 0 
         ? (subtotalHT * discountValue) / 100 
         : 0;
@@ -444,35 +452,106 @@ export const generateReceipt = (order, options = {}) => {
           columns: [
             {
               text: rewardText,
-              fontSize: 9,
+              fontSize: 11,
               color: '#9333ea',
               width: '*'
             },
             {
               text: `-${formatPrice(rewardDiscountAmount)}`,
-              fontSize: 9,
+              fontSize: 11,
               color: '#9333ea',
               alignment: 'right',
               bold: true,
-              width: 'auto'
+              width: 70
             }
           ],
-          margin: [0, 0, 0, 3]
+          margin: [0, 0, 0, 5]
         });
         
-        // Ajuster les totaux avec la réduction
         subtotalHT = Math.max(0, subtotalHT - rewardDiscountAmount);
         totalTTC = Math.max(0, totalTTC - rewardDiscountAmount);
       }
     }
   }
 
-  // Section Totaux - mise en valeur
-  // Total TTC - principal
+  // ✅ Afficher le code promo si présent (uniquement si pas de récompense de fidélité)
+  if (promoCodeInfo && discountAmount > 0 && !loyaltyReward) {
+    const promoText = promoCodeDescription 
+      ? `${promoCodeInfo} - ${promoCodeDescription}`
+      : promoCodeInfo;
+    const promoDiscountText = promoDiscountType === 'percentage' && promoDiscountValue
+      ? `(-${promoDiscountValue}%)`
+      : '';
+    
+    content.push({
+      columns: [
+        {
+          text: `Code promo: ${promoText} ${promoDiscountText}`,
+          fontSize: 11,
+          color: '#16a34a',
+          width: '*'
+        },
+        {
+          text: `-${formatPrice(discountAmount)}`,
+          fontSize: 11,
+          color: '#16a34a',
+          alignment: 'right',
+          bold: true,
+          width: 70
+        }
+      ],
+      margin: [0, 0, 0, 5]
+    });
+    
+    subtotalHT = Math.max(0, subtotalHT - discountAmount);
+    totalTTC = Math.max(0, totalTTC - discountAmount);
+  }
+
+  // Sous-total HT
   content.push({
     columns: [
       { 
-        text: 'TOTAL TTC', 
+        text: 'SOUS-TOTAL HT:', 
+        fontSize: 11, 
+        color: '#000000',
+        width: '*' 
+      },
+      {
+        text: formatPrice(subtotalHT),
+        fontSize: 11,
+        color: '#000000',
+        alignment: 'right',
+        width: 70
+      }
+    ],
+    margin: [0, 0, 0, 5]
+  });
+
+  // TVA
+  content.push({
+    columns: [
+      { 
+        text: 'TVA:', 
+        fontSize: 11, 
+        color: '#000000',
+        width: '*' 
+      },
+      {
+        text: formatPrice(tva),
+        fontSize: 11,
+        color: '#000000',
+        alignment: 'right',
+        width: 70
+      }
+    ],
+    margin: [0, 0, 0, 5]
+  });
+
+  // Total TTC
+  content.push({
+    columns: [
+      { 
+        text: 'TOTAL TTC:', 
         fontSize: 12, 
         bold: true, 
         color: '#000000',
@@ -484,164 +563,145 @@ export const generateReceipt = (order, options = {}) => {
         bold: true,
         color: '#000000',
         alignment: 'right',
-        width: 'auto'
+        width: 70
       }
     ],
-    margin: [0, 0, 0, 5]
+    margin: [0, 0, 0, 12]
   });
 
-  // Détails fiscaux - plus discrets
+  // Ligne de séparation
   content.push({
-    columns: [
-      { 
-        text: 'Total HT', 
-        fontSize: 8, 
-        color: '#666666',
-        width: '*' 
-      },
-      {
-        text: formatPrice(subtotalHT),
-        fontSize: 8,
-        color: '#666666',
-        alignment: 'right',
-        width: 'auto'
-      }
-    ],
-    margin: [0, 0, 0, 2]
+    text: '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
+    fontSize: 9,
+    color: '#000000',
+    alignment: 'center',
+    margin: [0, 0, 0, 1]
   });
 
-  content.push({
-    columns: [
-      { 
-        text: 'TVA', 
-        fontSize: 8, 
-        color: '#666666',
-        width: '*' 
-      },
-      {
-        text: formatPrice(tva),
-        fontSize: 8,
-        color: '#666666',
-        alignment: 'right',
-        width: 'auto'
-      }
-    ],
-    margin: [0, 0, 0, 5]
-  });
-
-  // Encaissements (si disponibles)
+  // Paiements
   if (parsedPayments.length > 0) {
-    content.push({
-      canvas: [
-        {
-          type: 'line',
-          x1: 0,
-          y1: 0,
-          x2: 190,
-          y2: 0,
-          lineWidth: 0.5,
-          lineColor: '#cccccc'
-        }
-      ],
-      margin: [0, 5, 0, 5]
-    });
-
-    content.push({
-      text: 'PAIEMENT',
-      fontSize: 9,
-      bold: true,
-      color: '#333333',
-      margin: [0, 0, 0, 4]
-    });
-
     parsedPayments.forEach((payment) => {
-      const paymentType = payment.type || payment.method || 'Espèces';
+      const paymentType = payment.type || payment.method || 'CASH';
       const paymentAmt = parseFloat(payment.amount || 0);
       content.push({
         columns: [
           { 
-            text: paymentType, 
-            fontSize: 9, 
-            color: '#666666',
+            text: paymentType.toUpperCase() + ':', 
+            fontSize: 11, 
+            color: '#000000',
             width: '*' 
           },
           {
             text: formatPrice(paymentAmt),
-            fontSize: 9,
-            bold: true,
-            color: '#1a1a1a',
+            fontSize: 11,
+            color: '#000000',
             alignment: 'right',
-            width: 'auto'
+            width: 70
           }
         ],
-        margin: [0, 0, 0, 3]
+        margin: [0, 0, 0, 12]
       });
     });
-  }
 
-  // Ligne de séparation finale
-  content.push({
-    canvas: [
-      {
-        type: 'line',
-        x1: 0,
-        y1: 0,
-        x2: 190,
-        y2: 0,
-        lineWidth: 0.5,
-        lineColor: '#cccccc'
-      }
-    ],
-    margin: [0, 8, 0, 8]
-  });
-
-  // Footer - Message de remerciement mis en valeur
-  content.push({
-    text: 'Merci de votre visite',
-    fontSize: 11,
-    alignment: 'center',
-    bold: true,
-    color: '#1a1a1a',
-    margin: [0, 0, 0, 6]
-  });
-
-  // Nom de l'établissement en bas
-  if (safeBusinessInfo.name) {
+    // Ligne de séparation
     content.push({
-      text: safeBusinessInfo.name.toUpperCase(),
+      text: '- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -',
       fontSize: 9,
+      color: '#000000',
       alignment: 'center',
-      bold: true,
-      color: '#666666',
-      margin: [0, 0, 0, 0] // La marge de page de 2cm en bas sera appliquée automatiquement
+      margin: [0, 0, 0, 15]
     });
   }
 
-  // Calcul hauteur - optimisé pour une seule page
-  const receiptWidth = 210;
-  const baseHeight = 350; // Hauteur de base augmentée pour éviter la pagination
-  const perItemHeight = 28; // Hauteur par article augmentée
-  const perPaymentHeight = 15; // Hauteur par paiement
+  // Mentions de paiement
+  if (displayPrefs.showPaymentMention && safeBusinessInfo.paymentMention) {
+    content.push({
+      text: safeBusinessInfo.paymentMention,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 10, 0, 5]
+    });
+  }
 
-  // Calculer la hauteur totale nécessaire
+  // Informations alimentaires
+  if (displayPrefs.showFoodInfo && safeBusinessInfo.foodInfo) {
+    content.push({
+      text: safeBusinessInfo.foodInfo,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Politique de retour
+  if (displayPrefs.showReturnPolicy && safeBusinessInfo.returnPolicy) {
+    content.push({
+      text: safeBusinessInfo.returnPolicy,
+      fontSize: 9,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Mentions légales
+  if (displayPrefs.showLegalMentions && safeBusinessInfo.legalMentions) {
+    content.push({
+      text: safeBusinessInfo.legalMentions,
+      fontSize: 8,
+      color: '#000000',
+      alignment: 'center',
+      margin: [0, 0, 0, 5]
+    });
+  }
+
+  // Message de remerciement
+  content.push({
+    text: 'MERCI DE VOTRE VISITE!',
+    fontSize: 13,
+    alignment: 'center',
+    bold: true,
+    color: '#000000',
+    margin: [0, 0, 0, 5]
+  });
+
+  content.push({
+    text: 'Au plaisir de vous revoir',
+    fontSize: 10,
+    alignment: 'center',
+    color: '#000000',
+    margin: [0, 0, 0, 20]
+  });
+
+  // Calcul hauteur
+  const receiptWidth = 210;
+  const baseHeight = 400;
+  const perItemHeight = 20;
+  const perPaymentHeight = 15;
+
   const itemsHeight = parsedItems.length * perItemHeight;
   const paymentsHeight = parsedPayments.length * perPaymentHeight;
   const extraHeight = itemsHeight + paymentsHeight;
 
   const computedHeight = Math.ceil(baseHeight + extraHeight);
-  // Augmenter la hauteur minimale et ajouter une marge de sécurité
-  const finalHeight = Math.max(computedHeight + 50, 500); // Marge de sécurité de 50 points
+  const finalHeight = Math.max(computedHeight + 50, 500);
 
+  // Vérifier si la police Courier est disponible dans pdfMake, sinon utiliser Roboto
+  // Note: Pour utiliser Courier, téléchargez la police et exécutez: node scripts/convert-font-to-base64.js
+  const defaultFont = (pdfMake.fonts && pdfMake.fonts.Courier) ? 'Courier' : 'Roboto';
+  
   const docDefinition = {
     pageSize: { width: receiptWidth, height: finalHeight },
-    pageMargins: [10, 10, 10, 20],
+    pageMargins: [20, 10, 20, 20],
     content: {
       stack: content,
-      unbreakable: true // Empêcher les sauts de page
+      unbreakable: true
     },
     defaultStyle: {
-      font: 'Roboto',
-      fontSize: 9
+      font: defaultFont, // Utilise Courier si chargée, sinon Roboto
+      fontSize: 11
     },
     info: {
       title: 'Ticket de caisse'
@@ -677,27 +737,41 @@ export const printReceipt = (order, options = {}) => {
   }
 };
 
-export const previewReceipt = (order, options = {}) => {
+export const previewReceipt = async (order, options = {}) => {
   if (typeof window === 'undefined') {
     logger.error('previewReceipt ne peut être appelé que côté client');
     return;
   }
 
   try {
+    logger.log('🔍 Génération de l\'aperçu du ticket...');
+    
+    // Vérifier que pdfMake est disponible
+    if (!pdfMake || typeof pdfMake.createPdf !== 'function') {
+      logger.error('❌ pdfMake n\'est pas disponible');
+      alert('Erreur: pdfMake n\'est pas chargé. Veuillez recharger la page.');
+      return;
+    }
+    
+    // S'assurer que la police Courier est chargée avant de générer le PDF
+    await loadCourierFont();
+    
     const docDefinition = generateReceipt(order, options);
+    logger.log('✅ Document défini, génération du PDF...');
 
     pdfMake.createPdf(docDefinition).getBlob((blob) => {
       if (!blob) {
-        logger.error("Impossible de générer le PDF pour l'aperçu");
+        logger.error("❌ Impossible de générer le PDF pour l'aperçu");
         alert("Impossible de générer l'aperçu du ticket. Veuillez réessayer.");
         return;
       }
 
+      logger.log('✅ PDF généré, ouverture dans une nouvelle fenêtre...');
       const blobUrl = URL.createObjectURL(blob);
       const previewWindow = window.open(blobUrl, '_blank');
 
       if (!previewWindow) {
-        logger.error("Impossible d'ouvrir une nouvelle fenêtre (popup bloquée)");
+        logger.error("❌ Impossible d'ouvrir une nouvelle fenêtre (popup bloquée)");
         alert(
           'Votre navigateur bloque les pop-ups. Veuillez autoriser les pop-ups pour ce site.'
         );
@@ -705,13 +779,15 @@ export const previewReceipt = (order, options = {}) => {
         return;
       }
 
+      logger.log('✅ Fenêtre d\'aperçu ouverte');
       setTimeout(() => {
         URL.revokeObjectURL(blobUrl);
       }, 10000);
     });
   } catch (error) {
-    logger.error("Erreur lors de la génération de l'aperçu:", error);
-    alert("Erreur lors de la génération de l'aperçu. Veuillez réessayer.");
+    logger.error("❌ Erreur lors de la génération de l'aperçu:", error);
+    logger.error("   Stack:", error.stack);
+    alert(`Erreur lors de la génération de l'aperçu: ${error.message}. Vérifiez la console pour plus de détails.`);
   }
 };
 

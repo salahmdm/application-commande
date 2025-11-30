@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Settings, Save, RefreshCw, CheckCircle, XCircle, Server, Database, Globe, Activity, Plus, Trash2, Grid3x3, Eye, EyeOff, ChevronUp, ChevronDown, Gift, Building2, Bell, Ticket, CreditCard, Cpu, Zap, AlertCircle, Info } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
@@ -6,6 +6,7 @@ import Input from '../../components/common/Input';
 import useNotifications from '../../hooks/useNotifications';
 import useProductStore from '../../store/productStore';
 import useProducts from '../../hooks/useProducts';
+import useAuth from '../../hooks/useAuth';
 import { apiCall } from '../../services/api';
 import adminService from '../../services/adminService';
 import ENV from '../../config/env';
@@ -51,7 +52,25 @@ const FIELD_DISPLAY_MAPPING = {
 /**
  * ✅ Composant Tabs pour organiser les paramètres - Responsive
  */
-const Tabs = ({ tabs, activeTab, onTabChange, onReload, onSave, saving }) => {
+const Tabs = ({ tabs, activeTab, onTabChange, onReload, onSave, saving, isAdmin }) => {
+  if (!isAdmin) {
+    return (
+      <div className="p-4 sm:p-6">
+        <Card padding="md" className="border-2 border-neutral-200 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <AlertCircle className="w-10 h-10 text-red-600" />
+            <h2 className="text-lg font-heading font-semibold text-black">
+              Accès réservé aux administrateurs
+            </h2>
+            <p className="text-sm text-neutral-600">
+              Vous n’avez pas l’autorisation nécessaire pour configurer l’application.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="border-b-2 border-neutral-200 mb-4 sm:mb-6 overflow-x-auto -mx-2 sm:mx-0 px-2 sm:px-0">
       <div className="flex items-center justify-between gap-2 sm:gap-3 lg:gap-4 -mb-px">
@@ -207,6 +226,8 @@ const AdminSettings = () => {
   const { success, error: showError } = useNotifications();
   const { fetchCategories } = useProductStore();
   const { allProducts } = useProducts();
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -241,21 +262,29 @@ const AdminSettings = () => {
   const [loyaltyPointValue, setLoyaltyPointValue] = useState('1');
   const [rewards, setRewards] = useState([]);
   
-  // États pour la gestion des promos
-  const [promos, setPromos] = useState([]);
+  // États pour la gestion des promos de paiement
+  const [paymentPromos, setPaymentPromos] = useState([]);
   
-  // ✅ Onglets organisés par catégorie
-  const tabs = [
+  // États pour la gestion des codes promo (pour le panier client)
+  const [promoCodes, setPromoCodes] = useState([]);
+  const [loadingPromoCodes, setLoadingPromoCodes] = useState(false);
+  
+  // ✅ Onglets organisés par catégorie - Mémorisé pour éviter les re-renders
+  const tabs = useMemo(() => [
     { id: 'business', label: 'Entreprise', icon: Building2, description: 'Informations légales' },
     { id: 'ticket', label: 'Ticket', icon: Ticket, description: 'Affichage du ticket' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alertes et communications' },
     { id: 'loyalty', label: 'Fidélité', icon: Gift, description: 'Programme de récompenses' },
     { id: 'categories', label: 'Catégories', icon: Grid3x3, badge: categories.length, description: 'Gestion des catégories' },
     { id: 'system', label: 'Système', icon: Activity, description: 'État et diagnostic' }
-  ];
+  ], [categories.length]);
   
   // Fonctions pour la gestion des catégories
   const loadCategories = useCallback(async () => {
+    if (!isAdmin) {
+      setCategories([]);
+      return;
+    }
     try {
       const response = await apiCall('/admin/categories');
       if (response.success && response.data) {
@@ -265,9 +294,14 @@ const AdminSettings = () => {
       logger.error('❌ Erreur chargement catégories:', error);
       showError('Erreur lors du chargement des catégories');
     }
-  }, [showError]);
+  }, [showError, isAdmin]);
   
   const loadSettings = useCallback(async () => {
+    if (!isAdmin) {
+      setSettings([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const response = await apiCall('/admin/settings');
@@ -286,10 +320,11 @@ const AdminSettings = () => {
     } finally {
       setLoading(false);
     }
-  }, [showError]);
+  }, [showError, isAdmin]);
   
   // Charger les statistiques système
   const loadSystemStats = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       setSystemStats(prev => ({ ...prev, loading: true }));
       
@@ -316,10 +351,11 @@ const AdminSettings = () => {
       logger.error('❌ Erreur chargement stats système:', error);
       setSystemStats(prev => ({ ...prev, loading: false }));
     }
-  }, []);
+  }, [isAdmin]);
   
   // Vérifier la connexion à la base de données
   const checkDatabaseStatus = useCallback(async () => {
+    if (!isAdmin) return;
     setSystemStatus(prev => ({
       ...prev,
       database: { ...prev.database, loading: true }
@@ -373,10 +409,11 @@ const AdminSettings = () => {
         }
       }));
     }
-  }, []);
+  }, [isAdmin]);
   
   // Vérifier l'état des connexions système
   const checkSystemStatus = useCallback(async () => {
+    if (!isAdmin) return;
     // Vérifier le backend
     setSystemStatus(prev => ({
       ...prev,
@@ -427,21 +464,27 @@ const AdminSettings = () => {
         }
       }));
     }
-  }, [checkDatabaseStatus]);
+  }, [checkDatabaseStatus, isAdmin]);
   
   // Charger les paramètres depuis la base de données
+  // Charger les paramètres depuis la base de données
+  // Ne charger qu'une seule fois au montage du composant pour éviter les boucles infinies
   useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
     loadSettings();
     checkSystemStatus();
     loadCategories();
     loadSystemStats();
-    // Vérifier le statut toutes les 30 secondes
     const interval = setInterval(() => {
       checkSystemStatus();
       loadSystemStats();
     }, 30000);
     return () => clearInterval(interval);
-  }, [loadSettings, checkSystemStatus, loadCategories, loadSystemStats]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]); // Ne charger qu'une seule fois au montage, pas à chaque changement de fonction
   
   const syncCategoriesWithPOS = useCallback(async () => {
     try {
@@ -753,10 +796,11 @@ const AdminSettings = () => {
     return setting?.setting_value || '';
   }, [settings]);
   
-  const getSettingBool = (key) => {
+  // Mémoriser getSettingBool pour éviter les re-renders
+  const getSettingBool = useCallback((key) => {
     const value = getSetting(key);
     return value === 'true' || value === '1';
-  };
+  }, [getSetting]);
 
   const getSettingJSON = useCallback((key, defaultValue = null) => {
     const value = getSetting(key);
@@ -858,68 +902,147 @@ const AdminSettings = () => {
     setRewards(updated);
   };
 
-  // ✅ Gestion des promos
-  const loadPromos = useCallback(async () => {
+  // ✅ Charger les promos de paiement depuis les settings
+  const loadPaymentPromos = useCallback(async () => {
     try {
-      const promosSetting = getSettingJSON('payment_promos');
-      if (Array.isArray(promosSetting)) {
-        setPromos(promosSetting);
-      } else {
-        setPromos([]);
+      const response = await apiCall('/admin/settings');
+      if (response.success && response.data) {
+        const promosSetting = response.data.find(s => s.setting_key === 'payment_promos');
+        if (promosSetting && promosSetting.setting_value) {
+          try {
+            const promos = JSON.parse(promosSetting.setting_value);
+            if (Array.isArray(promos)) {
+              setPaymentPromos(promos);
+              return;
+            }
+          } catch (e) {
+            logger.error('❌ Erreur parsing promos:', e);
+          }
+        }
       }
+      setPaymentPromos([]);
     } catch (error) {
       logger.error('❌ Erreur chargement promos:', error);
-      setPromos([]);
+      setPaymentPromos([]);
     }
-  }, [getSettingJSON]);
+  }, []);
 
-  useEffect(() => {
-    if (activeTab === 'general') {
-      loadPromos();
+  // ✅ Charger les codes promo (pour le panier client)
+  const loadPromoCodes = useCallback(async () => {
+    if (!isAdmin) {
+      setPromoCodes([]);
+      return;
     }
-  }, [activeTab, loadPromos]);
-
-  const handleAddPromo = () => {
-    setPromos([...promos, { 
-      label: '', 
-      discountType: 'percentage', // 'percentage' ou 'fixed'
-      discountValue: 0,
-      isActive: true
-    }]);
-  };
-
-  const handleRemovePromo = (index) => {
-    setPromos(promos.filter((_, i) => i !== index));
-  };
-
-  const handleUpdatePromo = (index, field, value) => {
-    const updated = [...promos];
-    updated[index] = { 
-      ...updated[index], 
-      [field]: field === 'discountValue' ? parseFloat(value) || 0 : value 
-    };
-    setPromos(updated);
-  };
-
-  const handleSavePromos = useCallback(async () => {
-    setSaving(true);
     try {
-      await apiCall('/admin/settings/payment_promos', {
+      setLoadingPromoCodes(true);
+      const response = await adminService.getPromoCodes();
+      if (response.success && response.data) {
+        setPromoCodes(response.data);
+      } else {
+        setPromoCodes([]);
+      }
+    } catch (error) {
+      logger.error('❌ Erreur chargement codes promo:', error);
+      showError('Erreur lors du chargement des codes promo');
+      setPromoCodes([]);
+    } finally {
+      setLoadingPromoCodes(false);
+    }
+  }, [isAdmin, showError]);
+
+  // Charger les promos et codes promo quand on ouvre l'onglet business
+  useEffect(() => {
+    if (activeTab === 'business' && isAdmin) {
+      loadPaymentPromos();
+      loadPromoCodes();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isAdmin]);
+
+  // ✅ Ajouter une nouvelle promo
+  const handleAddPaymentPromo = () => {
+    const newPromo = {
+      id: Date.now(), // ID unique temporaire
+      label: 'Nouvelle promo',
+      discountType: 'percentage',
+      discountValue: 10,
+      isActive: true,
+      validFrom: null,
+      validUntil: null,
+      maxUses: null,
+      usesCount: 0
+    };
+    setPaymentPromos([...paymentPromos, newPromo]);
+  };
+
+  // ✅ Supprimer une promo
+  const handleRemovePaymentPromo = async (index) => {
+    const updatedPromos = paymentPromos.filter((_, i) => i !== index);
+    setPaymentPromos(updatedPromos);
+    await savePaymentPromos(updatedPromos);
+  };
+
+  // ✅ Mettre à jour une promo
+  const handleUpdatePaymentPromo = (index, field, value) => {
+    const updated = [...paymentPromos];
+    if (field === 'discountValue') {
+      updated[index] = { ...updated[index], [field]: parseFloat(value) || 0 };
+    } else if (field === 'maxUses') {
+      updated[index] = { ...updated[index], [field]: value === '' || value === null ? null : parseInt(value) || null };
+    } else if (field === 'validFrom' || field === 'validUntil') {
+      updated[index] = { ...updated[index], [field]: value === '' || value === null ? null : value };
+    } else if (field === 'isActive') {
+      updated[index] = { ...updated[index], [field]: value };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
+    setPaymentPromos(updated);
+  };
+
+  // ✅ Sauvegarder les promos dans la base de données
+  const savePaymentPromos = async (promosToSave = null) => {
+    const promos = promosToSave || paymentPromos;
+    try {
+      setSaving(true);
+      const response = await apiCall('/admin/settings/payment_promos', {
         method: 'PUT',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           value: JSON.stringify(promos),
           setting_type: 'json'
         })
       });
-      handleChange('payment_promos', JSON.stringify(promos));
+
+      if (!response || !response.success) {
+        throw new Error(response?.error || 'Erreur lors de la sauvegarde');
+      }
+
+      // Mettre à jour le state settings
+      setSettings(prev => {
+        const existing = prev.find(s => s.setting_key === 'payment_promos');
+        if (existing) {
+          return prev.map(s =>
+            s.setting_key === 'payment_promos'
+              ? { ...s, setting_value: JSON.stringify(promos) }
+              : s
+          );
+        }
+        return [...prev, {
+          setting_key: 'payment_promos',
+          setting_value: JSON.stringify(promos),
+          setting_type: 'json'
+        }];
+      });
+
       success('Promos sauvegardées avec succès !');
     } catch (error) {
       logger.error('❌ Erreur sauvegarde promos:', error);
-      showError('Erreur lors de la sauvegarde des promos');
+      showError(error.message || 'Erreur lors de la sauvegarde des promos');
+      // Recharger les promos en cas d'erreur
+      await loadPaymentPromos();
     } finally {
       setSaving(false);
     }
-  }, [promos, showError, success]);
+  };
 
   // ✅ Sauvegarde optimisée avec debounce pour éviter trop d'appels API
   const saveTimeoutRef = useRef(null);
@@ -997,13 +1120,14 @@ const AdminSettings = () => {
     };
   }, []);
 
-  const getDisplaySetting = (key) => {
+  // Mémoriser getDisplaySetting pour éviter les re-renders
+  const getDisplaySetting = useCallback((key) => {
     const setting = settings.find(s => s.setting_key === key);
     if (!setting || setting.setting_value === '') {
       return true;
     }
     return setting.setting_value === 'true' || setting.setting_value === '1';
-  };
+  }, [settings]);
 
   const toggleDisplayField = (ticketKey) => {
     const nextValue = (!getDisplaySetting(ticketKey)).toString();
@@ -1042,31 +1166,37 @@ const AdminSettings = () => {
     );
   };
 
-  const ticketDisplayPreferences = TICKET_DISPLAY_FIELDS.reduce((prefs, field) => {
-    const setting = settings.find((s) => s.setting_key === field.key);
-    if (setting && setting.setting_value !== '') {
-      prefs[field.displayKey] = setting.setting_value === 'true' || setting.setting_value === '1';
-    }
-    return prefs;
-  }, { ...DEFAULT_TICKET_DISPLAY });
+  // Mémoriser ticketDisplayPreferences pour éviter les re-renders
+  const ticketDisplayPreferences = useMemo(() => {
+    return TICKET_DISPLAY_FIELDS.reduce((prefs, field) => {
+      const setting = settings.find((s) => s.setting_key === field.key);
+      if (setting && setting.setting_value !== '') {
+        prefs[field.displayKey] = setting.setting_value === 'true' || setting.setting_value === '1';
+      }
+      return prefs;
+    }, { ...DEFAULT_TICKET_DISPLAY });
+  }, [settings]);
 
-  const currentBusinessInfo = {
-    name: getSetting('business_name') || DEFAULT_BUSINESS_INFO.name,
-    address: getSetting('business_address') || DEFAULT_BUSINESS_INFO.address,
-    phone: getSetting('business_phone') || DEFAULT_BUSINESS_INFO.phone,
-    website: getSetting('business_website') || DEFAULT_BUSINESS_INFO.website,
-    customerService: getSetting('business_customer_service') || DEFAULT_BUSINESS_INFO.customerService,
-    email: getSetting('business_email') || DEFAULT_BUSINESS_INFO.email,
-    siret: getSetting('business_siret') || DEFAULT_BUSINESS_INFO.siret,
-    vatNumber: getSetting('business_vat_number') || DEFAULT_BUSINESS_INFO.vatNumber,
-    legalForm: getSetting('business_legal_form') || DEFAULT_BUSINESS_INFO.legalForm,
-    shareCapital: getSetting('business_share_capital') || DEFAULT_BUSINESS_INFO.shareCapital,
-    rcs: getSetting('business_rcs') || DEFAULT_BUSINESS_INFO.rcs,
-    paymentMention: getSetting('business_payment_mention') || DEFAULT_BUSINESS_INFO.paymentMention,
-    legalMentions: getSetting('business_legal_mentions') || DEFAULT_BUSINESS_INFO.legalMentions,
-    returnPolicy: getSetting('business_return_policy') || DEFAULT_BUSINESS_INFO.returnPolicy,
-    foodInfo: getSetting('business_food_info') || DEFAULT_BUSINESS_INFO.foodInfo
-  };
+  // Mémoriser currentBusinessInfo pour éviter les re-renders
+  const currentBusinessInfo = useMemo(() => {
+    return {
+      name: getSetting('business_name') || DEFAULT_BUSINESS_INFO.name,
+      address: getSetting('business_address') || DEFAULT_BUSINESS_INFO.address,
+      phone: getSetting('business_phone') || DEFAULT_BUSINESS_INFO.phone,
+      website: getSetting('business_website') || DEFAULT_BUSINESS_INFO.website,
+      customerService: getSetting('business_customer_service') || DEFAULT_BUSINESS_INFO.customerService,
+      email: getSetting('business_email') || DEFAULT_BUSINESS_INFO.email,
+      siret: getSetting('business_siret') || DEFAULT_BUSINESS_INFO.siret,
+      vatNumber: getSetting('business_vat_number') || DEFAULT_BUSINESS_INFO.vatNumber,
+      legalForm: getSetting('business_legal_form') || DEFAULT_BUSINESS_INFO.legalForm,
+      shareCapital: getSetting('business_share_capital') || DEFAULT_BUSINESS_INFO.shareCapital,
+      rcs: getSetting('business_rcs') || DEFAULT_BUSINESS_INFO.rcs,
+      paymentMention: getSetting('business_payment_mention') || DEFAULT_BUSINESS_INFO.paymentMention,
+      legalMentions: getSetting('business_legal_mentions') || DEFAULT_BUSINESS_INFO.legalMentions,
+      returnPolicy: getSetting('business_return_policy') || DEFAULT_BUSINESS_INFO.returnPolicy,
+      foodInfo: getSetting('business_food_info') || DEFAULT_BUSINESS_INFO.foodInfo
+    };
+  }, [getSetting]);
 
   const handlePreviewTicket = () => {
     const previewItems = [
@@ -1105,11 +1235,50 @@ const AdminSettings = () => {
       }
     };
 
+    // Récupérer les valeurs personnalisées pour le ticket
+    const customTicketValues = TICKET_DISPLAY_FIELDS.reduce((values, field) => {
+      const valueKey = `ticket_value_${field.key.replace('ticket_show_', '')}`;
+      const customValue = getSetting(valueKey);
+      if (customValue) {
+        // Mapper la clé du ticket vers la clé de l'entreprise
+        const businessKey = Object.keys(FIELD_DISPLAY_MAPPING).find(
+          key => FIELD_DISPLAY_MAPPING[key] === field.key
+        );
+        if (businessKey) {
+          // Convertir business_key vers la propriété de currentBusinessInfo
+          const propertyMap = {
+            'business_name': 'name',
+            'business_address': 'address',
+            'business_phone': 'phone',
+            'business_website': 'website',
+            'business_customer_service': 'customerService',
+            'business_email': 'email',
+            'business_siret': 'siret',
+            'business_vat_number': 'vatNumber',
+            'business_legal_form': 'legalForm',
+            'business_share_capital': 'shareCapital',
+            'business_rcs': 'rcs',
+            'business_payment_mention': 'paymentMention',
+            'business_legal_mentions': 'legalMentions',
+            'business_return_policy': 'returnPolicy',
+            'business_food_info': 'foodInfo'
+          };
+          const propertyName = propertyMap[businessKey];
+          if (propertyName) {
+            values[propertyName] = customValue;
+          }
+        }
+      }
+      return values;
+    }, {});
+
     const previewBusinessInfo = {
       ...currentBusinessInfo,
+      ...customTicketValues, // Remplacer les valeurs par défaut par les valeurs personnalisées
       displayPreferences: ticketDisplayPreferences
     };
 
+    // previewReceipt est maintenant async
     previewReceipt(sampleOrder, {
       businessInfo: previewBusinessInfo,
       clientType: 'particulier',
@@ -1117,6 +1286,8 @@ const AdminSettings = () => {
         name: 'Client Démo'
       },
       ticketDisplay: ticketDisplayPreferences
+    }).catch((error) => {
+      logger.error('❌ Erreur lors de l\'aperçu:', error);
     });
   };
   
@@ -1170,6 +1341,35 @@ const AdminSettings = () => {
                     <option value="¥">¥ (Yen)</option>
                   </select>
                 </div>
+                
+                <div>
+                  <label className="block text-xs sm:text-sm font-heading font-semibold text-black mb-2">
+                    Adresse mail contact
+                  </label>
+                  <Input
+                    type="email"
+                    value={getSetting('contact_email') || ''}
+                    onChange={(e) => {
+                      handleChange('contact_email', e.target.value);
+                      apiCall(`/admin/settings/contact_email`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ value: e.target.value })
+                      })
+                        .then(() => {
+                          success('Adresse mail contact mise à jour !');
+                        })
+                        .catch((err) => {
+                          logger.error('Erreur sauvegarde adresse mail contact:', err);
+                          showError('Erreur lors de la sauvegarde de l\'adresse mail contact');
+                        });
+                    }}
+                    placeholder="contact@blossom-cafe.fr"
+                    className="w-full"
+                  />
+                  <p className="text-xs text-neutral-500 mt-1 font-sans">
+                    Cette adresse sera utilisée pour le bouton &quot;Nous contacter par email&quot; sur la page d&apos;accueil
+                  </p>
+                </div>
               </div>
             </SectionCard>
 
@@ -1196,7 +1396,7 @@ const AdminSettings = () => {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-base font-heading font-bold text-black">
-                      Promos ({promos.length})
+                      Promos ({paymentPromos.length})
                     </h3>
                     <p className="text-xs text-neutral-600 font-sans mt-1">
                       Les promos apparaîtront dans le menu déroulant du bouton &quot;Promo&quot; lors du paiement
@@ -1205,7 +1405,7 @@ const AdminSettings = () => {
                   <Button
                     variant="primary"
                     size="sm"
-                    onClick={handleAddPromo}
+                    onClick={handleAddPaymentPromo}
                     icon={<Plus className="w-4 h-4" />}
                     className="w-full sm:w-auto"
                   >
@@ -1213,7 +1413,7 @@ const AdminSettings = () => {
                   </Button>
                 </div>
 
-                {promos.length === 0 ? (
+                {paymentPromos.length === 0 ? (
                   <div className="text-center py-8 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
                     <Gift className="w-12 h-12 mx-auto mb-3 text-neutral-400" />
                     <p className="font-sans font-medium text-base">Aucune promo</p>
@@ -1223,8 +1423,8 @@ const AdminSettings = () => {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {promos.map((promo, index) => (
-                      <div key={index} className="p-4 bg-white rounded-xl border-2 border-neutral-200 shadow-sm">
+                    {paymentPromos.map((promo, index) => (
+                      <div key={promo.id || index} className="p-4 bg-white rounded-xl border-2 border-neutral-200 shadow-sm">
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div>
@@ -1232,10 +1432,10 @@ const AdminSettings = () => {
                               <input
                                 type="text"
                                 value={promo.label || ''}
-                                onChange={(e) => handleUpdatePromo(index, 'label', e.target.value)}
+                                onChange={(e) => handleUpdatePaymentPromo(index, 'label', e.target.value)}
+                                onBlur={() => savePaymentPromos()}
                                 placeholder="Ex: Réduction 10%"
                                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
-                                onBlur={handleSavePromos}
                               />
                             </div>
                             <div>
@@ -1243,8 +1443,8 @@ const AdminSettings = () => {
                               <select
                                 value={promo.discountType || 'percentage'}
                                 onChange={(e) => {
-                                  handleUpdatePromo(index, 'discountType', e.target.value);
-                                  handleSavePromos();
+                                  handleUpdatePaymentPromo(index, 'discountType', e.target.value);
+                                  savePaymentPromos();
                                 }}
                                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
                               >
@@ -1262,217 +1462,388 @@ const AdminSettings = () => {
                                 max={promo.discountType === 'percentage' ? '100' : undefined}
                                 step={promo.discountType === 'percentage' ? '1' : '0.01'}
                                 value={promo.discountValue || 0}
-                                onChange={(e) => handleUpdatePromo(index, 'discountValue', e.target.value)}
+                                onChange={(e) => handleUpdatePaymentPromo(index, 'discountValue', e.target.value)}
+                                onBlur={() => savePaymentPromos()}
                                 placeholder="0"
                                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
-                                onBlur={handleSavePromos}
                               />
                             </div>
                           </div>
                           <button
-                            onClick={() => {
-                              handleRemovePromo(index);
-                              handleSavePromos();
-                            }}
+                            onClick={() => handleRemovePaymentPromo(index)}
                             className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex-shrink-0 ml-3"
                             title="Supprimer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Date de début (optionnel)
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={promo.validFrom ? new Date(promo.validFrom).toISOString().slice(0, 16) : ''}
+                              onChange={(e) => {
+                                const value = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                handleUpdatePaymentPromo(index, 'validFrom', value);
+                              }}
+                              onBlur={() => savePaymentPromos()}
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                            {promo.validFrom && (
+                              <p className="text-xs text-neutral-500 mt-1 font-sans">
+                                Début: {new Date(promo.validFrom).toLocaleString('fr-FR')}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Date de fin (optionnel)
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={promo.validUntil ? new Date(promo.validUntil).toISOString().slice(0, 16) : ''}
+                              onChange={(e) => {
+                                const value = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                handleUpdatePaymentPromo(index, 'validUntil', value);
+                              }}
+                              onBlur={() => savePaymentPromos()}
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                            {promo.validUntil && (
+                              <p className="text-xs text-neutral-500 mt-1 font-sans">
+                                Fin: {new Date(promo.validUntil).toLocaleString('fr-FR')}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Nombre max d&apos;utilisations (optionnel)
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={promo.maxUses || ''}
+                              onChange={(e) => handleUpdatePaymentPromo(index, 'maxUses', e.target.value)}
+                              onBlur={() => savePaymentPromos()}
+                              placeholder="Illimité"
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                            {promo.maxUses && (
+                              <p className="text-xs text-neutral-500 mt-1 font-sans">
+                                Utilisations: {promo.usesCount || 0} / {promo.maxUses}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {paymentPromos.length > 0 && (
+                  <div className="flex justify-end pt-4 border-t border-neutral-200">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => savePaymentPromos()}
+                      disabled={saving}
+                      icon={saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    >
+                      {saving ? 'Sauvegarde...' : 'Sauvegarder toutes les promos'}
+                    </Button>
                   </div>
                 )}
               </div>
             </SectionCard>
 
             <SectionCard
-              icon={Building2}
-              title="Informations Entreprise"
-              description="Renseignez les informations légales de votre commerce"
+              icon={Gift}
+              title="Codes Promo (Panier Client)"
+              description="Gérez les codes promo que les clients peuvent utiliser dans leur panier"
             >
-              <div className="flex items-center justify-end mb-4">
-          <Button
-            variant="outline"
-            onClick={handlePreviewTicket}
-            icon={<Eye className="w-4 h-4" />}
-                  size="sm"
-          >
-            Aperçu du ticket
-          </Button>
-        </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-heading font-bold text-black">
+                      Codes Promo ({promoCodes.length})
+                    </h3>
+                    <p className="text-xs text-neutral-600 font-sans mt-1">
+                      Les clients peuvent entrer ces codes dans leur panier pour obtenir une réduction
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        setSaving(true);
+                        const newCode = {
+                          code: `PROMO${Date.now()}`,
+                          description: 'Nouveau code promo',
+                          discountType: 'percentage',
+                          discountValue: 10,
+                          minOrderAmount: 0,
+                          maxUses: null,
+                          validFrom: new Date().toISOString(),
+                          validUntil: null,
+                          isActive: true
+                        };
+                        const response = await adminService.createPromoCode(newCode);
+                        if (response.success) {
+                          success('Code promo créé !');
+                          await loadPromoCodes();
+                        } else {
+                          showError(response.error || 'Erreur lors de la création');
+                        }
+                      } catch (error) {
+                        logger.error('❌ Erreur création code promo:', error);
+                        showError('Erreur lors de la création du code promo');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    icon={<Plus className="w-4 h-4" />}
+                    className="w-full sm:w-auto"
+                    disabled={saving || loadingPromoCodes}
+                  >
+                    Ajouter
+                  </Button>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 lg:gap-6">
-          <div>
-                  {renderTicketLabel('business_name', "Nom de l'entreprise", 'business_name')}
-            <input
-              id="business_name"
-              type="text"
-              value={getSetting('business_name')}
-              onChange={(e) => handleChange('business_name', e.target.value)}
-              placeholder="BLOSSOM CAFE"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_address', 'Adresse complète', 'business_address')}
-            <input
-              id="business_address"
-              type="text"
-              value={getSetting('business_address')}
-              onChange={(e) => handleChange('business_address', e.target.value)}
-              placeholder="15 Avenue des Champs-Élysées, 75008 PARIS"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_phone', 'Téléphone principal', 'business_phone')}
-            <input
-              id="business_phone"
-              type="text"
-              value={getSetting('business_phone')}
-              onChange={(e) => handleChange('business_phone', e.target.value)}
-              placeholder="01 42 56 78 90"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_website', 'Site web', 'business_website')}
-            <input
-              id="business_website"
-              type="text"
-              value={getSetting('business_website')}
-              onChange={(e) => handleChange('business_website', e.target.value)}
-              placeholder=""
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-                  {renderTicketLabel('business_customer_service', 'Service client', 'business_customer_service')}
-            <input
-              id="business_customer_service"
-              type="text"
-              value={getSetting('business_customer_service')}
-              onChange={(e) => handleChange('business_customer_service', e.target.value)}
-              placeholder="0800 123 456"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_email', 'Email de contact', 'business_email')}
-            <input
-              id="business_email"
-              type="email"
-              value={getSetting('business_email')}
-              onChange={(e) => handleChange('business_email', e.target.value)}
-              placeholder=""
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_siret', 'SIRET', 'business_siret')}
-            <input
-              id="business_siret"
-              type="text"
-              value={getSetting('business_siret')}
-              onChange={(e) => handleChange('business_siret', e.target.value)}
-              placeholder="123 456 789 00012"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_vat_number', 'N° TVA intracommunautaire', 'business_vat_number')}
-            <input
-              id="business_vat_number"
-              type="text"
-              value={getSetting('business_vat_number')}
-              onChange={(e) => handleChange('business_vat_number', e.target.value)}
-              placeholder="FR 12 345678901"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_legal_form', 'Forme juridique', 'business_legal_form')}
-            <input
-              id="business_legal_form"
-              type="text"
-              value={getSetting('business_legal_form')}
-              onChange={(e) => handleChange('business_legal_form', e.target.value)}
-              placeholder="SAS"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_share_capital', 'Capital social', 'business_share_capital', 'ticket_show_legal_form')}
-            <input
-              id="business_share_capital"
-              type="text"
-              value={getSetting('business_share_capital')}
-              onChange={(e) => handleChange('business_share_capital', e.target.value)}
-              placeholder="100 000 €"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_rcs', 'RCS', 'business_rcs')}
-            <input
-              id="business_rcs"
-              type="text"
-              value={getSetting('business_rcs')}
-              onChange={(e) => handleChange('business_rcs', e.target.value)}
-              placeholder="RCS Paris B 123 456 789"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_payment_mention', 'Mention fiscale / TVA', 'business_payment_mention')}
-            <input
-              id="business_payment_mention"
-              type="text"
-              value={getSetting('business_payment_mention')}
-              onChange={(e) => handleChange('business_payment_mention', e.target.value)}
-              placeholder="TVA acquittée sur les encaissements"
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
-            />
-          </div>
-        </div>
-
-              <div className="mt-6 lg:mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
-          <div>
-            {renderTicketLabel('business_return_policy', 'Conditions de retour / garantie', 'business_return_policy')}
-            <textarea
-              id="business_return_policy"
-              rows={3}
-              value={getSetting('business_return_policy')}
-              onChange={(e) => handleChange('business_return_policy', e.target.value)}
-              placeholder="Les produits alimentaires ne sont ni repris ni échangés. Merci de conserver votre ticket."
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
-            />
-          </div>
-          <div>
-            {renderTicketLabel('business_food_info', 'Informations denrées alimentaires / sécurité', 'business_food_info')}
-            <textarea
-              id="business_food_info"
-              rows={3}
-              value={getSetting('business_food_info')}
-              onChange={(e) => handleChange('business_food_info', e.target.value)}
-              placeholder="Les denrées alimentaires servies ne peuvent être reprises pour des raisons sanitaires."
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
-            />
-          </div>
-          <div className="md:col-span-2">
-            {renderTicketLabel('business_legal_mentions', 'Mentions légales complémentaires', 'business_legal_mentions')}
-            <textarea
-              id="business_legal_mentions"
-              rows={3}
-              value={getSetting('business_legal_mentions')}
-              onChange={(e) => handleChange('business_legal_mentions', e.target.value)}
-              placeholder="TVA acquittée sur les encaissements. Toute réclamation doit être effectuée dans un délai de 7 jours."
-                    className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 resize-none font-sans"
-            />
-          </div>
-        </div>
+                {loadingPromoCodes ? (
+                  <div className="text-center py-8">
+                    <RefreshCw className="w-8 h-8 animate-spin text-neutral-400 mx-auto mb-3" />
+                    <p className="text-sm text-neutral-600 font-sans">Chargement...</p>
+                  </div>
+                ) : promoCodes.length === 0 ? (
+                  <div className="text-center py-8 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+                    <Gift className="w-12 h-12 mx-auto mb-3 text-neutral-400" />
+                    <p className="font-sans font-medium text-base">Aucun code promo</p>
+                    <p className="text-sm mt-2 text-neutral-600 font-sans">
+                      Créez votre premier code promo pour commencer
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {promoCodes.map((promoCode) => (
+                      <div key={promoCode.id} className="p-4 bg-white rounded-xl border-2 border-neutral-200 shadow-sm">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Code</label>
+                              <input
+                                type="text"
+                                value={promoCode.code || ''}
+                                onChange={async (e) => {
+                                  try {
+                                    await adminService.updatePromoCode(promoCode.id, { code: e.target.value.toUpperCase() });
+                                    await loadPromoCodes();
+                                  } catch (error) {
+                                    logger.error('❌ Erreur mise à jour code:', error);
+                                    showError('Erreur lors de la mise à jour');
+                                  }
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Description</label>
+                              <input
+                                type="text"
+                                value={promoCode.description || ''}
+                                onChange={async (e) => {
+                                  try {
+                                    await adminService.updatePromoCode(promoCode.id, { description: e.target.value });
+                                    await loadPromoCodes();
+                                  } catch (error) {
+                                    logger.error('❌ Erreur mise à jour description:', error);
+                                    showError('Erreur lors de la mise à jour');
+                                  }
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">Type</label>
+                              <select
+                                value={promoCode.discount_type || 'percentage'}
+                                onChange={async (e) => {
+                                  try {
+                                    await adminService.updatePromoCode(promoCode.id, { discountType: e.target.value });
+                                    await loadPromoCodes();
+                                  } catch (error) {
+                                    logger.error('❌ Erreur mise à jour type:', error);
+                                    showError('Erreur lors de la mise à jour');
+                                  }
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                              >
+                                <option value="percentage">Pourcentage (%)</option>
+                                <option value="fixed">Montant fixe (€)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                                {promoCode.discount_type === 'percentage' ? 'Valeur (%)' : 'Montant (€)'}
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                max={promoCode.discount_type === 'percentage' ? '100' : undefined}
+                                step={promoCode.discount_type === 'percentage' ? '1' : '0.01'}
+                                value={promoCode.discount_value || 0}
+                                onChange={async (e) => {
+                                  try {
+                                    await adminService.updatePromoCode(promoCode.id, { discountValue: parseFloat(e.target.value) || 0 });
+                                    await loadPromoCodes();
+                                  } catch (error) {
+                                    logger.error('❌ Erreur mise à jour valeur:', error);
+                                    showError('Erreur lors de la mise à jour');
+                                  }
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                              />
+                            </div>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Supprimer le code promo "${promoCode.code}" ?`)) {
+                                try {
+                                  setSaving(true);
+                                  await adminService.deletePromoCode(promoCode.id);
+                                  success('Code promo supprimé !');
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur suppression code promo:', error);
+                                  showError('Erreur lors de la suppression');
+                                } finally {
+                                  setSaving(false);
+                                }
+                              }
+                            }}
+                            className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex-shrink-0 ml-3"
+                            title="Supprimer"
+                            disabled={saving}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Montant minimum (€)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={promoCode.min_order_amount || 0}
+                              onChange={async (e) => {
+                                try {
+                                  await adminService.updatePromoCode(promoCode.id, { minOrderAmount: parseFloat(e.target.value) || 0 });
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur mise à jour montant min:', error);
+                                  showError('Erreur lors de la mise à jour');
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Date de début
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={promoCode.valid_from ? new Date(promoCode.valid_from).toISOString().slice(0, 16) : ''}
+                              onChange={async (e) => {
+                                try {
+                                  const value = e.target.value ? new Date(e.target.value).toISOString() : new Date().toISOString();
+                                  await adminService.updatePromoCode(promoCode.id, { validFrom: value });
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur mise à jour date début:', error);
+                                  showError('Erreur lors de la mise à jour');
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Date de fin (optionnel)
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={promoCode.valid_until ? new Date(promoCode.valid_until).toISOString().slice(0, 16) : ''}
+                              onChange={async (e) => {
+                                try {
+                                  const value = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                  await adminService.updatePromoCode(promoCode.id, { validUntil: value });
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur mise à jour date fin:', error);
+                                  showError('Erreur lors de la mise à jour');
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-neutral-700 mb-1 font-sans">
+                              Max utilisations (optionnel)
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={promoCode.max_uses || ''}
+                              onChange={async (e) => {
+                                try {
+                                  const value = e.target.value ? parseInt(e.target.value) : null;
+                                  await adminService.updatePromoCode(promoCode.id, { maxUses: value });
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur mise à jour max uses:', error);
+                                  showError('Erreur lors de la mise à jour');
+                                }
+                              }}
+                              placeholder="Illimité"
+                              className="w-full px-3 py-2 rounded-lg border border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black transition-all"
+                            />
+                            {promoCode.max_uses && (
+                              <p className="text-xs text-neutral-500 mt-1 font-sans">
+                                Utilisations: {promoCode.uses_count || 0} / {promoCode.max_uses}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-neutral-200">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={promoCode.is_active === 1 || promoCode.is_active === true}
+                              onChange={async (e) => {
+                                try {
+                                  await adminService.updatePromoCode(promoCode.id, { isActive: e.target.checked });
+                                  await loadPromoCodes();
+                                } catch (error) {
+                                  logger.error('❌ Erreur mise à jour statut:', error);
+                                  showError('Erreur lors de la mise à jour');
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-neutral-300 text-black focus:ring-2 focus:ring-black"
+                            />
+                            <span className="text-xs font-semibold text-neutral-700 font-sans">Code actif</span>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </SectionCard>
             </div>
         );
@@ -1483,19 +1854,94 @@ const AdminSettings = () => {
             <SectionCard
               icon={Ticket}
               title="Paramètres d'Affichage du Ticket"
-              description="Configurez quels éléments apparaissent sur les tickets de caisse"
+              description="Configurez quels éléments apparaissent sur les tickets de caisse et leurs valeurs personnalisées"
             >
-              <div className="space-y-2 sm:space-y-3">
-                {TICKET_DISPLAY_FIELDS.map((field) => (
-                  <ToggleSwitch
-                    key={field.key}
-                    checked={getDisplaySetting(field.key)}
-                    onChange={(checked) => handleChange(field.key, checked ? 'true' : 'false')}
-                    label={field.label}
-                    description={`Afficher ${field.label.toLowerCase()} sur le ticket`}
-                  />
-                ))}
-          </div>
+              <div className="flex items-center justify-end mb-4 sm:mb-5">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviewTicket}
+                  icon={<Eye className="w-4 h-4" />}
+                  size="sm"
+                >
+                  Aperçu du ticket
+                </Button>
+              </div>
+              
+              <div className="space-y-4 sm:space-y-5">
+                {TICKET_DISPLAY_FIELDS.map((field) => {
+                  const valueKey = `ticket_value_${field.key.replace('ticket_show_', '')}`;
+                  const customValue = getSetting(valueKey) || '';
+                  const isVisible = getDisplaySetting(field.key);
+                  
+                  // Récupérer la clé de l'entreprise correspondante
+                  const businessKey = Object.keys(FIELD_DISPLAY_MAPPING).find(
+                    key => FIELD_DISPLAY_MAPPING[key] === field.key
+                  );
+                  const defaultValue = businessKey ? getSetting(businessKey) || '' : '';
+                  
+                  return (
+                    <div
+                      key={field.key}
+                      className="p-4 sm:p-5 bg-gradient-to-r from-neutral-50 to-white rounded-xl border-2 border-neutral-200 hover:border-neutral-300 transition-all duration-200"
+                    >
+                      <div className="flex flex-col gap-3 sm:gap-4">
+                        {/* Toggle Switch pour afficher/masquer */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <label className="text-sm sm:text-base font-heading font-semibold text-black block mb-1">
+                              {field.label}
+                            </label>
+                            <p className="text-xs sm:text-sm text-neutral-600 font-sans">
+                              {`Afficher ${field.label.toLowerCase()} sur le ticket`}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleChange(field.key, isVisible ? 'false' : 'true')}
+                            className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 ${
+                              isVisible ? 'bg-neutral-800' : 'bg-neutral-300'
+                            }`}
+                            role="switch"
+                            aria-checked={isVisible}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 sm:h-6 sm:w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                isVisible ? 'translate-x-5 sm:translate-x-6' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                        
+                        {/* Champ de valeur personnalisée */}
+                        {isVisible && (
+                          <div className="mt-2">
+                            <label
+                              htmlFor={valueKey}
+                              className="block text-xs sm:text-sm font-heading font-medium text-black mb-2"
+                            >
+                              Valeur personnalisée (optionnel)
+                            </label>
+                            <input
+                              id={valueKey}
+                              type="text"
+                              value={customValue}
+                              onChange={(e) => handleChange(valueKey, e.target.value)}
+                              placeholder={defaultValue ? `Valeur par défaut: ${defaultValue}` : `Entrez une valeur pour ${field.label.toLowerCase()}`}
+                              className="w-full px-4 py-2.5 sm:py-3 rounded-xl border-2 border-neutral-200 bg-white text-black text-sm focus:outline-none focus:ring-4 focus:ring-neutral-200 focus:border-black transition-all duration-200 font-sans"
+                            />
+                            <p className="mt-1.5 text-xs text-neutral-500 font-sans">
+                              {defaultValue 
+                                ? `Laissez vide pour utiliser la valeur par défaut: "${defaultValue}"`
+                                : 'Laissez vide pour ne pas afficher de valeur sur le ticket'
+                              }
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </SectionCard>
             </div>
         );
@@ -1923,7 +2369,6 @@ const AdminSettings = () => {
                           <thead className="bg-blue-50 border-b-2 border-blue-200">
                             <tr>
                               <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm w-16">#</th>
-                              <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Icône</th>
                               <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Nom</th>
                               <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Slug</th>
                               <th className="px-4 py-3 text-left font-heading font-semibold text-black text-sm">Description</th>
@@ -1939,19 +2384,6 @@ const AdminSettings = () => {
                                   <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
                                     {index + 1}
                                   </div>
-                                </td>
-                                <td className="px-4 py-4">
-                                  <input
-                                    type="text"
-                                    value={category.icon || '📦'}
-                                    onChange={(e) => {
-                                      updateCategoryField(category.id, 'icon', e.target.value);
-                                      handleSaveCategory(category.id, true);
-                                    }}
-                                    maxLength={2}
-                                    className="w-16 px-3 py-2 rounded-lg border border-blue-200 bg-white text-2xl text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                                    onBlur={() => handleSaveCategory(category.id, true)}
-                                  />
                                 </td>
                                 <td className="px-4 py-4">
                                   <input
@@ -2080,17 +2512,6 @@ const AdminSettings = () => {
                                 <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
                                   {index + 1}
                                 </div>
-                                <input
-                                  type="text"
-                                  value={category.icon || '📦'}
-                                  onChange={(e) => {
-                                    updateCategoryField(category.id, 'icon', e.target.value);
-                                    handleSaveCategory(category.id, true);
-                                  }}
-                                  maxLength={2}
-                                  className="w-14 px-2 py-1.5 rounded-lg border border-blue-200 bg-white text-2xl text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                                  onBlur={() => handleSaveCategory(category.id, true)}
-                                />
                                 <div className="flex-1 min-w-0">
                                   <input
                                     type="text"
@@ -2455,6 +2876,7 @@ const AdminSettings = () => {
           onReload={loadSettings}
           onSave={handleSave}
           saving={saving}
+          isAdmin={isAdmin}
         />
         
         {/* ✅ Contenu selon l'onglet actif */}

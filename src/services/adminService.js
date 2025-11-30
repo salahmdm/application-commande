@@ -73,7 +73,7 @@ export const adminService = {
         // Convertir le format des données pour Supabase
         const supabaseUserData = {
           email: userData.email,
-          password_hash: userData.password ? `$2b$10$TEMP_HASH_${Date.now()}` : '$2b$10$FIREBASE_USER_NO_PASSWORD_REQUIRED',
+          password_hash: userData.password ? `$2b$10$TEMP_HASH_${Date.now()}` : '$2b$10$SUPABASE_USER_NO_PASSWORD_REQUIRED',
           first_name: userData.firstName || userData.first_name || '',
           last_name: userData.lastName || userData.last_name || '',
           phone: userData.phone || null,
@@ -276,6 +276,22 @@ export const adminService = {
       return response;
     } catch (error) {
       logger.error('Erreur createPromoCode:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Modifier un code promo
+   */
+  async updatePromoCode(promoId, updates) {
+    try {
+      const response = await apiCall(`/admin/promo-codes/${promoId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      });
+      return response;
+    } catch (error) {
+      logger.error('Erreur updatePromoCode:', error);
       throw error;
     }
   },

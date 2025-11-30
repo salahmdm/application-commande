@@ -97,9 +97,3 @@ export const testSupabaseConnection = async () => {
   }
 };
 
-// Exporter aussi pour utilisation dans la console
-if (typeof window !== 'undefined') {
-  window.testSupabaseConnection = testSupabaseConnection;
-  console.log('💡 Pour tester la connexion Supabase, tapez : testSupabaseConnection()');
-}
-

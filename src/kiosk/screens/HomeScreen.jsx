@@ -24,11 +24,12 @@ function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [backendError, setBackendError] = useState(null);
   const [notificationProduct, setNotificationProduct] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     updateActivity();
     loadData();
-  }, [updateActivity]);
+  }, [updateActivity, retryCount]);
 
   const loadData = async () => {
     try {
@@ -68,7 +69,8 @@ function HomeScreen() {
       setCategories([]);
       setProducts([]);
       setBackendError({
-        message: 'Impossible de se connecter au serveur. Veuillez vérifier que la borne est reliée au backend.',
+        message: 'Impossible de se connecter au serveur. Vérifiez que la borne est reliée au backend.',
+        details: import.meta.env.VITE_API_URL || 'http://localhost:5000',
       });
     } finally {
       setIsLoading(false);
@@ -162,27 +164,27 @@ function HomeScreen() {
   }
 
   return (
-    <div className="kiosk-shell kiosk-shell--compact">
-      <div className="kiosk-shell__ambient">
-        <span className="kiosk-shell__orb kiosk-shell__orb--one" />
-        <span className="kiosk-shell__orb kiosk-shell__orb--two" />
-        <span className="kiosk-shell__grid" />
-      </div>
-
-      <header className="kiosk-header">
+    <div className="kiosk-shell kiosk-shell--zones">
+      <header className="kiosk-zone kiosk-zone__header">
+        <div className="kiosk-header__aura" />
         <div className="kiosk-header__content">
-          <h1 className="kiosk-header__logo">Blossom Café</h1>
+          <div className="kiosk-header__brand">
+            <h1 className="kiosk-header__logo">Blossom Café</h1>
+          </div>
         </div>
       </header>
 
-      <KioskSidebar
-        categories={categories}
-        selectedCategoryId={selectedCategoryId}
-        onCategorySelect={handleCategorySelect}
-        onCheckout={handleCheckout}
-      />
+      <section className="kiosk-zone kiosk-zone__sidebar">
+        <KioskSidebar
+          categories={categories}
+          selectedCategoryId={selectedCategoryId}
+          onCategorySelect={handleCategorySelect}
+          onCheckout={handleCheckout}
+        />
+      </section>
 
-      <main className="kiosk-shell__main kiosk-shell__main--compact">
+      <main className="kiosk-shell__main kiosk-zone kiosk-zone__products">
+        <div className="kiosk-zone__spacer" />
         <div className="kiosk-grid">
           {filteredProducts.length === 0 ? (
             <div className="kiosk-home-screen__empty">

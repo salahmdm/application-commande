@@ -1076,13 +1076,136 @@ const CartDrawer = ({ isOpen, onClose }) => {
       </div>
 
       {/* Modale de sélection du mode de paiement */}
-      {showPaymentModal && (
+      {showPaymentModal && (() => {
+        // ✅ CORRECTION: Utiliser directement les items du hook useCart() qui sont déjà disponibles
+        // Les items sont déjà récupérés via le hook useCart() au début du composant
+        // Utiliser safeItems qui est déjà défini et sécurisé
+        const modalItems = safeItems && safeItems.length > 0 
+          ? safeItems 
+          : (Array.isArray(items) && items.length > 0 
+              ? items 
+              : useCartStore.getState().items || []);
+        
+        logger.debug('🛒 Modal Payment - Items récupérés:', {
+          safeItems: safeItems?.length || 0,
+          hookItems: items?.length || 0,
+          modalItems: modalItems?.length || 0
+        });
+        
+        // ✅ S'assurer que modalItems est toujours un tableau
+        const displayItems = Array.isArray(modalItems) ? modalItems : [];
+        
+        return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[150] p-4 pt-20 md:pt-24 lg:pt-28">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[calc(100vh-5rem-2rem)] md:max-h-[calc(100vh-6rem-2rem)] lg:max-h-[calc(100vh-7rem-2rem)] overflow-y-auto p-6">
-            <h3 className="text-2xl font-heading font-bold text-gray-900 mb-4">
-              Choisir le mode de paiement
-            </h3>
-            <p className="text-gray-600 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-heading font-bold text-gray-900">
+                Récapitulatif de la commande
+              </h3>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="p-2 rounded-xl hover:bg-neutral-100 transition-all duration-200"
+                aria-label="Fermer"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+
+            {/* Liste des produits - Affichage des articles */}
+            {displayItems && displayItems.length > 0 ? (
+              <div className="mb-6 border-b border-gray-200 pb-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                  Articles ({displayItems.length})
+                </h4>
+                <div className="space-y-3 max-h-48 overflow-y-auto">
+                  {displayItems.map((item, index) => {
+                    const itemPrice = parseFloat(item?.price) || 0;
+                    const itemQuantity = parseInt(item?.quantity) || 1;
+                    const itemSubtotal = calculateTTC(itemPrice) * itemQuantity;
+                    const itemName = item?.name || item?.productName || 'Produit sans nom';
+                    const itemImage = item?.image_url || item?.image || null;
+                    const itemId = item?.id || item?.productId || `item-${index}`;
+
+                    return (
+                      <div key={itemId} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        {itemImage ? (
+                          <img
+                            src={itemImage.startsWith('http') ? itemImage : `http://localhost:5000${itemImage}`}
+                            alt={itemName}
+                            className="w-12 h-12 object-cover rounded-lg flex-shrink-0"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              e.target.nextSibling.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        {!itemImage && (
+                          <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <ImageIcon className="w-6 h-6 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {itemName}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Quantité: <span className="font-bold">{itemQuantity}</span>
+                          </p>
+                          <p className="text-sm font-bold text-gray-900 mt-1">
+                            {formatPrice(itemSubtotal, true)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 border-b border-gray-200 pb-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Articles</h4>
+                <p className="text-sm text-gray-500 text-center py-4">Aucun article dans le panier</p>
+              </div>
+            )}
+
+            {/* Récapitulatif des totaux */}
+            <div className="mb-6 border-b border-gray-200 pb-4">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-neutral-600 font-sans">Sous-total TTC</span>
+                  <span className="font-heading font-semibold text-black">{formatPrice(orderTotal.subtotalTTC)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span className="font-sans">dont HT</span>
+                  <span className="font-heading">{formatPrice(orderTotal.subtotalHT)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span className="font-sans">TVA (10%)</span>
+                  <span className="font-heading font-semibold">{formatPrice(orderTotal.tva)}</span>
+                </div>
+                {safeTotalDiscountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-green-600">
+                    <span className="font-sans">Réduction</span>
+                    <span className="font-heading font-semibold">-{formatPrice(safeTotalDiscountAmount * 1.10)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xl font-bold border-t border-gray-300 pt-2 mt-2">
+                  <span>Total TTC</span>
+                  <span className="text-amber-500">{formatPrice(orderTotal.totalTTC)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Type de commande */}
+            {orderType && (
+              <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-600 mb-1">Type de commande</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {orderType === 'dine-in' ? '🍽️ Sur place' : '🥡 À emporter'}
+                </p>
+              </div>
+            )}
+
+            <p className="text-gray-600 mb-6 text-sm">
               Sélectionnez votre mode de paiement pour finaliser la commande
             </p>
             
@@ -1127,7 +1250,8 @@ const CartDrawer = ({ isOpen, onClose }) => {
             </Button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </>
   );
 };

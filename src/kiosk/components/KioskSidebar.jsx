@@ -51,14 +51,13 @@ function KioskSidebar({ categories = [], selectedCategoryId = null, onCategorySe
   };
 
   return (
-    <aside className="kiosk-sidebar kiosk-sidebar--compact">
-      <div className="kiosk-sidebar__halo" />
-      <div className="kiosk-sidebar__title">Catégories</div>
-
+    <aside className="kiosk-sidebar">
       <nav className="kiosk-sidebar__nav">
         {menuCategories.map((category) => {
-          const isActive = selectedCategoryId === category.id || (!selectedCategoryId && category.id === menuCategories[0]?.id);
-          
+          const isActive =
+            selectedCategoryId === category.id ||
+            (!selectedCategoryId && category.id === menuCategories[0]?.id);
+
           return (
             <button
               key={category.id}

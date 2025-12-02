@@ -58,7 +58,7 @@ export default defineConfig({
   build: {
     outDir: 'dist-kitchen',
     sourcemap: false,
-    minify: 'esbuild', // Utiliser esbuild (inclus avec Vite) au lieu de terser
+    minify: 'esbuild',
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index-kitchen.html')

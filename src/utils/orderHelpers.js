@@ -41,19 +41,32 @@ export const getPaymentStatusLabel = (paymentStatus) => {
 };
 
 /**
- * Formater le numéro de commande au format #CMD-XXXX
+ * Formater le numéro de commande (sans préfixe #CMD- et sans zéros à gauche)
  */
 export const formatOrderNumber = (orderNumber, orderId) => {
   if (orderNumber) {
-    // Si le numéro commence déjà par CMD-, ajouter simplement le #
-    if (orderNumber.startsWith('CMD-')) {
-      return `#${orderNumber}`;
+    // Retirer le préfixe #CMD- ou CMD- si présent
+    let formatted = orderNumber.toString();
+    if (formatted.startsWith('#CMD-')) {
+      formatted = formatted.replace('#CMD-', '');
+    } else if (formatted.startsWith('CMD-')) {
+      formatted = formatted.replace('CMD-', '');
+    } else if (formatted.startsWith('#')) {
+      formatted = formatted.replace('#', '');
     }
-    // Sinon, retourner tel quel avec #
-    return `#${orderNumber}`;
+    // Retirer les zéros à gauche (ex: 0001 -> 1, 0020 -> 20, 0100 -> 100)
+    const numValue = parseInt(formatted, 10);
+    if (!isNaN(numValue)) {
+      return numValue.toString();
+    }
+    return formatted;
   }
-  // Si pas de numéro, utiliser l'ID avec le format CMD
-  return `#CMD-${String(orderId || 'XXXX').padStart(4, '0')}`;
+  // Si pas de numéro, utiliser l'ID sans padding
+  const idValue = parseInt(orderId, 10);
+  if (!isNaN(idValue)) {
+    return idValue.toString();
+  }
+  return 'XXXX';
 };
 
 export default {

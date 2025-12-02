@@ -4,15 +4,12 @@ import {
   Minus,
   Plus,
   Trash2,
-  RotateCcw,
   CreditCard,
   Wallet,
   CheckCircle2,
   FileText,
-  Loader2,
   Gift,
   Ticket,
-  ChevronDown,
   ArrowLeft,
   Mail
 } from 'lucide-react';
@@ -32,7 +29,8 @@ const PAYMENT_METHODS = [
 
 const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
 
-const STEP_ORDER = ['gestion', 'terminee'];
+// STEP_ORDER non utilisé (était utilisé par StepIndicator qui a été supprimé)
+// const STEP_ORDER = ['gestion', 'terminee'];
 
 const clampDecimals = (value) => {
   const num = Number.parseFloat(String(value).replace(',', '.'));
@@ -194,61 +192,14 @@ const parsePayments = (order) => {
   return [];
 };
 
-const StepIndicator = ({ current }) => (
-  <div className="flex flex-col items-start sm:flex-row sm:items-center sm:justify-center gap-4 mb-6 w-full">
-    {STEP_ORDER.map((step, index) => {
-      const isActive = current === step;
-      const isCompleted = STEP_ORDER.indexOf(current) > index;
-      const labelMap = {
-        gestion: 'Paiement',
-        terminee: 'Terminé'
-      };
-
-      return (
-        <React.Fragment key={step}>
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-all duration-200 ${
-                isActive
-                  ? 'bg-black text-white shadow-lg'
-                  : isCompleted
-                  ? 'bg-neutral-300 text-neutral-800 border border-neutral-400'
-                  : 'bg-neutral-100 text-neutral-500 border border-neutral-300'
-              }`}
-            >
-              {index + 1}
-            </div>
-            <span
-              className={`text-sm font-semibold ${
-                isActive
-                  ? 'text-black'
-                  : isCompleted
-                  ? 'text-neutral-700'
-                  : 'text-neutral-500'
-              }`}
-            >
-              {labelMap[step]}
-            </span>
-          </div>
-          {index < STEP_ORDER.length - 1 && (
-            <>
-              <div className={`hidden sm:block w-12 h-[2px] ${STEP_ORDER.indexOf(current) > index ? 'bg-black' : 'bg-neutral-300'}`}></div>
-              <div className={`sm:hidden w-[2px] h-8 ${STEP_ORDER.indexOf(current) > index ? 'bg-black' : 'bg-neutral-300'}`}></div>
-            </>
-          )}
-        </React.Fragment>
-      );
-    })}
-  </div>
-);
-
-const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
+const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit: _onSubmit }) => {
   const [step, setStep] = useState('gestion');
   const [items, setItems] = useState([]);
   const [initialItems, setInitialItems] = useState([]);
   const [removedItemIds, setRemovedItemIds] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [initialPayments, setInitialPayments] = useState([]);
+  // initialPayments défini mais non utilisé (était utilisé dans resetPayments qui est commenté)
+  // const [initialPayments, setInitialPayments] = useState([]);
   const [selectedMethod, setSelectedMethod] = useState(null); // ✅ Aucun mode de paiement pré-sélectionné
   const [currentAmountInput, setCurrentAmountInput] = useState('');
   const [notes, setNotes] = useState('');
@@ -330,7 +281,8 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     const clonedItems = finalItems.map(item => ({ ...item }));
     const clonedItemsForInitial = finalItems.map(item => ({ ...item }));
     const clonedPayments = parsedPayments.map(payment => ({ ...payment }));
-    const clonedPaymentsForInitial = parsedPayments.map(payment => ({ ...payment }));
+    // clonedPaymentsForInitial non utilisé (était utilisé pour initialPayments qui est commenté)
+    // const clonedPaymentsForInitial = parsedPayments.map(payment => ({ ...payment }));
 
     // ✅ DEBUG: Logger ce qui sera stocké dans le state
     logger.debug('🔍 PaymentWorkflowModal.resetState - État final:', {
@@ -342,7 +294,7 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     setInitialItems(clonedItemsForInitial);
     setRemovedItemIds([]);
     setPayments(clonedPayments);
-    setInitialPayments(clonedPaymentsForInitial);
+    // setInitialPayments(clonedPaymentsForInitial); // initialPayments est commenté car non utilisé
     setSelectedMethod(null); // ✅ Aucun mode de paiement pré-sélectionné
     setCurrentAmountInput('');
 
@@ -479,28 +431,30 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     ...(businessInfo?.displayPreferences || {})
   }), [businessInfo]);
 
-  const sanitizeValue = useCallback((value) => {
-    if (value === null || value === undefined) return '';
-    return String(value).trim();
-  }, []);
+  // sanitizeValue défini mais non utilisé (était utilisé dans sanitizedBusinessInfo qui est commenté)
+  // const sanitizeValue = useCallback((value) => {
+  //   if (value === null || value === undefined) return '';
+  //   return String(value).trim();
+  // }, []);
 
-  const sanitizedBusinessInfo = useMemo(() => ({
-    name: sanitizeValue(businessInfo?.name),
-    address: sanitizeValue(businessInfo?.address),
-    phone: sanitizeValue(businessInfo?.phone),
-    website: sanitizeValue(businessInfo?.website),
-    customerService: sanitizeValue(businessInfo?.customerService),
-    email: sanitizeValue(businessInfo?.email),
-    siret: sanitizeValue(businessInfo?.siret),
-    vatNumber: sanitizeValue(businessInfo?.vatNumber),
-    legalForm: sanitizeValue(businessInfo?.legalForm),
-    shareCapital: sanitizeValue(businessInfo?.shareCapital),
-    rcs: sanitizeValue(businessInfo?.rcs),
-    paymentMention: sanitizeValue(businessInfo?.paymentMention),
-    legalMentions: sanitizeValue(businessInfo?.legalMentions),
-    returnPolicy: sanitizeValue(businessInfo?.returnPolicy),
-    foodInfo: sanitizeValue(businessInfo?.foodInfo)
-  }), [businessInfo, sanitizeValue]);
+  // sanitizedBusinessInfo calculé mais non utilisé (était utilisé dans ticketLegalLines qui est commenté)
+  // const sanitizedBusinessInfo = useMemo(() => ({
+  //   name: sanitizeValue(businessInfo?.name),
+  //   address: sanitizeValue(businessInfo?.address),
+  //   phone: sanitizeValue(businessInfo?.phone),
+  //   website: sanitizeValue(businessInfo?.website),
+  //   customerService: sanitizeValue(businessInfo?.customerService),
+  //   email: sanitizeValue(businessInfo?.email),
+  //   siret: sanitizeValue(businessInfo?.siret),
+  //   vatNumber: sanitizeValue(businessInfo?.vatNumber),
+  //   legalForm: sanitizeValue(businessInfo?.legalForm),
+  //   shareCapital: sanitizeValue(businessInfo?.shareCapital),
+  //   rcs: sanitizeValue(businessInfo?.rcs),
+  //   paymentMention: sanitizeValue(businessInfo?.paymentMention),
+  //   legalMentions: sanitizeValue(businessInfo?.legalMentions),
+  //   returnPolicy: sanitizeValue(businessInfo?.returnPolicy),
+  //   foodInfo: sanitizeValue(businessInfo?.foodInfo)
+  // }), [businessInfo, sanitizeValue]);
 
   const totals = useMemo(() => {
     // ✅ Debug: Vérifier les données du code promo dans la commande
@@ -572,141 +526,150 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
       change,
       itemCount
     };
-  }, [items, payments, order?.discount_amount, order?.tax_amount, appliedPromo]);
+  }, [items, payments, order, appliedPromo]);
 
-  const ticketTaxDetails = useMemo(() => {
-    return items.reduce((acc, item) => {
-      const parsedRate = typeof item.taxRate === 'number' ? item.taxRate : Number.parseFloat(item.taxRate);
-      const rate = Number.isFinite(parsedRate) ? parsedRate : 20;
-      const roundedRate = Math.round(rate * 10) / 10;
-      const key = roundedRate.toFixed(1);
-      if (!acc[key]) {
-        acc[key] = { base: 0, tax: 0 };
-      }
-      const lineTotal = clampDecimals(item.unitPrice * item.quantity);
-      const baseHT = clampDecimals(lineTotal / (1 + rate / 100));
-      const taxAmount = clampDecimals(lineTotal - baseHT);
-      acc[key].base = clampDecimals(acc[key].base + baseHT);
-      acc[key].tax = clampDecimals(acc[key].tax + taxAmount);
-      return acc;
-    }, {});
-  }, [items]);
+  // ticketTaxDetails calculé mais non utilisé (était utilisé dans ticketTaxEntries qui est commenté)
+  // const ticketTaxDetails = useMemo(() => {
+  //   return items.reduce((acc, item) => {
+  //     const parsedRate = typeof item.taxRate === 'number' ? item.taxRate : Number.parseFloat(item.taxRate);
+  //     const rate = Number.isFinite(parsedRate) ? parsedRate : 20;
+  //     const roundedRate = Math.round(rate * 10) / 10;
+  //     const key = roundedRate.toFixed(1);
+  //     if (!acc[key]) {
+  //       acc[key] = { base: 0, tax: 0 };
+  //     }
+  //     const lineTotal = clampDecimals(item.unitPrice * item.quantity);
+  //     const baseHT = clampDecimals(lineTotal / (1 + rate / 100));
+  //     const taxAmount = clampDecimals(lineTotal - baseHT);
+  //     acc[key].base = clampDecimals(acc[key].base + baseHT);
+  //     acc[key].tax = clampDecimals(acc[key].tax + taxAmount);
+  //     return acc;
+  //   }, {});
+  // }, [items]);
 
-  const ticketTaxEntries = useMemo(() => {
-    return Object.entries(ticketTaxDetails)
-      .map(([rate, data]) => {
-        const rateValue = Number.parseFloat(rate);
-        let label = `TVA ${rate}%`;
-        if (rateValue >= 9 && rateValue <= 11) {
-          label = 'TVA 10% (Restauration)';
-        } else if (rateValue <= 6) {
-          label = 'TVA 5,5% (Boissons)';
-        } else if (rateValue >= 19) {
-          label = 'TVA 20%';
-        }
-        return {
-          label,
-          base: clampDecimals(data.base),
-          tax: clampDecimals(data.tax),
-          rateValue
-        };
-      })
-      .filter((entry) => entry.base > 0 || entry.tax > 0)
-      .sort((a, b) => b.rateValue - a.rateValue);
-  }, [ticketTaxDetails]);
+  // ticketTaxEntries calculé mais non utilisé actuellement
+  // const ticketTaxEntries = useMemo(() => {
+  //   return Object.entries(ticketTaxDetails)
+  //     .map(([rate, data]) => {
+  //       const rateValue = Number.parseFloat(rate);
+  //       let label = `TVA ${rate}%`;
+  //       if (rateValue >= 9 && rateValue <= 11) {
+  //         label = 'TVA 10% (Restauration)';
+  //       } else if (rateValue <= 6) {
+  //         label = 'TVA 5,5% (Boissons)';
+  //       } else if (rateValue >= 19) {
+  //         label = 'TVA 20%';
+  //       }
+  //       return {
+  //         label,
+  //         base: clampDecimals(data.base),
+  //         tax: clampDecimals(data.tax),
+  //         rateValue
+  //       };
+  //     })
+  //     .filter((entry) => entry.base > 0 || entry.tax > 0)
+  //     .sort((a, b) => b.rateValue - a.rateValue);
+  // }, [ticketTaxDetails]);
 
-  const ticketLegalLines = useMemo(() => {
-    const lines = [];
-    if (!businessInfo) return lines;
+  // ticketLegalLines calculé mais non utilisé actuellement
+  // const ticketLegalLines = useMemo(() => {
+  //   const lines = [];
+  //   if (!businessInfo) return lines;
+  //
+  //   if (ticketDisplay.showLegalForm && sanitizedBusinessInfo.legalForm) {
+  //     lines.push(
+  //       `${sanitizedBusinessInfo.legalForm}${
+  //         sanitizedBusinessInfo.shareCapital ? ` - Capital : ${sanitizedBusinessInfo.shareCapital}` : ''
+  //       }`
+  //     );
+  //   } else if (ticketDisplay.showLegalForm && sanitizedBusinessInfo.shareCapital) {
+  //     lines.push(`Capital : ${sanitizedBusinessInfo.shareCapital}`);
+  //   }
+  //
+  //   if (ticketDisplay.showRcs && sanitizedBusinessInfo.rcs) {
+  //     lines.push(`RCS : ${sanitizedBusinessInfo.rcs}`);
+  //   }
+  //   if (ticketDisplay.showPaymentMention && sanitizedBusinessInfo.paymentMention) {
+  //     lines.push(sanitizedBusinessInfo.paymentMention);
+  //   }
+  //   if (ticketDisplay.showLegalMentions && sanitizedBusinessInfo.legalMentions) {
+  //     lines.push(sanitizedBusinessInfo.legalMentions);
+  //   }
+  //   if (ticketDisplay.showReturnPolicy && sanitizedBusinessInfo.returnPolicy) {
+  //     lines.push(sanitizedBusinessInfo.returnPolicy);
+  //   }
+  //   if (ticketDisplay.showFoodInfo && sanitizedBusinessInfo.foodInfo) {
+  //     lines.push(sanitizedBusinessInfo.foodInfo);
+  //   }
+  //   if (ticketDisplay.showCustomerService && sanitizedBusinessInfo.customerService) {
+  //     lines.push(`Service client : ${sanitizedBusinessInfo.customerService}`);
+  //   }
+  //   if (ticketDisplay.showWebsite && sanitizedBusinessInfo.website) {
+  //     lines.push(`Site web : ${sanitizedBusinessInfo.website}`);
+  //   }
+  //   if (ticketDisplay.showEmail && sanitizedBusinessInfo.email) {
+  //     lines.push(`Email : ${sanitizedBusinessInfo.email}`);
+  //   }
+  //   return lines;
+  // }, [businessInfo, sanitizedBusinessInfo, ticketDisplay]);
 
-    if (ticketDisplay.showLegalForm && sanitizedBusinessInfo.legalForm) {
-      lines.push(
-        `${sanitizedBusinessInfo.legalForm}${
-          sanitizedBusinessInfo.shareCapital ? ` - Capital : ${sanitizedBusinessInfo.shareCapital}` : ''
-        }`
-      );
-    } else if (ticketDisplay.showLegalForm && sanitizedBusinessInfo.shareCapital) {
-      lines.push(`Capital : ${sanitizedBusinessInfo.shareCapital}`);
-    }
-
-    if (ticketDisplay.showRcs && sanitizedBusinessInfo.rcs) {
-      lines.push(`RCS : ${sanitizedBusinessInfo.rcs}`);
-    }
-    if (ticketDisplay.showPaymentMention && sanitizedBusinessInfo.paymentMention) {
-      lines.push(sanitizedBusinessInfo.paymentMention);
-    }
-    if (ticketDisplay.showLegalMentions && sanitizedBusinessInfo.legalMentions) {
-      lines.push(sanitizedBusinessInfo.legalMentions);
-    }
-    if (ticketDisplay.showReturnPolicy && sanitizedBusinessInfo.returnPolicy) {
-      lines.push(sanitizedBusinessInfo.returnPolicy);
-    }
-    if (ticketDisplay.showFoodInfo && sanitizedBusinessInfo.foodInfo) {
-      lines.push(sanitizedBusinessInfo.foodInfo);
-    }
-    if (ticketDisplay.showCustomerService && sanitizedBusinessInfo.customerService) {
-      lines.push(`Service client : ${sanitizedBusinessInfo.customerService}`);
-    }
-    if (ticketDisplay.showWebsite && sanitizedBusinessInfo.website) {
-      lines.push(`Site web : ${sanitizedBusinessInfo.website}`);
-    }
-    if (ticketDisplay.showEmail && sanitizedBusinessInfo.email) {
-      lines.push(`Email : ${sanitizedBusinessInfo.email}`);
-    }
-    return lines;
-  }, [businessInfo, sanitizedBusinessInfo, ticketDisplay]);
-
-  const amountPaid = clampDecimals(totals.amountPaid);
-  const changeAmount = clampDecimals(totals.change);
+  // amountPaid et changeAmount calculés mais non utilisés (utiliser totals.amountPaid et totals.change directement)
+  // const amountPaid = clampDecimals(totals.amountPaid);
+  // const changeAmount = clampDecimals(totals.change);
   const mainPayment = payments.length > 0 ? payments[payments.length - 1] : null;
-  const paymentMethodLabels = {
-    cash: 'Espèces',
-    card: 'Carte bancaire',
-    stripe: 'Carte bancaire',
-    paypal: 'PayPal',
-    mixed: 'Paiement mixte',
-    voucher: 'Bon / chèque cadeau',
-    other: 'Autre',
-    check: 'Chèque',
-    transfer: 'Virement'
-  };
-  const displayedPaymentMethod = mainPayment ? (paymentMethodLabels[mainPayment.method] || mainPayment.method) : '—';
+  // paymentMethodLabels défini mais non utilisé (était utilisé dans displayedPaymentMethod qui est commenté)
+  // const paymentMethodLabels = {
+  //   cash: 'Espèces',
+  //   card: 'Carte bancaire',
+  //   stripe: 'Carte bancaire',
+  //   paypal: 'PayPal',
+  //   mixed: 'Paiement mixte',
+  //   voucher: 'Bon / chèque cadeau',
+  //   other: 'Autre',
+  //   check: 'Chèque',
+  //   transfer: 'Virement'
+  // };
+  // displayedPaymentMethod calculé mais non utilisé
+  // const displayedPaymentMethod = mainPayment ? (paymentMethodLabels[mainPayment.method] || mainPayment.method) : '—';
   const authorizationNumber = mainPayment?.reference || order?.payment_reference || order?.paymentReference || '—';
 
-  const loyaltyPointsEarned = useMemo(() => {
-    const raw =
-      order?.loyalty_points_earned ??
-      order?.loyaltyPointsEarned ??
-      order?.rewards_points ??
-      order?.pointsEarned ??
-      0;
-    return clampDecimals(raw);
-  }, [order]);
+  // loyaltyPointsEarned et loyaltyPointsTotal calculés mais non utilisés
+  // const loyaltyPointsEarned = useMemo(() => {
+  //   const raw =
+  //     order?.loyalty_points_earned ??
+  //     order?.loyaltyPointsEarned ??
+  //     order?.rewards_points ??
+  //     order?.pointsEarned ??
+  //     0;
+  //   return clampDecimals(raw);
+  // }, [order]);
+  //
+  // const loyaltyPointsTotal = useMemo(() => {
+  //   const raw =
+  //     order?.loyalty_points_total ??
+  //     order?.loyaltyPointsTotal ??
+  //     order?.customer_points_total ??
+  //     order?.customerPointsTotal ??
+  //     0;
+  //   return clampDecimals(raw);
+  // }, [order]);
 
-  const loyaltyPointsTotal = useMemo(() => {
-    const raw =
-      order?.loyalty_points_total ??
-      order?.loyaltyPointsTotal ??
-      order?.customer_points_total ??
-      order?.customerPointsTotal ??
-      0;
-    return clampDecimals(raw);
-  }, [order]);
+  // createdAtDate calculé mais non utilisé (était utilisé dans formattedDate et formattedTime qui sont commentés)
+  // const createdAtDate = useMemo(() => {
+  //   if (!order) return null;
+  //   const rawDate = order.completed_at || order.updated_at || order.created_at || order.createdAt;
+  //   if (!rawDate) return null;
+  //   const date = new Date(rawDate);
+  //   return Number.isNaN(date.getTime()) ? null : date;
+  // }, [order]);
 
-  const createdAtDate = useMemo(() => {
-    if (!order) return null;
-    const rawDate = order.completed_at || order.updated_at || order.created_at || order.createdAt;
-    if (!rawDate) return null;
-    const date = new Date(rawDate);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }, [order]);
-
-  const formattedDate = createdAtDate
-    ? createdAtDate.toLocaleDateString('fr-FR')
-    : '—';
-  const formattedTime = createdAtDate
-    ? createdAtDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : '—';
+  // formattedDate et formattedTime calculés mais non utilisés
+  // const formattedDate = createdAtDate
+  //   ? createdAtDate.toLocaleDateString('fr-FR')
+  //   : '—';
+  // const formattedTime = createdAtDate
+  //   ? createdAtDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  //   : '—';
 
   const formattedOrderNumber = formatOrderNumber(order?.order_number || order?.orderNumber, order?.id);
 
@@ -749,17 +712,18 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     setRemovedItemIds((prev) => (prev.includes(itemId) ? prev : [...prev, itemId]));
   };
 
-  const resetArticles = () => {
-    setItems(initialItems.map((item) => ({ ...item })));
-    setRemovedItemIds([]);
-  };
-
-  const resetPayments = () => {
-    setPayments(initialPayments.map((payment) => ({ ...payment })));
-    setCurrentAmountInput('');
-    setError(null);
-    setAppliedPromo(null);
-  };
+  // resetArticles et resetPayments définis mais non utilisés
+  // const resetArticles = () => {
+  //   setItems(initialItems.map((item) => ({ ...item })));
+  //   setRemovedItemIds([]);
+  // };
+  //
+  // const resetPayments = () => {
+  //   setPayments(initialPayments.map((payment) => ({ ...payment })));
+  //   setCurrentAmountInput('');
+  //   setError(null);
+  //   setAppliedPromo(null);
+  // };
 
   const handleKeypadInput = (value) => {
     setCurrentAmountInput((prev) => {
@@ -996,97 +960,98 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     setPayments((prev) => prev.filter((payment) => payment.tempId !== tempId));
   };
 
-  const handleFinalize = async () => {
-    // ✅ PROTECTION IMMÉDIATE contre les double-clics
-    if (submitting) {
-      logger.warn('⚠️ handleFinalize - Tentative de double-clic, ignorée');
-      return;
-    }
-
-    if (!order) return;
-
-    if (items.length === 0) {
-      setError('Impossible de finaliser une commande sans article.');
-      return;
-    }
-
-    // ✅ Définir submitting AVANT toute opération async
-    setError(null);
-    setSubmitting(true);
-
-    try {
-      const payload = {
-        orderId: order.id,
-        orderNumber: order.order_number,
-        items: items.map((item) => ({
-          id: item.id,
-          productId: item.productId,
-          quantity: clampDecimals(item.quantity),
-          unitPrice: clampDecimals(item.unitPrice),
-          subtotal: clampDecimals(item.quantity * item.unitPrice)
-        })),
-        removedItemIds,
-        payments: payments.map((payment) => ({
-          method: payment.method,
-          amount: clampDecimals(payment.amount),
-          reference: payment.reference || null
-        })),
-        totals: {
-          subtotal: totals.subtotal,
-          discount: totals.discount,
-          promoDiscount: totals.promoDiscount || 0,
-          tax: totals.tax,
-          total: totals.total,
-          amountPaid: totals.amountPaid,
-          remaining: totals.remaining,
-          change: totals.change
-        },
-        appliedPromo: appliedPromo ? {
-          label: appliedPromo.label,
-          discountType: appliedPromo.discountType,
-          discountValue: appliedPromo.discountValue
-        } : null,
-        notes,
-        statusNext: 'preparing'
-      };
-
-      logger.debug('✅ handleFinalize - Envoi du payload:', {
-        orderId: order.id,
-        itemsCount: items.length,
-        paymentsCount: payments.length,
-        total: totals.total,
-        amountPaid: totals.amountPaid
-      });
-
-      const result = await onSubmit(payload);
-
-      logger.debug('✅ handleFinalize - Résultat reçu:', {
-        success: result?.success,
-        hasError: !!result?.error,
-        hasData: !!result?.data || !!result?.updatedOrder
-      });
-
-      if (result?.success === false) {
-        const errorMessage = result?.error || 'Erreur lors de la finalisation du paiement.';
-        logger.error('❌ handleFinalize - Erreur dans la réponse:', errorMessage);
-        setError(errorMessage);
-        setSubmitting(false);
-        return;
-      }
-
-      logger.debug('✅ handleFinalize - Succès, fermeture de la modal');
-      onClose(result?.updatedOrder || null);
-    } catch (err) {
-      logger.error('❌ handleFinalize - Exception:', {
-        message: err.message,
-        stack: err.stack,
-        name: err.name,
-        orderId: order?.id
-      });
-      setError(err.message || 'Impossible de finaliser le paiement.');
-      setSubmitting(false);
-    }
-  };
+  // handleFinalize défini mais non utilisé
+  // const handleFinalize = async () => {
+  //   // ✅ PROTECTION IMMÉDIATE contre les double-clics
+  //   if (submitting) {
+  //     logger.warn('⚠️ handleFinalize - Tentative de double-clic, ignorée');
+  //     return;
+  //   }
+  //
+  //   if (!order) return;
+  //
+  //   if (items.length === 0) {
+  //     setError('Impossible de finaliser une commande sans article.');
+  //     return;
+  //   }
+  //
+  //   // ✅ Définir submitting AVANT toute opération async
+  //   setError(null);
+  //   setSubmitting(true);
+  //
+  //   try {
+  //     const payload = {
+  //       orderId: order.id,
+  //       orderNumber: order.order_number,
+  //       items: items.map((item) => ({
+  //         id: item.id,
+  //         productId: item.productId,
+  //         quantity: clampDecimals(item.quantity),
+  //         unitPrice: clampDecimals(item.unitPrice),
+  //         subtotal: clampDecimals(item.quantity * item.unitPrice)
+  //       })),
+  //       removedItemIds,
+  //       payments: payments.map((payment) => ({
+  //         method: payment.method,
+  //         amount: clampDecimals(payment.amount),
+  //         reference: payment.reference || null
+  //       })),
+  //       totals: {
+  //         subtotal: totals.subtotal,
+  //         discount: totals.discount,
+  //         promoDiscount: totals.promoDiscount || 0,
+  //         tax: totals.tax,
+  //         total: totals.total,
+  //         amountPaid: totals.amountPaid,
+  //         remaining: totals.remaining,
+  //         change: totals.change
+  //       },
+  //       appliedPromo: appliedPromo ? {
+  //         label: appliedPromo.label,
+  //         discountType: appliedPromo.discountType,
+  //         discountValue: appliedPromo.discountValue
+  //       } : null,
+  //       notes,
+  //       statusNext: 'preparing'
+  //     };
+  //
+  //     logger.debug('✅ handleFinalize - Envoi du payload:', {
+  //       orderId: order.id,
+  //       itemsCount: items.length,
+  //       paymentsCount: payments.length,
+  //       total: totals.total,
+  //       amountPaid: totals.amountPaid
+  //     });
+  //
+  //     const result = await onSubmit(payload);
+  //
+  //     logger.debug('✅ handleFinalize - Résultat reçu:', {
+  //       success: result?.success,
+  //       hasError: !!result?.error,
+  //       hasData: !!result?.data || !!result?.updatedOrder
+  //     });
+  //
+  //     if (result?.success === false) {
+  //       const errorMessage = result?.error || 'Erreur lors de la finalisation du paiement.';
+  //       logger.error('❌ handleFinalize - Erreur dans la réponse:', errorMessage);
+  //       setError(errorMessage);
+  //       setSubmitting(false);
+  //       return;
+  //     }
+  //
+  //     logger.debug('✅ handleFinalize - Succès, fermeture de la modal');
+  //     onClose(result?.updatedOrder || null);
+  //   } catch (err) {
+  //     logger.error('❌ handleFinalize - Exception:', {
+  //       message: err.message,
+  //       stack: err.stack,
+  //       name: err.name,
+  //       orderId: order?.id
+  //     });
+  //     setError(err.message || 'Impossible de finaliser le paiement.');
+  //     setSubmitting(false);
+  //   }
+  // };
 
   const handleClose = () => {
     if (submitting) return;
@@ -1150,7 +1115,8 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
     ['.', '0', 'DEL']
   ];
 
-  const canProceedToSummary = items.length > 0 && payments.length > 0 && totals.amountPaid >= totals.total;
+  // canProceedToSummary calculé mais non utilisé
+  // const canProceedToSummary = items.length > 0 && payments.length > 0 && totals.amountPaid >= totals.total;
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -1409,7 +1375,8 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
                   {/* ✅ RÈGLES DE PAIEMENT: Boutons conditionnels selon le montant saisi */}
                   {(() => {
                     const currentAmount = clampDecimals(currentAmountInput || 0);
-                    const isAmountLessThanRemaining = currentAmount > 0 && currentAmount < totals.remaining;
+                    // isAmountLessThanRemaining calculé mais non utilisé
+                    // const isAmountLessThanRemaining = currentAmount > 0 && currentAmount < totals.remaining;
                     const isAmountGreaterOrEqual = currentAmount >= totals.remaining && totals.remaining > 0;
                     
                     return (
@@ -1646,7 +1613,8 @@ const PaymentWorkflowModal = ({ isOpen, order, onClose, onSubmit }) => {
                         {(() => {
                           // ✅ Vérifier plusieurs sources pour le code promo
                           const promoCode = order?.promo_code || order?.promoCode || null;
-                          const promoCodeId = order?.promo_code_id || order?.promoCodeId || null;
+                          // promoCodeId calculé mais non utilisé dans cette IIFE
+                          // const promoCodeId = order?.promo_code_id || order?.promoCodeId || null;
                           const discountAmount = parseFloat(order?.discount_amount || order?.discountAmount || totals?.discount || 0);
                           const promoDiscountType = order?.promo_discount_type || order?.promoDiscountType || null;
                           const promoDiscountValue = order?.promo_discount_value || order?.promoDiscountValue || null;

@@ -130,10 +130,11 @@ const config = {
   // CORS Configuration
   // ✅ Port 3000: Application principale (App.jsx)
   // ✅ Port 3010: Kiosk (KioskApp.jsx)
+  // ✅ Port 3050: Écran de Cuisine (KitchenApp.jsx)
   cors: {
     origins: (process.env.CORS_ORIGINS ? 
       process.env.CORS_ORIGINS.split(',') : 
-      ['http://localhost:3000', 'http://localhost:3010']).map(origin => origin.replace(/\/$/, '')),
+      ['http://localhost:3000', 'http://localhost:3010', 'http://localhost:3050']).map(origin => origin.replace(/\/$/, '')),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']

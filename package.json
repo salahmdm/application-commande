@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite --port 3000 --strictPort",
     "dev:kiosk": "vite --config vite.config.kiosk.js",
+    "dev:kitchen": "vite --config vite.config.kitchen.js",
     "build": "vite build",
     "build:kiosk": "vite build --config vite.config.kiosk.js",
+    "build:kitchen": "vite build --config vite.config.kitchen.js",
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "backend": "node database/admin-api.js",

@@ -1,0 +1,762 @@
+/* ============================================
+   Écran de Cuisine - Styles Modernes
+   ============================================ */
+
+.kitchen-app {
+  min-height: 100vh;
+  background: #52525b; /* Style tablette : fond gris uniforme */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #ffffff;
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.kitchen-header {
+  background: #52525b;
+  border-bottom: none;
+  padding: 1rem 1.5rem;
+  box-shadow: none;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+.kitchen-header-content {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .kitchen-header-content {
+    padding: 0;
+    min-height: 0;
+  }
+}
+
+.kitchen-header-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.kitchen-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #ffffff;
+}
+
+.kitchen-title-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  color: #ffffff;
+}
+
+.kitchen-time {
+  display: none; /* Masquée comme dans le style tablette fourni */
+}
+
+.kitchen-header-right {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.kitchen-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.kitchen-stats {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+}
+
+.kitchen-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  white-space: nowrap;
+  transition: none;
+  height: auto;
+  min-width: auto;
+}
+
+.kitchen-stat:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.kitchen-stat-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #ffffff;
+  text-align: left;
+}
+
+.kitchen-stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  text-align: center;
+  margin-right: 0.25rem;
+}
+
+.kitchen-stat-pending {
+  border-color: transparent;
+}
+
+.kitchen-stat-preparing {
+  border-color: transparent;
+}
+
+.kitchen-stat-ready {
+  border-color: transparent;
+}
+
+.kitchen-stat-pending .kitchen-stat-value,
+.kitchen-stat-preparing .kitchen-stat-value,
+.kitchen-stat-ready .kitchen-stat-value {
+  color: #ffffff;
+}
+
+.kitchen-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(15, 23, 42, 0.5);
+  border-radius: 0.75rem;
+  color: #10b981;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.kitchen-refresh-btn:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 1);
+  border-color: rgba(15, 23, 42, 0.8);
+  transform: scale(1.05);
+}
+
+.kitchen-refresh-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.kitchen-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kitchen-refresh-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.kitchen-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.625rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(15, 23, 42, 0.5);
+  border-radius: 1rem;
+  color: #f1f5f9;
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  min-height: 3.5rem;
+  height: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.kitchen-action-btn:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 1);
+  border-color: rgba(15, 23, 42, 0.8);
+  color: #10b981;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.kitchen-action-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.kitchen-action-btn-active {
+  background: rgba(30, 41, 59, 1);
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3), 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.kitchen-action-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.kitchen-auto-refresh-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(16, 185, 129, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 0.75rem;
+  color: #10b981;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.kitchen-auto-refresh-indicator:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.kitchen-auto-refresh-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  transition: transform 0.3s ease;
+}
+
+.kitchen-auto-refresh-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.kitchen-auto-refresh-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* ============================================
+   Main Content
+   ============================================ */
+
+.kitchen-main {
+  width: 100%;
+  margin: 0;
+  padding: 0 0.5rem; /* Léger espace à gauche et à droite */
+  box-sizing: border-box;
+  max-width: 100%; /* MODIFIÉ : était 1920px, maintenant 100% pour utiliser toute la largeur */
+  overflow: hidden; /* INTERDICTION FORMELLE DE SCROLL */
+  overflow-y: hidden; /* INTERDICTION FORMELLE DE SCROLL VERTICAL */
+  overflow-x: hidden; /* INTERDICTION FORMELLE DE SCROLL HORIZONTAL */
+}
+
+.kitchen-loading,
+.kitchen-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 1.5rem;
+  color: #94a3b8;
+}
+
+.kitchen-loading-icon,
+.kitchen-empty-icon {
+  width: 4rem;
+  height: 4rem;
+  opacity: 0.5;
+  color: #10b981;
+}
+
+.kitchen-loading p,
+.kitchen-empty p {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+/* ============================================
+   Orders Container - Système 2 zones (50% hauteur chacune)
+   ============================================ */
+
+.kitchen-orders-container {
+  width: 100%;
+  height: calc(100vh - 180px);
+  overflow-y: hidden; /* Toujours interdit de slider verticalement */
+  overflow-x: auto;  /* Autorisé à slider vers la droite pour voir les autres commandes si besoin */
+  padding: 0; /* Pas d'espace à gauche et à droite - les commandes commencent directement au bord */
+  margin: 0; /* AJOUTÉ : pas de margin pour que les commandes touchent les bords */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;        /* Une seule rangée horizontale */
+  gap: 0.5rem; /* Espace entre les commandes */
+  align-items: flex-start; /* Les tickets s'adaptent à leur contenu, pas étirés */
+  justify-content: flex-start; /* Première commande à gauche, on slide vers la droite */
+  position: relative; /* Pour les indicateurs de scroll */
+  /* Masquer la barre de défilement native */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE et Edge */
+}
+
+/* Masquer la barre de défilement WebKit (Chrome, Safari) */
+.kitchen-orders-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Indicateurs de scroll - Flèches travaillées et visibles */
+.kitchen-scroll-indicator {
+  position: fixed;
+  bottom: 2rem;
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, rgba(82, 82, 91, 0.95), rgba(63, 63, 70, 0.95));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.kitchen-scroll-indicator:hover {
+  background: linear-gradient(135deg, rgba(82, 82, 91, 1), rgba(63, 63, 70, 1));
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.kitchen-scroll-indicator:active {
+  transform: scale(0.95);
+}
+
+.kitchen-scroll-indicator-left {
+  left: 2rem;
+}
+
+.kitchen-scroll-indicator-right {
+  right: 2rem;
+}
+
+.kitchen-scroll-indicator.visible {
+  opacity: 1;
+  pointer-events: auto;
+  animation: fadeInSlide 0.4s ease-out;
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Style spécifique pour la flèche gauche */
+.kitchen-scroll-indicator-left svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 3;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* Style spécifique pour la flèche droite */
+.kitchen-scroll-indicator-right svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 3;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.kitchen-orders-zone {
+  display: none; /* Ancien système 2 zones désactivé */
+}
+
+.kitchen-orders-zone-1 {
+  /* Zone 1 - Première moitié */
+}
+
+.kitchen-orders-zone-2 {
+  /* Zone 2 - Deuxième moitié */
+}
+
+/* ============================================
+   Order Card
+   ============================================ */
+
+.kitchen-order-card {
+  background: #d4d4d8; /* Gris clair comme le style tablette */
+  border-radius: 1rem;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* INTERDICTION FORMELLE DE SCROLL */
+  overflow-y: hidden; /* INTERDICTION FORMELLE DE SCROLL VERTICAL */
+  overflow-x: hidden; /* INTERDICTION FORMELLE DE SCROLL HORIZONTAL */
+  transition: none;
+  border-width: 3px; /* Bordure plus marquée type tablette */
+  border-style: solid;
+  border-right: none; /* Pas de bordure à droite */
+  width: 312px; /* Augmenté de 20% : 260px * 1.2 = 312px */
+  min-width: 312px;
+  max-width: 312px;
+  height: auto;
+  max-height: 100%;
+  flex-shrink: 0;
+}
+
+.kitchen-order-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.kitchen-order-card.urgent {
+  border-color: #ef4444;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 10px 25px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 10px 25px rgba(239, 68, 68, 0.6);
+  }
+}
+
+.kitchen-order-header {
+  background: #1e293b;
+  color: #ffffff;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+  position: relative;
+  padding-bottom: 0.3rem;
+  flex-shrink: 0;
+}
+
+.kitchen-order-number-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kitchen-order-number {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+  text-align: center;
+}
+
+.kitchen-order-customer {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kitchen-order-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f3f4f6;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kitchen-order-badge.delivery {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.kitchen-order-badge.takeout {
+  background: #fed7aa;
+  color: #92400e;
+}
+
+.kitchen-order-badge.dine-in {
+  background: #dbeafe;
+  color: #0c2d6b;
+}
+
+.kitchen-order-items {
+  padding: 1rem;
+  flex: 1 1 auto;
+  overflow: hidden; /* INTERDICTION FORMELLE DE SCROLL */
+  overflow-y: hidden; /* INTERDICTION FORMELLE DE SCROLL VERTICAL */
+  overflow-x: hidden; /* INTERDICTION FORMELLE DE SCROLL HORIZONTAL */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Suppression de tous les styles de scrollbar - INTERDICTION FORMELLE */
+
+.kitchen-order-item {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.kitchen-order-item-quantity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  background: #1e293b;
+  color: #ffffff;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.kitchen-order-item-content {
+  flex: 1;
+}
+
+.kitchen-order-item-name {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.kitchen-order-item-instructions {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  color: #78350f;
+  font-weight: 500;
+}
+
+.kitchen-order-footer {
+  background: #f8fafc;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.kitchen-order-time {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.kitchen-order-time.normal {
+  background: #dbeafe;
+  color: #0c2d6b;
+}
+
+.kitchen-order-time.urgent {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.kitchen-order-time-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.kitchen-order-timestamp {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.kitchen-order-action-btn {
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  margin-top: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.kitchen-order-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  filter: brightness(1.05);
+}
+
+.kitchen-order-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.kitchen-order-action-btn.pending {
+  background: #2563eb;
+}
+
+.kitchen-order-action-btn.pending:hover {
+  background: #1d4ed8;
+}
+
+.kitchen-order-action-btn.preparing {
+  background: #059669;
+}
+
+.kitchen-order-action-btn.preparing:hover {
+  background: #047857;
+}
+
+.kitchen-order-action-btn.ready {
+  background: #64748b;
+}
+
+.kitchen-order-action-btn.ready:hover {
+  background: #475569;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 1400px) {
+  .kitchen-orders-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .kitchen-header {
+    min-height: auto;
+  }
+
+  .kitchen-header-content {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .kitchen-title {
+    font-size: 1.5rem;
+  }
+
+  .kitchen-header-right {
+    width: 100%;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .kitchen-stats {
+    flex: 1;
+    width: 100%;
+  }
+
+  .kitchen-main {
+    padding: 1rem;
+  }
+
+  .kitchen-order-card {
+    max-height: 70vh;
+  }
+}
+
+@media print {
+  .kitchen-header {
+    background: #020617;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .kitchen-refresh-btn {
+    display: none;
+  }
+}

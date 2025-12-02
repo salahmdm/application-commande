@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Meta Tags pour l'Écran de Cuisine -->
+    <meta name="theme-color" content="#dc2626" />
+    <meta name="description" content="Blossom Café - Écran de cuisine" />
+    
+    <!-- Fonts - Typographie moderne Blossom Café -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Nunito:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Vite HMR client -->
+    <script type="module" src="/@vite/client"></script>
+
+    <!-- React Fast Refresh preamble (requis par @vitejs/plugin-react) -->
+    <script type="module">
+      import RefreshRuntime from '/@react-refresh';
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+
+    <title>Blossom Café - Écran de Cuisine</title>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Message de débogage temporaire -->
+      <div style="padding: 20px; background: #f0f0f0; text-align: center;">
+        <p>Chargement de l'Écran de Cuisine Blossom Café...</p>
+        <p style="font-size: 12px; color: #666;">Si ce message persiste, vérifiez la console (F12)</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main-kitchen.jsx"></script>
+  </body>
+</html>
+

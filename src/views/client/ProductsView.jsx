@@ -268,39 +268,24 @@ const ProductsView = () => {
       <Modal
         isOpen={!!selectedProduct}
         onClose={() => setSelectedProduct(null)}
-        title={selectedProduct?.name}
+        title=""
         size="sm"
       >
         {selectedProduct && (
           <div className="space-y-4">
+            {/* Nom du produit */}
             <div className="text-center">
-              {/* Grande image dans modal */}
-              <div className="w-full max-w-sm mx-auto aspect-square rounded-2xl overflow-hidden mb-5 border-2 border-neutral-200 shadow-soft">
-                {selectedProduct.image_url ? (
-                  <img 
-                    src={`http://localhost:5000${selectedProduct.image_url}`}
-                    alt={selectedProduct.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-neutral-100 flex items-center justify-center">
-                    {selectedProduct.image ? (
-                      <span className="text-9xl">{selectedProduct.image}</span>
-                    ) : (
-                      <ImageIcon className="w-24 h-24 text-neutral-400" />
-                    )}
-                  </div>
-                )}
-              </div>
-              <h3 className="text-2xl font-heading font-bold mb-2 text-black">{selectedProduct.name}</h3>
-              <p className="text-neutral-600 mb-4 font-sans text-base">{selectedProduct.description}</p>
-              <div className="mb-5 bg-neutral-100 p-4 rounded-2xl border-2 border-neutral-200 shadow-soft">
-                <div className="text-3xl font-heading font-bold text-black">
-                  {formatPrice(calculateTTC(selectedProduct.price))}
-                </div>
+              <h3 className="text-2xl font-heading font-bold mb-4 text-black">{selectedProduct.name}</h3>
+            </div>
+            
+            {/* Prix */}
+            <div className="bg-neutral-100 p-4 rounded-2xl border-2 border-neutral-200 shadow-soft">
+              <div className="text-3xl font-heading font-bold text-black text-center">
+                {formatPrice(calculateTTC(selectedProduct.price))}
               </div>
             </div>
             
+            {/* Ingrédients */}
             <div className="bg-neutral-100 p-4 rounded-2xl border-2 border-neutral-200 shadow-soft">
               <h4 className="font-heading font-bold text-black mb-2">Ingrédients :</h4>
               {selectedProductIngredients.length > 0 ? (

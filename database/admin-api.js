@@ -120,11 +120,13 @@ const normalizeOrigin = (origin = '') => origin.replace(/\/$/, '');
 // Configuration CORS sécurisée
 // ✅ Port 3000: Application principale (App.jsx)
 // ✅ Port 3010: Kiosk (KioskApp.jsx)
+// ✅ Port 3050: Écran de Cuisine (KitchenApp.jsx)
 const allowedOrigins = (isProd
   ? (process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [])
   : [
       'http://localhost:3000',      // Application principale
-      'http://localhost:3010'       // Kiosk
+      'http://localhost:3010',      // Kiosk
+      'http://localhost:3050'       // Écran de Cuisine
     ]
 ).map(normalizeOrigin);
 

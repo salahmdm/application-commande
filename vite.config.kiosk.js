@@ -62,7 +62,8 @@ export default defineConfig({
   build: {
     outDir: 'dist-kiosk',
     sourcemap: false,
-    minify: 'esbuild',
+    minify: 'esbuild', // ✅ Utiliser esbuild (inclus avec Vite) - NE PAS utiliser terser
+    terserOptions: undefined, // ✅ Désactiver explicitement terser
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index-kiosk.html')

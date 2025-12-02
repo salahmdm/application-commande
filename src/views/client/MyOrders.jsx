@@ -24,7 +24,8 @@ const MyOrders = () => {
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
 
   useEffect(() => {
-    const hasUser = user?.id && !user?.isGuest;
+    // ✅ Permettre aux invités ET aux utilisateurs authentifiés de voir leurs commandes
+    const hasUser = user && (user.id || user.isGuest);
     let isMounted = true;
 
     if (hasUser) {
@@ -42,7 +43,7 @@ const MyOrders = () => {
     return () => {
       isMounted = false;
     };
-  }, [user?.id, user?.isGuest, refresh]);
+  }, [user, refresh]);
 
   const sortedOrders = [...orders].sort(
     (a, b) =>

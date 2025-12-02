@@ -479,9 +479,26 @@ const CartDrawer = ({ isOpen, onClose }) => {
           clearCart();
         }
         
-        // Recharger pour actualiser les commandes
+        // Pour les invités ET les utilisateurs authentifiés : navigation vers Mes Commandes
+        // L'invité reste connecté et peut voir sa commande
         setTimeout(() => {
-          window.location.reload();
+          // Utiliser setCurrentView via le store UI pour éviter le rechargement complet
+          try {
+            const uiStoreModule = require('../../store/uiStore');
+            const uiStore = uiStoreModule.default;
+            if (uiStore && uiStore.getState) {
+              uiStore.getState().setCurrentView('orders');
+              logger.debug('✅ Navigation vers Mes Commandes via UI Store (invité reste connecté)');
+            } else {
+              // Fallback : utiliser window.location (mais l'invité devrait rester connecté grâce à localStorage)
+              window.location.href = '#orders';
+              logger.debug('✅ Navigation vers Mes Commandes via window.location');
+            }
+          } catch (e) {
+            // Fallback : utiliser window.location
+            window.location.href = '#orders';
+            logger.debug('✅ Navigation vers Mes Commandes via window.location (fallback)');
+          }
         }, 1500);
       } else {
         throw new Error(orderResult?.error || 'La création de la commande a échoué');

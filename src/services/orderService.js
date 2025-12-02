@@ -113,14 +113,33 @@ const orderService = {
       if (shouldUseSupabase()) {
         logger.log('🔄 orderService.getUserOrders - Utilisation Supabase direct');
         
-        // Identifier l'utilisateur connecté via Supabase
+        // Identifier l'utilisateur connecté via Supabase ou l'invité
         let userId = null;
+        let guestName = null;
+        let isGuest = false;
+        
         try {
-          const { data: { user: supabaseUser } } = await supabaseService.getClient().auth.getUser();
-          if (supabaseUser?.email) {
-            const userResult = await supabaseService.getUserByEmail(supabaseUser.email);
-            if (userResult.success && userResult.data) {
-              userId = userResult.data.id;
+          // Vérifier si c'est un invité
+          if (typeof window !== 'undefined') {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+              const user = JSON.parse(userStr);
+              if (user && user.isGuest) {
+                isGuest = true;
+                guestName = user.name || user.first_name || user.guestName;
+                logger.log('🔄 orderService.getUserOrders - Invité détecté:', guestName);
+              }
+            }
+          }
+          
+          // Si ce n'est pas un invité, récupérer l'utilisateur Supabase
+          if (!isGuest) {
+            const { data: { user: supabaseUser } } = await supabaseService.getClient().auth.getUser();
+            if (supabaseUser?.email) {
+              const userResult = await supabaseService.getUserByEmail(supabaseUser.email);
+              if (userResult.success && userResult.data) {
+                userId = userResult.data.id;
+              }
             }
           }
         } catch (e) {
@@ -134,10 +153,19 @@ const orderService = {
         
         const result = await supabaseService.getOrders(filters);
         if (result.success) {
-          // Filtrer les commandes pour l'utilisateur authentifié
+          // Filtrer les commandes pour l'utilisateur authentifié ou l'invité
           let orders = result.data || [];
           if (userId) {
+            // Utilisateur authentifié : filtrer par user_id
             orders = orders.filter(order => order.user_id === userId);
+          } else if (isGuest && guestName) {
+            // Invité : filtrer par nom dans les notes ou first_name
+            orders = orders.filter(order => {
+              const orderNotes = order.notes || '';
+              const orderFirstName = order.first_name || '';
+              return orderNotes.includes(guestName) || orderFirstName === guestName || order.user_id === null;
+            });
+            logger.log(`🔄 orderService.getUserOrders - ${orders.length} commandes trouvées pour invité: ${guestName}`);
           } else {
             orders = [];
           }

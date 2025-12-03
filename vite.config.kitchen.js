@@ -59,7 +59,6 @@ export default defineConfig({
     outDir: 'dist-kitchen',
     sourcemap: false,
     minify: 'esbuild', // ✅ Utiliser esbuild (inclus avec Vite) - NE PAS utiliser terser
-    terserOptions: undefined, // ✅ Désactiver explicitement terser
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index-kitchen.html')

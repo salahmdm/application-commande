@@ -25,7 +25,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false, // Désactivé pour la production
     minify: 'esbuild', // ✅ Utiliser esbuild (inclus avec Vite) - NE PAS utiliser terser
-    terserOptions: undefined, // ✅ Désactiver explicitement terser
     cssCodeSplit: false, // ✅ Forcer un seul fichier CSS pour éviter les problèmes de chargement
     rollupOptions: {
       output: {

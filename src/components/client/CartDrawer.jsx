@@ -593,49 +593,6 @@ const CartDrawer = ({ isOpen, onClose }) => {
             </div>
           ) : (
             <>
-              {/* Sélection du type de commande - AVANT les produits */}
-              <div className="mb-4 p-3 bg-gray-50 rounded-xl border-2 border-gray-200">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Type de commande <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      if (selectOrderType) {
-                        selectOrderType('dine-in');
-                      } else {
-                        // Fallback direct vers le store
-                        useCartStore.setState({ orderType: 'dine-in' });
-                      }
-                    }}
-                    className={`flex-1 px-4 py-3 rounded-lg font-semibold text-sm transition-all duration-200 ${
-                      orderType === 'dine-in'
-                        ? 'bg-purple-600 text-white shadow-md'
-                        : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-purple-400'
-                    }`}
-                  >
-                    Sur place
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (selectOrderType) {
-                        selectOrderType('takeaway');
-                      } else {
-                        // Fallback direct vers le store
-                        useCartStore.setState({ orderType: 'takeaway' });
-                      }
-                    }}
-                    className={`flex-1 px-4 py-3 rounded-lg font-semibold text-sm transition-all duration-200 ${
-                      orderType === 'takeaway'
-                        ? 'bg-purple-600 text-white shadow-md'
-                        : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-purple-400'
-                    }`}
-                  >
-                    À emporter
-                  </button>
-                </div>
-              </div>
-              
               {/* Articles - Design inspiré de l'image */}
               <div className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-5rem-16rem)] md:max-h-[calc(100vh-6rem-16rem)] lg:max-h-[calc(100vh-7rem-16rem)]">
                 {safeItems.map((item) => {
@@ -1074,6 +1031,49 @@ const CartDrawer = ({ isOpen, onClose }) => {
                   />
                 </div>
               )}
+              
+              {/* Sélection du type de commande - AVANT le bouton Commander */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-xl border-2 border-gray-200">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Type de commande <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      if (selectOrderType) {
+                        selectOrderType('dine-in');
+                      } else {
+                        // Fallback direct vers le store
+                        useCartStore.setState({ orderType: 'dine-in' });
+                      }
+                    }}
+                    className={`flex-1 px-4 py-3 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                      orderType === 'dine-in'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-purple-400'
+                    }`}
+                  >
+                    Sur place
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectOrderType) {
+                        selectOrderType('takeaway');
+                      } else {
+                        // Fallback direct vers le store
+                        useCartStore.setState({ orderType: 'takeaway' });
+                      }
+                    }}
+                    className={`flex-1 px-4 py-3 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                      orderType === 'takeaway'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-purple-400'
+                    }`}
+                  >
+                    À emporter
+                  </button>
+                </div>
+              </div>
               
               {/* Bouton commander */}
               <Button

@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Calendar,
-  Sparkles,
   Gift,
   Mail,
   ShoppingBag
@@ -13,8 +11,7 @@ import useAuth from '../../hooks/useAuth';
 import useAuthStore from '../../store/authStore';
 import useCartStore from '../../store/cartStore';
 import useProducts from '../../hooks/useProducts';
-import newsService from '../../services/newsService';
-import NewsEditor from '../../components/news/NewsEditor';
+import NewsSection from '../../components/news/NewsSection';
 import useNotifications from '../../hooks/useNotifications';
 import useUIStore from '../../store/uiStore';
 import settingsService from '../../services/settingsService';
@@ -34,8 +31,6 @@ const HomeView = () => {
   const [loading, setLoading] = useState(true);
   const [businessInfo, setBusinessInfo] = useState(null);
   const [contactEmail, setContactEmail] = useState(null);
-  const [news, setNews] = useState([]);
-  const [showNewsEditor, setShowNewsEditor] = useState(false);
   const [loyaltyRewards, setLoyaltyRewards] = useState([]);
   const [usedRewards, setUsedRewards] = useState([]); // Récompenses déjà utilisées
   const [showRewardConfirmModal, setShowRewardConfirmModal] = useState(false);
@@ -142,20 +137,6 @@ const HomeView = () => {
     }
   }, []);
   
-  // ✅ OPTIMISATION: Mémoriser les fonctions de chargement pour éviter les re-créations
-  const loadNews = useCallback(async () => {
-    try {
-      const response = await newsService.getNews();
-      if (response.success && response.data) {
-        setNews(response.data.sort((a, b) => (a.display_order || a.order || 0) - (b.display_order || b.order || 0)));
-      } else {
-        setNews([]);
-      }
-    } catch (error) {
-      logger.error('❌ Erreur chargement actualités:', error);
-      setNews([]);
-    }
-  }, []);
 
   // ✅ OPTIMISATION: Mémoriser les fonctions de chargement pour éviter les re-créations
   const loadLoyaltyRewards = useCallback(async () => {
@@ -221,16 +202,13 @@ const HomeView = () => {
           logger.warn('⚠️ HomeView - Erreur adresse mail contact (non bloquant):', err);
         });
         
-        const newsPromise = loadNews().catch(err => {
-          logger.warn('⚠️ HomeView - Erreur news (non bloquant):', err);
-        });
         
         const rewardsPromise = loadLoyaltyRewards().catch(err => {
           logger.warn('⚠️ HomeView - Erreur récompenses fidélité (non bloquant):', err);
         });
         
         // Charger les autres données en parallèle (sans bloquer)
-        await Promise.allSettled([businessPromise, contactEmailPromise, newsPromise, rewardsPromise]);
+        await Promise.allSettled([businessPromise, contactEmailPromise, rewardsPromise]);
         
         // Désactiver le loading rapidement
         clearTimeout(safetyTimeout);
@@ -245,7 +223,7 @@ const HomeView = () => {
     };
     
     loadHomeData();
-  }, [user?.id, loadBusinessInfo, loadContactEmail, loadNews, loadLoyaltyRewards]); // ✅ Toutes les dépendances
+  }, [user?.id, loadBusinessInfo, loadContactEmail, loadLoyaltyRewards]); // ✅ Toutes les dépendances
   
   // Rafraîchir les points séparément pour éviter les boucles infinies
   useEffect(() => {
@@ -349,53 +327,6 @@ const HomeView = () => {
     setRewardToConfirm(null);
   };
   
-  // Gestion des actualités (admin/manager)
-  const handleNewsSave = async (newsData) => {
-    try {
-      logger.debug('💾 handleNewsSave appelé avec:', newsData);
-      
-      let response;
-      if (newsData.id) {
-        // Pour la modification, extraire l'ID et envoyer les autres données
-        const { id, ...dataToUpdate } = newsData;
-        logger.debug('📝 Mise à jour - ID:', id);
-        response = await newsService.updateNews(id, dataToUpdate);
-      } else {
-        logger.debug('➕ Création - Données:', newsData);
-        response = await newsService.createNews(newsData);
-      }
-      
-      logger.debug('📡 Réponse reçue:', response);
-      
-      if (response && response.success) {
-        success(newsData.id ? 'Actualité modifiée !' : 'Actualité ajoutée !');
-        await loadNews();
-      } else {
-        const errorMsg = response?.error || response?.message || 'Erreur lors de la sauvegarde';
-        logger.error('❌ Erreur dans la réponse:', errorMsg);
-        showError(errorMsg);
-      }
-    } catch (error) {
-      logger.error('❌ Exception dans handleNewsSave:', error);
-      logger.error('  - Message:', error.message);
-      logger.error('  - Stack:', error.stack);
-      showError(error.message || 'Erreur lors de la sauvegarde');
-    }
-  };
-
-  const handleNewsDelete = async (id) => {
-    try {
-      const response = await newsService.deleteNews(id);
-      if (response.success) {
-        success('Actualité supprimée !');
-        await loadNews();
-      } else {
-        showError(response.error || 'Erreur lors de la suppression');
-      }
-    } catch (error) {
-      showError(error.message || 'Erreur lors de la suppression');
-    }
-  };
 
   
   return (
@@ -462,133 +393,8 @@ const HomeView = () => {
       
       <div className="page-container relative z-10 animate-fade-in-up">
 
-        {/* Actualités - Bandeaux larges améliorés avec design premium */}
-        {news.length > 0 && (
-          <section className="section-container relative">
-            {/* Fond décoratif avec gradients */}
-            <div className="absolute inset-0 opacity-30 pointer-events-none">
-              <div className="absolute top-0 left-0 w-96 h-96 bg-purple-200 rounded-full blur-3xl animate-pulse"></div>
-              <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-200 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-            </div>
-            
-            <div className="relative z-10">
-              <div className="text-center mb-16">
-                <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-100 via-blue-100 to-purple-100 rounded-full mb-6 animate-fade-in shadow-lg border border-purple-200/50">
-                  <Sparkles className="w-5 h-5 text-purple-600 animate-pulse" />
-                  <span className="text-sm font-bold text-purple-900 uppercase tracking-wider">Nouveautés</span>
-                </div>
-                <h2 className="section-title text-5xl sm:text-6xl font-black bg-gradient-to-r from-slate-900 via-purple-800 to-slate-900 bg-clip-text text-transparent mb-4">
-                  Actualités & Événements
-                </h2>
-                <p className="page-subtitle text-lg mt-4 text-slate-600 max-w-2xl mx-auto">
-                  Découvrez les dernières nouveautés et événements à ne pas manquer
-                </p>
-              </div>
-
-              {/* Bouton Modifier pour admin/manager */}
-              {(isAdmin || isManager) && (
-                <div className="mb-8 flex justify-end">
-                  <Button
-                    onClick={() => setShowNewsEditor(!showNewsEditor)}
-                    variant="outline"
-                    size="md"
-                    icon={<Sparkles className="w-4 h-4" />}
-                    className="shadow-md hover:shadow-lg transition-shadow"
-                  >
-                    {showNewsEditor ? 'Masquer l\'éditeur' : 'Modifier les actualités'}
-                  </Button>
-                </div>
-              )}
-
-              {/* Éditeur d'actualités */}
-              {(isAdmin || isManager) && showNewsEditor && (
-                <div className="mb-10 p-6 bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-200">
-                  <NewsEditor
-                    news={news}
-                    onSave={handleNewsSave}
-                    onDelete={handleNewsDelete}
-                  />
-                </div>
-              )}
-            
-              {/* Bandeaux larges empilés avec design premium */}
-              <div className="space-y-8" style={{ position: 'relative', zIndex: 1 }}>
-                {news.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className="group relative overflow-hidden bg-white rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-700 border-2 border-neutral-200 hover:border-purple-400 transform hover:-translate-y-1"
-                    style={{ animationDelay: `${index * 100}ms`, position: 'relative', zIndex: 1 }}
-                  >
-                    {/* Barre colorée en haut */}
-                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-blue-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                    
-                    <div className="flex flex-col md:flex-row">
-                      {/* Image à gauche avec overlay */}
-                      <div className="relative w-full md:w-2/5 h-72 md:h-auto overflow-hidden bg-gradient-to-br from-purple-100 via-blue-100 to-purple-100">
-                        {item.image_url ? (
-                          <>
-                            <img
-                              src={item.image_url.startsWith('http') ? item.image_url : `http://localhost:5000${item.image_url}`}
-                              alt={item.title}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                            />
-                            {/* Overlay gradient au survol */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-purple-900/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                          </>
-                        ) : (
-                          <div className={`w-full h-full flex items-center justify-center text-7xl bg-gradient-to-br ${item.gradient || 'from-purple-200 via-blue-200 to-purple-200'} group-hover:scale-110 transition-transform duration-500`}>
-                            {item.icon || '📰'}
-                          </div>
-                        )}
-                        
-                        {/* Badge décoratif en coin - Affiché seulement si is_new est true */}
-                        {item.is_new && (
-                          <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg border border-white/50">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                              <span className="text-xs font-bold text-purple-700 uppercase tracking-wider">Nouveau</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Contenu à droite avec padding amélioré */}
-                      <div className="flex-1 p-8 md:p-10 flex flex-col justify-center bg-gradient-to-br from-white to-neutral-50/50">
-                        {/* Date avec style amélioré */}
-                        {item.date && (
-                          <div className="flex items-center gap-2 mb-5">
-                            <div className="p-2 bg-purple-100 rounded-lg">
-                              <Calendar className="w-4 h-4 text-purple-600" />
-                            </div>
-                            <span className="text-sm font-bold text-purple-700 uppercase tracking-wider">
-                              {item.date}
-                            </span>
-                          </div>
-                        )}
-                        
-                        {/* Titre avec gradient au survol */}
-                        <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 mb-5 group-hover:bg-gradient-to-r group-hover:from-purple-600 group-hover:to-blue-600 group-hover:bg-clip-text group-hover:text-transparent transition-all duration-500 leading-tight">
-                          {item.title}
-                        </h3>
-                        
-                        {/* Description avec meilleure lisibilité */}
-                        <p className="text-slate-600 leading-relaxed mb-0 text-base sm:text-lg">
-                          {item.description}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Effet de brillance animé au survol */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-100/30 to-transparent opacity-0 group-hover:opacity-100 -translate-x-full group-hover:translate-x-full transition-all duration-1000 pointer-events-none"></div>
-                    
-                    {/* Lueur au survol */}
-                    <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-purple-500/20 rounded-3xl opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500 -z-10"></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
+        {/* Actualités & Événements - Nouvelle section complètement refaite */}
+        <NewsSection />
         
         {/* 💎 Programme fidélité avec design luxueux */}
         {user && !user?.isGuest && (user?.points !== undefined || user?.loyalty_points !== undefined) && (

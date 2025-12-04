@@ -565,7 +565,20 @@ export const apiCall = async (endpoint, options = {}) => {
         }
       }
       
-      const friendlyError = new Error(`Impossible de se connecter au serveur. Vérifiez que le serveur backend est démarré sur ${API_BASE_URL}`);
+      // Message d'erreur adapté selon l'environnement
+      const isProduction = import.meta.env.PROD;
+      const hasApiUrl = !!import.meta.env.VITE_API_URL;
+      
+      let errorMessage;
+      if (isProduction && !hasApiUrl) {
+        errorMessage = 'Configuration manquante : La variable d\'environnement VITE_API_URL n\'est pas définie. Veuillez la configurer dans Vercel (Settings → Environment Variables).';
+      } else if (isProduction) {
+        errorMessage = `Impossible de se connecter au serveur backend (${API_BASE_URL}). Vérifiez que le backend est déployé et accessible.`;
+      } else {
+        errorMessage = `Impossible de se connecter au serveur. Vérifiez que le serveur backend est démarré sur ${API_BASE_URL}`;
+      }
+      
+      const friendlyError = new Error(errorMessage);
       friendlyError.name = 'ConnectionError';
       throw friendlyError;
     }

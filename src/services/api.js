@@ -275,9 +275,6 @@ export const apiCall = async (endpoint, options = {}) => {
       csrfToken = await getCsrfToken();
     }
     
-    // ✅ Détecter si c'est FormData (pour upload de fichiers)
-    const isFormData = safeOptions.body instanceof FormData;
-    
     // Construire les headers
     // ⚠️ IMPORTANT: Ne pas définir Content-Type pour FormData, le navigateur le fait automatiquement
     const headers = {

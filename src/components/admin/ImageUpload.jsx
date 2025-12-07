@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, X, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import Button from '../common/Button';
 import logger from '../../utils/logger';
+import { apiCall } from '../../services/api';
 
 /**
  * Composant ImageUpload - Gestion moderne d'images
@@ -18,6 +19,11 @@ const ImageUpload = ({
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(currentImage);
   const fileInputRef = useRef(null);
+
+  // Synchroniser le preview avec currentImage
+  useEffect(() => {
+    setPreview(currentImage);
+  }, [currentImage]);
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -47,31 +53,54 @@ const ImageUpload = ({
       };
       reader.readAsDataURL(file);
 
-      // Upload vers le serveur
+      // Upload vers le serveur via apiCall
       const formData = new FormData();
       formData.append('image', file);
 
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/admin/products/upload-image', {
+      logger.debug('📤 Upload image produit - Début');
+      
+      // Utiliser apiCall pour bénéficier de la gestion d'URL et d'authentification
+      const response = await apiCall('/admin/products/upload-image', {
         method: 'POST',
-        headers: {
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
         body: formData,
-        credentials: 'include' // envoyer les cookies httpOnly pour l'auth
+        // Ne pas mettre Content-Type, le navigateur le définit automatiquement avec FormData
+        headers: {}
       });
 
-      const data = await response.json();
+      logger.debug('📥 Réponse upload:', response);
 
-      if (data.success) {
-        onImageChange(data.imageUrl);
-        logger.debug('✅ Image uploadée:', data.imageUrl);
+      if (response.success && response.imageUrl) {
+        onImageChange(response.imageUrl);
+        logger.debug('✅ Image uploadée:', response.imageUrl);
+        setError(''); // Effacer toute erreur précédente
       } else {
-        throw new Error(data.error || 'Erreur upload');
+        const errorMsg = response.error || response.message || 'Erreur lors de l\'upload';
+        logger.error('❌ Erreur upload:', errorMsg);
+        throw new Error(errorMsg);
       }
     } catch (err) {
       logger.error('❌ Erreur upload:', err);
-      setError('Erreur lors de l\'upload. Réessayez.');
+      logger.error('  - Message:', err.message);
+      logger.error('  - Stack:', err.stack);
+      
+      // Message d'erreur plus détaillé
+      let errorMessage = 'Erreur lors de l\'upload. Réessayez.';
+      
+      if (err.message) {
+        if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+          errorMessage = 'Authentification requise. Veuillez vous reconnecter.';
+        } else if (err.message.includes('403') || err.message.includes('Forbidden')) {
+          errorMessage = 'Accès refusé. Vous n\'avez pas les permissions nécessaires.';
+        } else if (err.message.includes('CSRF')) {
+          errorMessage = 'Erreur de sécurité. Veuillez rafraîchir la page.';
+        } else if (err.message.includes('Network') || err.message.includes('fetch')) {
+          errorMessage = 'Impossible de se connecter au serveur. Vérifiez votre connexion.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
       setPreview(currentImage);
     } finally {
       setUploading(false);
@@ -86,27 +115,39 @@ const ImageUpload = ({
 
     try {
       if (productId) {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:5000/api/admin/products/${productId}/image`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        logger.debug('🗑️ Suppression image produit:', productId);
+        
+        const response = await apiCall(`/admin/products/${productId}/image`, {
+          method: 'DELETE'
         });
 
-        const data = await response.json();
-
-        if (!data.success) {
-          throw new Error(data.error || 'Erreur suppression');
+        if (!response.success) {
+          throw new Error(response.error || response.message || 'Erreur suppression');
         }
+        
+        logger.debug('✅ Image supprimée avec succès');
       }
 
       setPreview(null);
       if (onImageRemove) onImageRemove();
       logger.debug('🗑️ Image supprimée');
+      setError(''); // Effacer toute erreur
     } catch (err) {
       logger.error('❌ Erreur suppression:', err);
-      setError('Erreur lors de la suppression.');
+      logger.error('  - Message:', err.message);
+      
+      let errorMessage = 'Erreur lors de la suppression.';
+      if (err.message) {
+        if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+          errorMessage = 'Authentification requise. Veuillez vous reconnecter.';
+        } else if (err.message.includes('403') || err.message.includes('Forbidden')) {
+          errorMessage = 'Accès refusé.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setUploading(false);
     }

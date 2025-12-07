@@ -261,10 +261,13 @@ export const apiCall = async (endpoint, options = {}) => {
   const safeOptions = options || {};
   const method = safeOptions.method || 'GET';
   
+  // ✅ Détecter si c'est FormData (pour upload de fichiers)
+  const isFormData = safeOptions.body instanceof FormData;
+  
   try {
     // ✅ SÉCURITÉ: Masquer les tokens dans les URLs avant de logger
     const sanitizedUrl = url.replace(/([?&]token=)[^&]*/gi, '$1***MASKED***').replace(/\/token\/[^/\s]+/gi, '/token/***MASKED***');
-    logger.debug('🌐 API Call:', method, sanitizedUrl);
+    logger.debug('🌐 API Call:', method, sanitizedUrl, isFormData ? '(FormData)' : '');
     
     // ✅ SÉCURITÉ: Récupérer le token CSRF pour les requêtes modifiantes
     let csrfToken = null;
@@ -571,16 +574,9 @@ export const apiCall = async (endpoint, options = {}) => {
       
       let errorMessage;
       if (isProduction && !hasApiUrl) {
-        // Message très clair pour la production sans VITE_API_URL
-        errorMessage = '⚠️ CONFIGURATION REQUISE : La variable d\'environnement VITE_API_URL n\'est pas définie dans Vercel. Allez dans Vercel → Settings → Environment Variables et ajoutez VITE_API_URL avec l\'URL de votre backend (ex: https://votre-backend.railway.app). Consultez CONFIGURATION_VERCEL.md pour plus de détails.';
-        console.error('🔴 ERREUR DE CONFIGURATION:', errorMessage);
-        console.error('📋 URL actuelle utilisée:', API_BASE_URL);
-        console.error('🌐 Environnement:', isProduction ? 'PRODUCTION' : 'DEVELOPPEMENT');
-        console.error('🔧 Variable VITE_API_URL:', import.meta.env.VITE_API_URL || 'NON DÉFINIE');
+        errorMessage = 'Configuration manquante : La variable d\'environnement VITE_API_URL n\'est pas définie. Veuillez la configurer dans Vercel (Settings → Environment Variables).';
       } else if (isProduction) {
         errorMessage = `Impossible de se connecter au serveur backend (${API_BASE_URL}). Vérifiez que le backend est déployé et accessible.`;
-        console.error('🔴 ERREUR DE CONNEXION:', errorMessage);
-        console.error('🌐 URL backend configurée:', API_BASE_URL);
       } else {
         errorMessage = `Impossible de se connecter au serveur. Vérifiez que le serveur backend est démarré sur ${API_BASE_URL}`;
       }

@@ -20,23 +20,10 @@ if (fs.existsSync(envPath)) {
 const supabaseUrl = process.env.SUPABASE_URL || 
                     process.env.NEXT_PUBLIC_SUPABASE_URL || 
                     'https://brygzpxiemwthickhuqb.supabase.co';
-// ✅ PRIORITÉ: SERVICE_ROLE_KEY pour bypass RLS (sécurisé côté serveur uniquement)
-// ⚠️ Ne jamais exposer SERVICE_ROLE_KEY au frontend
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-                    process.env.SUPABASE_KEY ||
                     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+                    process.env.SUPABASE_KEY ||
                     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWd6cHhpZW13dGhpY2todXFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4MzcxMjAsImV4cCI6MjA3OTQxMzEyMH0.4zQVUddszbsFu168NsQ7C1YiwmsPc_Tni48fY2otR1A';
-
-// ✅ Vérification et log de la clé utilisée
-if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  logger.log('✅ Utilisation de SUPABASE_SERVICE_ROLE_KEY (bypass RLS activé)');
-} else if (process.env.SUPABASE_KEY) {
-  logger.warn('⚠️ Utilisation de SUPABASE_KEY (vérifiez que c\'est la SERVICE_ROLE_KEY)');
-} else if (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-  logger.warn('⚠️ Utilisation de ANON_KEY - RLS peut bloquer certaines requêtes. Utilisez SUPABASE_SERVICE_ROLE_KEY pour le backend.');
-} else {
-  logger.warn('⚠️ Utilisation de la clé par défaut hardcodée - Configurez SUPABASE_SERVICE_ROLE_KEY dans database/.env');
-}
 
 // Créer le client Supabase avec service role key pour bypass RLS
 const supabase = createClient(supabaseUrl, supabaseKey, {

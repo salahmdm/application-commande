@@ -275,9 +275,13 @@ export const apiCall = async (endpoint, options = {}) => {
       csrfToken = await getCsrfToken();
     }
     
+    // ✅ Détecter si c'est FormData (pour upload de fichiers)
+    const isFormData = safeOptions.body instanceof FormData;
+    
     // Construire les headers
+    // ⚠️ IMPORTANT: Ne pas définir Content-Type pour FormData, le navigateur le fait automatiquement
     const headers = {
-      'Content-Type': 'application/json',
+      ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
       ...(safeOptions.headers || {}),
@@ -298,10 +302,21 @@ export const apiCall = async (endpoint, options = {}) => {
       headers['X-User-Is-Guest'] = userContext.isGuest ? 'true' : 'false';
     }
     
-    // Préparer le body - stringify si c'est un objet
-    const body = safeOptions.body 
-      ? (typeof safeOptions.body === 'string' ? safeOptions.body : JSON.stringify(safeOptions.body))
-      : undefined;
+    // Préparer le body
+    // ⚠️ IMPORTANT: FormData ne doit pas être stringifié, utiliser tel quel
+    let body;
+    if (safeOptions.body) {
+      if (isFormData) {
+        // FormData : utiliser tel quel, le navigateur définit Content-Type automatiquement
+        body = safeOptions.body;
+      } else if (typeof safeOptions.body === 'string') {
+        body = safeOptions.body;
+      } else if (typeof safeOptions.body === 'object') {
+        body = JSON.stringify(safeOptions.body);
+      } else {
+        body = safeOptions.body;
+      }
+    }
     
     // ✅ CRITIQUE: Inclure les cookies dans toutes les requêtes (credentials: 'include')
     // Cela permet d'envoyer automatiquement les cookies HTTP-only

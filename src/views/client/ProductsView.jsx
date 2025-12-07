@@ -176,89 +176,87 @@ const ProductsView = () => {
               key={product.id} 
               padding="none" 
               hover
-              className="relative group overflow-hidden flex flex-col h-full shadow-lg hover:shadow-xl transition-all duration-300"
+              className="relative group overflow-hidden flex flex-col h-full shadow-lg hover:shadow-xl transition-all duration-300 min-h-[320px]"
+              style={{
+                backgroundImage: product.image_url 
+                  ? `url(${(import.meta.env.VITE_API_URL || 'http://localhost:5000')}${product.image_url})`
+                  : 'none',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
+              }}
             >
+              {/* Overlay sombre pour lisibilité du texte */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30 z-0"></div>
+              
               {/* Badge populaire */}
               {product.popular && (
-                <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-heading font-bold z-10 shadow-lg">
+                <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-heading font-bold z-20 shadow-lg">
                   ⭐ Populaire
                 </div>
               )}
               
               {/* Bouton Info */}
-              <div className="absolute top-3 right-3 z-10">
+              <div className="absolute top-3 right-3 z-20">
                 <button
                   onClick={() => setSelectedProduct(product)}
                   className="w-9 h-9 bg-white/40 backdrop-blur-sm hover:bg-white/60 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 active:scale-95"
                   aria-label="Voir les ingrédients"
                 >
-                  <Info className="w-5 h-5 text-neutral-700" />
+                  <Info className="w-5 h-5 text-white" />
                 </button>
               </div>
               
-              {/* Contenu */}
-              <div className="flex flex-col h-full">
-                {/* Image produit - Plus grande */}
-                <div className="w-full h-56 overflow-hidden bg-neutral-100 relative">
-                  {product.image_url ? (
-                    <img 
-                      src={`http://localhost:5000${product.image_url}`}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      {product.image ? (
-                        <span className="text-8xl">{product.image}</span>
-                      ) : (
-                        <ImageIcon className="w-20 h-20 text-neutral-400" />
-                      )}
-                    </div>
-                  )}
-                  {/* Overlay gradient au survol */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                </div>
+              {/* Contenu - Premier plan */}
+              <div className="relative z-10 flex flex-col h-full justify-end p-5">
+                {/* Nom du produit */}
+                <h3 className="text-2xl font-heading font-bold mb-2 text-white leading-tight drop-shadow-lg">
+                  {product.name}
+                </h3>
                 
-                {/* Informations produit */}
-                <div className="flex-1 flex flex-col p-5 bg-white">
-                  {/* Nom du produit */}
-                  <h3 className="text-xl font-heading font-bold mb-2 text-black leading-tight">
-                    {product.name}
-                  </h3>
-                  
-                  {/* Description */}
-                  <p className="text-sm text-neutral-600 mb-4 font-sans leading-relaxed line-clamp-2 flex-1">
-                    {product.description}
-                  </p>
-                  
-                  {/* Prix et Bouton - Disposition améliorée */}
-                  <div className="mt-auto pt-4 border-t border-neutral-200">
-                    <div className="flex items-center justify-between gap-3">
-                      {/* Prix */}
-                      <div className="flex-shrink-0">
-                        <div className="text-2xl font-heading font-bold text-black leading-none">
-                          {formatPrice(calculateTTC(product.price))}
-                        </div>
-                        <div className="text-xs text-neutral-500 font-sans mt-0.5">TTC</div>
+                {/* Description */}
+                <p className="text-sm text-white/90 mb-4 font-sans leading-relaxed line-clamp-2 drop-shadow-md">
+                  {product.description}
+                </p>
+                
+                {/* Prix et Bouton - Disposition améliorée */}
+                <div className="mt-auto pt-4 border-t border-white/20">
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Prix */}
+                    <div className="flex-shrink-0">
+                      <div className="text-3xl font-heading font-bold text-white leading-none drop-shadow-lg">
+                        {formatPrice(calculateTTC(product.price))}
                       </div>
-                      
-                      {/* Bouton Ajouter - Noir, pleine largeur */}
-                      <div className="flex-1">
-                        <Button
-                          variant="secondary"
-                          size="md"
-                          fullWidth
-                          onClick={() => handleAddToCart(product)}
-                          icon={<Plus className="w-5 h-5" />}
-                          className="!bg-black !hover:bg-neutral-800 !from-black !to-black !text-white !border-none font-semibold shadow-lg hover:shadow-xl"
-                        >
-                          Ajouter
-                        </Button>
-                      </div>
+                      <div className="text-xs text-white/80 font-sans mt-0.5 drop-shadow-md">TTC</div>
+                    </div>
+                    
+                    {/* Bouton Ajouter - Blanc avec transparence */}
+                    <div className="flex-1">
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        fullWidth
+                        onClick={() => handleAddToCart(product)}
+                        icon={<Plus className="w-5 h-5" />}
+                        className="!bg-white/90 hover:!bg-white !text-black !border-none font-semibold shadow-lg hover:shadow-xl backdrop-blur-sm"
+                      >
+                        Ajouter
+                      </Button>
                     </div>
                   </div>
                 </div>
               </div>
+              
+              {/* Fallback si pas d'image */}
+              {!product.image_url && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-100 to-neutral-200 z-0">
+                  {product.image ? (
+                    <span className="text-8xl opacity-30">{product.image}</span>
+                  ) : (
+                    <ImageIcon className="w-20 h-20 text-neutral-400 opacity-30" />
+                  )}
+                </div>
+              )}
             </Card>
           ))}
         </div>
